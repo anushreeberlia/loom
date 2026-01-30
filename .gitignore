@@ -1,6 +1,8 @@
 # Uploads (user images)
 uploads/
 
+catalog/images/
+
 # Python
 __pycache__/
 *.pyc
