@@ -34,9 +34,11 @@ CREATE INDEX ON catalog_items USING ivfflat (embedding vector_cosine_ops) WITH (
 CREATE TABLE outfit_generations (
     id SERIAL PRIMARY KEY,
     input_image_url TEXT,
-    parsed_tags JSONB,                     -- tags extracted from input image
+    input_description TEXT,                -- plain text description from vision
+    parsed_tags JSONB,                     -- BaseItem JSON extracted from description
+    base_item_embedding vector(1536),      -- embedding for retrieval
     output_outfits JSONB,                  -- the 3 outfits returned
-    input_type TEXT,                     -- image or text
+    input_type TEXT,                       -- image or text
     created_at TIMESTAMP DEFAULT NOW()
 );
 

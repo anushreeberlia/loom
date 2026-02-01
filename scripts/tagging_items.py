@@ -1,37 +1,24 @@
 import os
+import sys
 import psycopg2
 import httpx
 import json
 import time
 from dotenv import load_dotenv
 
+# Add parent directory to path for imports
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from services.tagging import (
+    ALLOWED_COLORS, ALLOWED_FIT, ALLOWED_STYLE, 
+    ALLOWED_OCCASION, ALLOWED_SEASON, COLOR_MAP,
+    normalize_color, validate_tags
+)
+
 load_dotenv()
 
 DATABASE_URL = "postgresql://localhost:5432/outfit_styler"
 GEMINI_API_KEY = os.getenv("GOOGLE_API_KEY", "")
-
-# Allowed values for validation
-ALLOWED_COLORS = {"black", "white", "gray", "beige", "brown", "blue", "navy", "green", "yellow", "orange", "red", "pink", "purple", "metallic", "multi", "unknown"}
-ALLOWED_FIT = {"fitted", "slim", "straight", "relaxed", "oversized", "wide", "cropped", "loose", "unknown"}
-ALLOWED_STYLE = {"minimalist", "classic", "edgy", "romantic", "sporty", "bohemian", "streetwear", "preppy", "elegant", "casual", "chic", "vintage", "statement", "workwear"}
-ALLOWED_OCCASION = {"everyday", "casual", "work", "dinner", "party", "formal", "vacation", "lounge", "wedding_guest"}
-ALLOWED_SEASON = {"spring", "summer", "fall", "winter", "all_season"}
-
-# Color mapping for shades → base colors
-COLOR_MAP = {
-    "magenta": "pink", "fuchsia": "pink", "rose": "pink", "coral": "pink", "salmon": "pink",
-    "violet": "purple", "lavender": "purple", "plum": "purple", "mauve": "purple",
-    "teal": "green", "olive": "green", "mint": "green", "emerald": "green", "khaki": "green",
-    "burgundy": "red", "maroon": "red", "crimson": "red", "wine": "red",
-    "tan": "beige", "cream": "beige", "ivory": "beige", "sand": "beige", "nude": "beige", "camel": "beige",
-    "charcoal": "gray", "silver": "gray", "grey": "gray",
-    "gold": "metallic", "bronze": "metallic", "copper": "metallic",
-    "indigo": "blue", "cobalt": "blue", "turquoise": "blue", "aqua": "blue", "sky": "blue", "denim": "blue",
-    "mustard": "yellow", "lemon": "yellow",
-    "rust": "orange", "peach": "orange", "terracotta": "orange",
-    "coffee": "brown", "chocolate": "brown", "espresso": "brown", "mocha": "brown",
-    "off-white": "white", "offwhite": "white",
-}
 
 
 def build_prompt(name: str, category: str, hints: dict) -> str:
@@ -103,62 +90,6 @@ def parse_json(text: str) -> dict:
     return json.loads(text)
 
 
-def normalize_color(color: str) -> str:
-    """Map shade to base color, or return unknown if not recognized."""
-    if not color:
-        return "unknown"
-    color = color.lower().strip()
-    if color in ALLOWED_COLORS:
-        return color
-    if color in COLOR_MAP:
-        return COLOR_MAP[color]
-    return "unknown"
-
-
-def validate_and_fix_tags(tags: dict) -> dict:
-    """Validate tags against allowed values, fix what we can."""
-    # Primary color: normalize to allowed palette
-    primary = tags.get("primary_color", "unknown")
-    tags["primary_color"] = normalize_color(primary)
-    
-    # Secondary colors: normalize each, filter out unknowns
-    secondary = tags.get("secondary_colors", [])
-    normalized_secondary = [normalize_color(c) for c in secondary]
-    tags["secondary_colors"] = [c for c in normalized_secondary if c != "unknown"]
-    
-    # Fit: must be in allowed set, default to unknown
-    fit = tags.get("fit", "unknown")
-    if fit not in ALLOWED_FIT:
-        fit = "unknown"
-    tags["fit"] = fit
-    
-    # Style tags: filter to allowed values only
-    style = tags.get("style_tags", [])
-    tags["style_tags"] = [s for s in style if s in ALLOWED_STYLE]
-    
-    # Occasion tags: filter to allowed values only
-    occasion = tags.get("occasion_tags", [])
-    tags["occasion_tags"] = [o for o in occasion if o in ALLOWED_OCCASION]
-    
-    # Season tags: fix all-season → all_season, enforce exclusivity
-    season = tags.get("season_tags", [])
-    # Normalize: replace hyphens with underscores
-    season = [s.replace("-", "_") for s in season]
-    # Filter to allowed values
-    season = [s for s in season if s in ALLOWED_SEASON]
-    # If all_season is present, use only that
-    if "all_season" in season:
-        season = ["all_season"]
-    tags["season_tags"] = season
-    
-    # Material: convert empty string to null
-    material = tags.get("material")
-    if material == "" or material == "unknown":
-        tags["material"] = None
-    
-    return tags
-
-
 def tag_item(name: str, category: str, hints: dict) -> dict:
     prompt = build_prompt(name, category, hints)
     response_text = call_gemini(prompt)
@@ -171,8 +102,8 @@ def tag_item(name: str, category: str, hints: dict) -> dict:
         response_text = call_gemini(fix_prompt)
         tags = parse_json(response_text)
     
-    # Validate and fix tags
-    tags = validate_and_fix_tags(tags)
+    # Validate and fix tags (using shared function)
+    tags = validate_tags(tags, include_category=False)
     
     return tags
 
