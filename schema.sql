@@ -6,16 +6,29 @@ CREATE TABLE catalog_items (
     image_url TEXT NOT NULL,
     product_url TEXT,                      -- shop link (optional)
     
+    -- Colors
+    primary_color TEXT,                    -- main color (e.g., 'navy')
+    secondary_colors TEXT[],               -- other colors (e.g., ['white', 'gold'])
+    
     -- Tags (populated by LLM tagger)
-    colors TEXT[],                         -- ['navy', 'white']
     style_tags TEXT[],                     -- ['classic', 'minimalist']
     season_tags TEXT[],                    -- ['spring', 'fall']
     occasion_tags TEXT[],                  -- ['work', 'casual']
     material VARCHAR(100),
     fit VARCHAR(50),
     
+    -- Tagging metadata
+    tagged_at TIMESTAMP,                   -- when LLM tagged this item
+    tagging_error TEXT,                    -- error message if tagging failed
+    
+    -- Vector embedding (1536 dims from OpenAI text-embedding-3-small)
+    embedding vector(1536),
+    
     created_at TIMESTAMP DEFAULT NOW()
 );
+
+-- Index for fast vector similarity search
+CREATE INDEX ON catalog_items USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
 
 -- outfit_generations: Tracks each generation request
 CREATE TABLE outfit_generations (
