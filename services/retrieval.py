@@ -1,0 +1,575 @@
+"""
+Vector search and candidate retrieval logic.
+"""
+
+import os
+import psycopg2
+import httpx
+from dotenv import load_dotenv
+
+from services.outfit import (
+    STYLE_DIRECTIONS, 
+    NEUTRALS,
+    build_base_item_text,
+    get_preferred_colors,
+    get_avoid_colors
+)
+
+load_dotenv()
+
+DATABASE_URL = "postgresql://localhost:5432/outfit_styler"
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+EMBEDDING_MODEL = "text-embedding-3-small"
+
+
+# Slot-specific item type hints for better embedding search
+SLOT_ITEM_HINTS = {
+    "bottom": "women's skirt, jeans, trousers, or pants",
+    "top": "women's blouse, shirt, t-shirt, or sweater",
+    "shoes": "women's heels, flats, sneakers, or sandals",
+    "layer": "women's jacket, cardigan, blazer, or coat",
+    "accessory": "women's handbag, belt, scarf, or jewelry",
+    "dress": "women's dress or gown",
+}
+
+# Item subtype keywords for diversity tracking
+ITEM_SUBTYPE_KEYWORDS = {
+    "bottom": ["skirt", "jeans", "trousers", "pants", "shorts", "capris", "leggings", "joggers"],
+    "shoes": ["heels", "flats", "sneakers", "boots", "sandals", "flip flops", "loafers", "pumps", "wedges"],
+    "accessory": ["bag", "handbag", "clutch", "belt", "watch", "earring", "necklace", "pendant", "bracelet", "scarf"],
+    "layer": ["jacket", "blazer", "cardigan", "coat", "sweater", "hoodie", "vest"],
+    "top": ["shirt", "blouse", "t-shirt", "top", "sweater", "tank", "tunic"],
+}
+
+# Exclusions - items to reject from certain slots
+SLOT_EXCLUSIONS = {
+    "bottom": ["stockings", "tights", "swimsuit", "bikini", "bra", "panty", "underwear", "lingerie"],
+    "top": ["bra", "bikini", "swimsuit", "underwear", "lingerie"],
+}
+
+# Formality inference keywords
+FORMALITY_DRESSY = {"heels", "pumps", "clutch", "blazer", "trousers", "pencil", "stilettos", "wedges"}
+FORMALITY_CASUAL = {"sneakers", "flip flops", "joggers", "shorts", "t-shirt", "tank", "sandals", "flats"}
+
+# Audience keywords
+KIDS_KEYWORDS = {"girl's", "girls", "boy's", "boys", "kid", "kids", "baby", "toddler", "children"}
+
+# Direction-specific accessory preferences
+DIRECTION_ACCESSORY_PREFS = {
+    "Classic": {"bag", "handbag", "watch", "belt"},
+    "Trendy": {"bag", "handbag", "belt", "scarf"},
+    "Bold": {"clutch", "jewelry", "necklace", "earring", "bracelet", "statement"},
+}
+
+
+def infer_product_type(item_name: str, slot: str) -> dict:
+    """
+    Infer product type attributes from item name.
+    Returns: {"subtype": "skirt", "formality": "dressy", "audience": "women"}
+    """
+    name_lower = item_name.lower()
+    result = {"subtype": None, "formality": None, "audience": "women"}
+    
+    # Get subtype
+    for keyword in ITEM_SUBTYPE_KEYWORDS.get(slot, []):
+        if keyword in name_lower:
+            result["subtype"] = keyword
+            break
+    
+    # Infer formality
+    if any(kw in name_lower for kw in FORMALITY_DRESSY):
+        result["formality"] = "dressy"
+    elif any(kw in name_lower for kw in FORMALITY_CASUAL):
+        result["formality"] = "casual"
+    else:
+        result["formality"] = "neutral"
+    
+    # Infer audience
+    if any(kw in name_lower for kw in KIDS_KEYWORDS):
+        result["audience"] = "kids"
+    
+    return result
+
+
+def is_neutral_color(color: str) -> bool:
+    """Check if a color is neutral."""
+    return color in NEUTRALS if color else False
+
+
+def extract_item_subtype(item_name: str, slot: str) -> str | None:
+    """Extract the subtype of an item from its name."""
+    name_lower = item_name.lower()
+    keywords = ITEM_SUBTYPE_KEYWORDS.get(slot, [])
+    
+    for keyword in keywords:
+        if keyword in name_lower:
+            return keyword
+    return None
+
+
+def filter_by_subtype_diversity(
+    candidates: list[dict], 
+    slot: str, 
+    used_subtypes: set[str]
+) -> list[dict]:
+    """
+    Reorder candidates to prefer different subtypes than already used.
+    Items with unused subtypes come first.
+    """
+    if not used_subtypes:
+        return candidates
+    
+    # Split into preferred (different subtype) and fallback (same subtype)
+    preferred = []
+    fallback = []
+    
+    for c in candidates:
+        subtype = extract_item_subtype(c.get("name", ""), slot)
+        if subtype and subtype in used_subtypes:
+            fallback.append(c)
+        else:
+            preferred.append(c)
+    
+    return preferred + fallback
+
+
+def apply_direction_rerank(
+    candidates: list[dict],
+    direction: str,
+    slot: str,
+    base_item: dict = None,
+    chosen_items: dict[str, dict] = None
+) -> list[dict]:
+    """
+    Apply direction-specific, slot-aware reranking rules.
+    
+    - Trendy: avoid beige-on-beige, prefer variety
+    - Classic: prefer neutrals (more for shoes/bags, less for bottoms)
+    - Bold: prefer contrast or statement pieces (not just "more color")
+    """
+    if not candidates:
+        return candidates
+    
+    chosen_items = chosen_items or {}
+    base_item = base_item or {}
+    
+    # Get colors for contrast checking
+    base_color = base_item.get("primary_color", "")
+    bottom = chosen_items.get("bottom")
+    bottom_color = bottom.get("primary_color") if bottom else None
+    
+    # Is base item already bright/colorful?
+    base_is_bright = base_color and not is_neutral_color(base_color)
+    
+    def score_candidate(c: dict) -> float:
+        score = 0.0
+        color = c.get("primary_color", "")
+        name_lower = c.get("name", "").lower()
+        style_tags = c.get("style_tags", [])
+        is_statement = "statement" in name_lower or any("statement" in t.lower() for t in style_tags)
+        
+        if direction == "Trendy":
+            # Anti-beige-on-beige for shoes
+            if slot == "shoes" and bottom_color:
+                if is_neutral_color(bottom_color) and is_neutral_color(color):
+                    if bottom_color == color:
+                        score -= 0.5  # Heavy penalty for same neutral
+                    elif color in {"white", "black", "metallic"}:
+                        score += 0.2  # Prefer contrast neutrals/metallics
+            
+            # Prefer trendy items
+            if is_statement:
+                score += 0.1
+                
+        elif direction == "Classic":
+            # Slot-aware neutral preference
+            if is_neutral_color(color):
+                if slot in {"shoes", "accessory"}:
+                    score += 0.25  # Strong neutral preference for shoes/accessories
+                elif slot == "bottom":
+                    score += 0.15  # Moderate for bottoms
+                    if "denim" in name_lower or color == "navy":
+                        score += 0.05  # Bonus for classic bottom types
+                else:
+                    score += 0.2
+            
+            # Prefer classic item types
+            if any(w in name_lower for w in ["classic", "structured", "tailored"]):
+                score += 0.1
+                
+        elif direction == "Bold":
+            # Bold = contrast OR statement, not just "more color"
+            if base_is_bright:
+                # Base is already colorful - prefer contrast (neutrals or complementary)
+                if color in {"black", "white"}:
+                    score += 0.2  # High contrast neutrals
+                elif is_neutral_color(color):
+                    score += 0.1  # Other neutrals for grounding
+            else:
+                # Base is neutral - bold items can add color
+                if not is_neutral_color(color) and color != "unknown":
+                    score += 0.2
+            
+            # Always prefer statement pieces for Bold
+            if is_statement:
+                score += 0.25
+            
+            # Dressier silhouettes for Bold
+            if any(w in name_lower for w in ["structured", "tailored", "heel", "clutch"]):
+                score += 0.1
+        
+        return score
+    
+    # Sort by score (higher is better), maintaining relative order for ties
+    scored = [(c, score_candidate(c)) for c in candidates]
+    scored.sort(key=lambda x: -x[1])
+    
+    return [c for c, _ in scored]
+
+
+def fix_trendy_same_neutral(
+    items_by_slot: dict[str, dict],
+    all_candidates: dict[str, list[dict]]
+) -> dict[str, dict]:
+    """
+    Fix Trendy outfit if bottom and shoes are same neutral color.
+    Swap shoes for a different neutral, metallic, or white/black.
+    
+    Priority: metallic > white/black > different neutral > keep original
+    """
+    bottom = items_by_slot.get("bottom")
+    shoes = items_by_slot.get("shoes")
+    
+    if not bottom or not shoes:
+        return items_by_slot
+    
+    bottom_color = bottom.get("primary_color", "")
+    shoes_color = shoes.get("primary_color", "")
+    
+    # Check if both are same neutral
+    if not (is_neutral_color(bottom_color) and 
+            is_neutral_color(shoes_color) and 
+            bottom_color == shoes_color):
+        return items_by_slot
+    
+    # Find alternative shoes - prioritize by preference
+    shoe_candidates = all_candidates.get("shoes", [])
+    current_shoe_id = shoes.get("id")
+    
+    best_alt = None
+    best_priority = -1
+    
+    for alt_shoe in shoe_candidates:
+        if alt_shoe.get("id") == current_shoe_id:
+            continue
+            
+        alt_color = alt_shoe.get("primary_color", "")
+        alt_name = alt_shoe.get("name", "").lower()
+        
+        # Skip if same color as bottom
+        if alt_color == bottom_color:
+            continue
+        
+        # Priority scoring
+        priority = 0
+        if "metallic" in alt_name or alt_color == "metallic":
+            priority = 3  # Highest: metallic escape hatch
+        elif alt_color in {"white", "black"}:
+            priority = 2  # High contrast neutrals
+        elif is_neutral_color(alt_color):
+            priority = 1  # Different neutral
+        else:
+            priority = 0  # Non-neutral (still okay)
+        
+        if priority > best_priority:
+            best_priority = priority
+            best_alt = alt_shoe
+    
+    if best_alt:
+        items_by_slot["shoes"] = best_alt
+    
+    return items_by_slot
+
+# Keywords to exclude from results (sanity gate)
+FORBIDDEN_KEYWORDS = {
+    "swimsuit", "swimwear", "bikini", "swim", 
+    "hosiery", "stockings", "tights", "socks",
+    "girl's", "girls", "kid", "kids", "children", "boy",
+    "dupatta", "innerwear", "underwear", "bra", "lingerie",
+    "sleepwear", "nightwear", "pyjama", "pajama",
+}
+
+
+def build_query_text(
+    base_item: dict, 
+    direction: str, 
+    slot: str,
+    chosen_items: dict[str, dict] = None
+) -> str:
+    """
+    Build a direction-aware query text for embedding.
+    Uses sequential conditioning - includes already chosen items.
+    
+    Args:
+        base_item: User's input item
+        direction: Style direction
+        slot: Slot to fill
+        chosen_items: Items already chosen for this outfit (slot → item)
+    """
+    base_color = base_item.get("primary_color", "")
+    base_category = base_item.get("category", "top")
+    style = " ".join(base_item.get("style_tags", [])[:2])
+    
+    direction_lower = direction.lower()
+    dir_info = STYLE_DIRECTIONS.get(direction, {})
+    color_policy = dir_info.get("color_policy", "neutrals")
+    
+    # Get slot-specific item type hint
+    item_hint = SLOT_ITEM_HINTS.get(slot, f"women's {slot}")
+    
+    # Build color guidance based on policy
+    if color_policy == "neutrals":
+        color_hint = "in neutral colors like black, white, gray, or beige"
+    elif color_policy == "contrast":
+        color_hint = f"in contrasting colors that complement {base_color}"
+    else:  # two_tone
+        color_hint = "in neutral or one accent color"
+    
+    # Slot-specific color overrides
+    if slot == "shoes":
+        color_hint = "in neutral colors like black, white, or beige"
+    elif slot == "accessory":
+        color_hint = "in neutral or metallic tones"
+    
+    # Build base query
+    base_query = f"{direction_lower} {item_hint} {color_hint}"
+    
+    # Add sequential conditioning - reference already chosen items
+    chosen_items = chosen_items or {}
+    context_parts = [f"{base_color} {style} {base_category}"]
+    
+    for chosen_slot, chosen_item in chosen_items.items():
+        if chosen_item:
+            chosen_color = chosen_item.get("primary_color", "")
+            chosen_name = chosen_item.get("name", "").split()[-1]  # Last word usually describes item
+            context_parts.append(f"{chosen_color} {chosen_slot}")
+    
+    context = " + ".join(context_parts)
+    
+    return f"{base_query} to complete an outfit with {context}"
+
+
+def passes_sanity_check(item: dict, slot: str = None) -> bool:
+    """
+    Check if an item passes the sanity gate.
+    
+    Checks:
+    1. No forbidden keywords (swimwear, underwear, etc.)
+    2. No slot-specific exclusions (stockings in bottom slot)
+    3. Audience must be women (not kids)
+    """
+    name = item.get("name", "").lower()
+    
+    # Global forbidden keywords
+    for keyword in FORBIDDEN_KEYWORDS:
+        if keyword in name:
+            return False
+    
+    # Slot-specific exclusions
+    if slot and slot in SLOT_EXCLUSIONS:
+        for keyword in SLOT_EXCLUSIONS[slot]:
+            if keyword in name:
+                return False
+    
+    # Audience check - reject kids items
+    product_info = infer_product_type(item.get("name", ""), slot or "")
+    if product_info.get("audience") == "kids":
+        return False
+    
+    return True
+
+
+def filter_candidates(candidates: list[dict], slot: str = None) -> list[dict]:
+    """Filter out items that fail sanity check for the given slot."""
+    return [c for c in candidates if passes_sanity_check(c, slot)]
+
+
+def get_query_embedding(text: str) -> list[float]:
+    """Embed query text using OpenAI."""
+    if not OPENAI_API_KEY:
+        raise ValueError("OPENAI_API_KEY not set")
+    
+    response = httpx.post(
+        "https://api.openai.com/v1/embeddings",
+        headers={
+            "Authorization": f"Bearer {OPENAI_API_KEY}",
+            "Content-Type": "application/json"
+        },
+        json={
+            "model": EMBEDDING_MODEL,
+            "input": text
+        },
+        timeout=30.0
+    )
+    
+    if response.status_code != 200:
+        raise Exception(f"Embedding API error: {response.text}")
+    
+    data = response.json()
+    return data["data"][0]["embedding"]
+
+
+def retrieve_candidates(
+    category: str, 
+    query_embedding: list[float], 
+    k: int = 20,
+    exclude_ids: list[int] = None,
+    avoid_colors: set[str] = None,
+    prefer_colors: set[str] = None
+) -> list[dict]:
+    """
+    Vector search for candidates in a category with color filtering.
+    
+    Args:
+        category: Item category to filter by
+        query_embedding: Query vector for similarity search
+        k: Number of candidates to return
+        exclude_ids: Item IDs to exclude
+        avoid_colors: Colors to filter out (hard constraint)
+        prefer_colors: Colors to prefer (soft boost in scoring)
+    
+    Returns:
+        List of catalog items sorted by similarity + color preference
+    """
+    conn = psycopg2.connect(DATABASE_URL)
+    cursor = conn.cursor()
+    
+    exclude_ids = exclude_ids or []
+    avoid_colors = avoid_colors or set()
+    
+    # Build query with color filter
+    if avoid_colors:
+        avoid_list = list(avoid_colors)
+        if exclude_ids:
+            cursor.execute("""
+                SELECT id, name, image_url, product_url, primary_color, style_tags,
+                       embedding <-> %s::vector as distance
+                FROM catalog_items
+                WHERE category = %s
+                  AND embedding IS NOT NULL
+                  AND id != ALL(%s)
+                  AND (primary_color IS NULL OR primary_color != ALL(%s))
+                ORDER BY distance
+                LIMIT %s
+            """, (query_embedding, category, exclude_ids, avoid_list, k * 2))
+        else:
+            cursor.execute("""
+                SELECT id, name, image_url, product_url, primary_color, style_tags,
+                       embedding <-> %s::vector as distance
+                FROM catalog_items
+                WHERE category = %s
+                  AND embedding IS NOT NULL
+                  AND (primary_color IS NULL OR primary_color != ALL(%s))
+                ORDER BY distance
+                LIMIT %s
+            """, (query_embedding, category, avoid_list, k * 2))
+    else:
+        if exclude_ids:
+            cursor.execute("""
+                SELECT id, name, image_url, product_url, primary_color, style_tags,
+                       embedding <-> %s::vector as distance
+                FROM catalog_items
+                WHERE category = %s
+                  AND embedding IS NOT NULL
+                  AND id != ALL(%s)
+                ORDER BY distance
+                LIMIT %s
+            """, (query_embedding, category, exclude_ids, k * 2))
+        else:
+            cursor.execute("""
+                SELECT id, name, image_url, product_url, primary_color, style_tags,
+                       embedding <-> %s::vector as distance
+                FROM catalog_items
+                WHERE category = %s
+                  AND embedding IS NOT NULL
+                ORDER BY distance
+                LIMIT %s
+            """, (query_embedding, category, k * 2))
+    
+    rows = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    
+    columns = ["id", "name", "image_url", "product_url", "primary_color", "style_tags", "distance"]
+    candidates = [dict(zip(columns, row)) for row in rows]
+    
+    # Apply soft scoring for preferred colors
+    if prefer_colors:
+        for c in candidates:
+            color = c.get("primary_color")
+            # Boost score for preferred colors (lower distance = better)
+            if color and color in prefer_colors:
+                c["distance"] = c["distance"] * 0.85  # 15% boost
+            elif color and color in NEUTRALS:
+                c["distance"] = c["distance"] * 0.9   # 10% boost for neutrals
+        
+        # Re-sort by adjusted distance
+        candidates.sort(key=lambda x: x["distance"])
+    
+    return candidates[:k]
+
+
+def retrieve_for_slot(
+    base_item: dict, 
+    direction: str, 
+    slot: str, 
+    exclude_ids: list[int] = None,
+    chosen_items: dict[str, dict] = None,
+    used_subtypes: set[str] = None,
+    k: int = 5
+) -> list[dict]:
+    """
+    Retrieve candidate items for a specific slot and direction.
+    Uses sequential conditioning - considers already chosen items.
+    Applies color diversity rules, sanity filtering, and subtype diversity.
+    
+    Args:
+        base_item: User's input item
+        direction: Style direction
+        slot: Slot to fill
+        exclude_ids: IDs to exclude (diversity across outfits)
+        chosen_items: Items already chosen FOR THIS OUTFIT (sequential conditioning)
+        used_subtypes: Item subtypes already used in previous outfits (e.g., {"skirt", "heels"})
+        k: Number of candidates to return
+    """
+    base_color = base_item.get("primary_color", "unknown")
+    
+    # Get color preferences for this direction and slot
+    avoid_colors = get_avoid_colors(direction, base_color, slot)
+    prefer_colors = get_preferred_colors(direction, base_color, slot)
+    
+    # Build direction-aware query with sequential conditioning
+    query_text = build_query_text(base_item, direction, slot, chosen_items)
+    query_embedding = get_query_embedding(query_text)
+    
+    # Get more candidates than needed, then filter
+    candidates = retrieve_candidates(
+        category=slot,
+        query_embedding=query_embedding,
+        k=k * 4,  # Get extra to account for filtering
+        exclude_ids=exclude_ids,
+        avoid_colors=avoid_colors,
+        prefer_colors=prefer_colors
+    )
+    
+    # Apply sanity gate (slot-aware)
+    candidates = filter_candidates(candidates, slot)
+    
+    # Apply subtype diversity - prefer different item types across outfits
+    if used_subtypes:
+        candidates = filter_by_subtype_diversity(candidates, slot, used_subtypes)
+    
+    # Apply direction-specific reranking (slot-aware, base-aware for Bold)
+    candidates = apply_direction_rerank(candidates, direction, slot, base_item, chosen_items)
+    
+    return candidates[:k]

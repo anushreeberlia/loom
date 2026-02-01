@@ -46,14 +46,34 @@ JSON only, no markdown."""
 
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key={GEMINI_API_KEY}"
     
-    response = httpx.post(
-        url,
-        json={
-            "contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {"temperature": 0.2}
-        },
-        timeout=30.0
-    )
+    # Retry up to 2 times with longer timeout
+    last_error = None
+    for attempt in range(2):
+        try:
+            response = httpx.post(
+                url,
+                json={
+                    "contents": [{"parts": [{"text": prompt}]}],
+                    "generationConfig": {"temperature": 0.2}
+                },
+                timeout=60.0
+            )
+            
+            if response.status_code == 200:
+                break
+            elif response.status_code == 429:
+                # Rate limited - wait and retry
+                import time
+                time.sleep(5)
+                last_error = f"Rate limited: {response.text}"
+                continue
+            else:
+                last_error = f"Parser API error: {response.text}"
+        except httpx.TimeoutException:
+            last_error = "Request timed out"
+            continue
+    else:
+        raise Exception(last_error or "Parser failed after retries")
     
     if response.status_code != 200:
         raise Exception(f"Parser API error: {response.text}")
