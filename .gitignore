@@ -3,6 +3,8 @@ uploads/
 
 catalog/images/
 
+collages/
+
 # Python
 __pycache__/
 *.pyc

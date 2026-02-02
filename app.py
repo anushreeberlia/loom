@@ -1,4 +1,5 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 import uuid
 import logging
@@ -17,6 +18,7 @@ from services.outfit import (
     select_best_outfit
 )
 from services.retrieval import retrieve_for_slot, extract_item_subtype
+from services.collage import generate_outfit_collage
 
 
 class FeedbackRequest(BaseModel):
@@ -25,6 +27,11 @@ class FeedbackRequest(BaseModel):
     liked: bool
 
 app = FastAPI(title="AI Outfit Styler")
+
+# Serve static files (collages, catalog images)
+Path("collages").mkdir(exist_ok=True)
+app.mount("/static/collages", StaticFiles(directory="collages"), name="collages")
+app.mount("/static/catalog", StaticFiles(directory="catalog/images"), name="catalog")
 
 DATABASE_URL = "postgresql://localhost:5432/outfit_styler"
 
@@ -164,7 +171,7 @@ async def generate_outfits(file: UploadFile = File(...)):
         outfit = assemble_outfit(direction, base_item, best_items, embedding)
         outfits.append(outfit)
 
-    # 6. Store in database
+    # 6. Store in database (get generation_id first for collages)
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
@@ -178,6 +185,30 @@ async def generate_outfits(file: UploadFile = File(...)):
         generation_id = cursor.fetchone()[0]
         conn.commit()
         logger.info(f"Generation created with id: {generation_id}")
+        
+        # 7. Generate collages for each outfit (include input image)
+        logger.info("Generating outfit collages...")
+        base_item_for_collage = {
+            "image_url": str(upload_path),
+            "category": base_item.get("category", "top")
+        }
+        
+        for outfit in outfits:
+            direction = outfit["direction"]
+            items = outfit.get("items", [])
+            
+            try:
+                collage_path = generate_outfit_collage(
+                    generation_id, 
+                    direction, 
+                    items,
+                    base_item=base_item_for_collage
+                )
+                outfit["collage_url"] = f"/static/{collage_path}"
+                logger.info(f"  {direction} collage: {collage_path}")
+            except Exception as e:
+                logger.error(f"  {direction} collage failed: {e}")
+                outfit["collage_url"] = None
     except Exception as e:
         conn.rollback()
         logger.error(f"Database error: {e}")
