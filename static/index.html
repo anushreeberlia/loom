@@ -1,0 +1,587 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ENCLOTHE</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #faf9f7;
+            --bg-alt: #f5f4f1;
+            --text: #1a1a1a;
+            --text-muted: #6b6b6b;
+            --accent: #c41e3a;
+            --border: #e0ddd8;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Instrument Sans', sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            line-height: 1.5;
+        }
+
+        /* Header */
+        header {
+            padding: 1.25rem 2rem;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo {
+            font-family: 'Cormorant Garamond', serif;
+            font-size: 1rem;
+            font-weight: 500;
+            letter-spacing: 0.2em;
+            text-transform: uppercase;
+        }
+
+        .tagline {
+            font-size: 0.7rem;
+            color: var(--text-muted);
+            letter-spacing: 0.05em;
+        }
+
+        /* Upload Section */
+        .upload-section {
+            max-width: 480px;
+            margin: 0 auto;
+            padding: 3rem 2rem;
+            text-align: center;
+        }
+
+        .upload-section h1 {
+            font-family: 'Cormorant Garamond', serif;
+            font-size: 1.8rem;
+            font-weight: 400;
+            line-height: 1.2;
+            margin-bottom: 0.75rem;
+        }
+
+        .upload-section h1 em {
+            font-style: italic;
+        }
+
+        .upload-intro {
+            color: var(--text-muted);
+            font-size: 0.9rem;
+            margin-bottom: 2rem;
+        }
+
+        .upload-area {
+            border: 1px solid var(--border);
+            padding: 2rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            background: white;
+            margin-bottom: 1rem;
+        }
+
+        .upload-area:hover {
+            border-color: var(--text);
+        }
+
+        .upload-area.has-file {
+            border-color: var(--accent);
+        }
+
+        .upload-label {
+            font-size: 0.75rem;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            margin-bottom: 0.25rem;
+        }
+
+        .upload-cta {
+            font-family: 'Cormorant Garamond', serif;
+            font-size: 1.2rem;
+            font-style: italic;
+        }
+
+        #file-input { display: none; }
+
+        .preview-container {
+            margin-top: 1.25rem;
+            display: none;
+        }
+
+        .preview-container.visible { display: block; }
+
+        .preview-image {
+            max-width: 140px;
+            max-height: 180px;
+            object-fit: cover;
+        }
+
+        .file-name {
+            font-size: 0.7rem;
+            color: var(--text-muted);
+            margin-top: 0.5rem;
+        }
+
+        .generate-btn {
+            width: 100%;
+            padding: 0.9rem;
+            background: var(--text);
+            color: white;
+            border: none;
+            font-size: 0.75rem;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .generate-btn:hover:not(:disabled) {
+            background: var(--accent);
+        }
+
+        .generate-btn:disabled {
+            opacity: 0.3;
+            cursor: not-allowed;
+        }
+
+        .error-message {
+            display: none;
+            padding: 0.75rem;
+            background: #fff5f5;
+            border: 1px solid var(--accent);
+            color: var(--accent);
+            font-size: 0.8rem;
+            margin-top: 1rem;
+        }
+
+        .error-message.visible { display: block; }
+
+        /* Loading */
+        .loading-section {
+            display: none;
+            text-align: center;
+            padding: 4rem 2rem;
+        }
+
+        .loading-section.visible { display: block; }
+
+        .spinner {
+            width: 20px;
+            height: 20px;
+            border: 1px solid var(--border);
+            border-top-color: var(--text);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 1rem;
+        }
+
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        .loading-text {
+            font-family: 'Cormorant Garamond', serif;
+            font-size: 1.1rem;
+            font-style: italic;
+            color: var(--text-muted);
+        }
+
+        /* Results Section */
+        .results-section {
+            display: none;
+            padding: 0 2rem 3rem;
+        }
+
+        .results-section.visible { display: block; }
+
+        .results-header {
+            text-align: center;
+            padding: 2rem 0;
+            border-top: 1px solid var(--border);
+        }
+
+        .results-title {
+            font-family: 'Cormorant Garamond', serif;
+            font-size: 1.3rem;
+            font-weight: 400;
+            margin-bottom: 0.25rem;
+        }
+
+        .results-meta {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+        }
+
+        /* Outfit Grid - 3 columns */
+        .outfits-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1.5rem;
+            max-width: 1100px;
+            margin: 0 auto;
+        }
+
+        @media (max-width: 900px) {
+            .outfits-grid {
+                grid-template-columns: 1fr;
+                max-width: 400px;
+            }
+        }
+
+        /* Outfit Card */
+        .outfit-card {
+            background: white;
+            border: 1px solid var(--border);
+        }
+
+        .outfit-header {
+            padding: 0.9rem 1rem;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+        }
+
+        .outfit-direction {
+            font-family: 'Cormorant Garamond', serif;
+            font-size: 1.1rem;
+            font-style: italic;
+        }
+
+        .outfit-score {
+            font-size: 0.65rem;
+            color: var(--text-muted);
+            letter-spacing: 0.05em;
+        }
+
+        .outfit-collage {
+            width: 100%;
+            display: block;
+        }
+
+        .outfit-explanation {
+            padding: 0.9rem 1rem;
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            border-bottom: 1px solid var(--border);
+            font-style: italic;
+            line-height: 1.4;
+        }
+
+        .outfit-items {
+            padding: 0.9rem 1rem;
+        }
+
+        .outfit-items-title {
+            font-size: 0.6rem;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            margin-bottom: 0.6rem;
+        }
+
+        .item-row {
+            display: grid;
+            grid-template-columns: 45px 1fr 14px;
+            align-items: center;
+            gap: 0.6rem;
+            padding: 0.35rem 0;
+            font-size: 0.75rem;
+            border-bottom: 1px solid var(--bg-alt);
+        }
+
+        .item-row:last-child { border-bottom: none; }
+
+        .item-slot {
+            font-size: 0.55rem;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            color: var(--text-muted);
+        }
+
+        .item-name {
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .item-color {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            border: 1px solid var(--border);
+            justify-self: end;
+        }
+
+        /* Feedback */
+        .outfit-feedback {
+            padding: 0.6rem 1rem;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0.5rem;
+            border-top: 1px solid var(--border);
+        }
+
+        .feedback-btn {
+            padding: 0.45rem;
+            background: transparent;
+            border: 1px solid var(--border);
+            font-size: 0.65rem;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            color: var(--text-muted);
+        }
+
+        .feedback-btn:hover {
+            border-color: var(--text);
+            color: var(--text);
+        }
+
+        .feedback-btn.active {
+            background: var(--text);
+            color: white;
+            border-color: var(--text);
+        }
+
+        /* Try Again */
+        .try-again {
+            text-align: center;
+            padding-top: 2rem;
+        }
+
+        .try-again-btn {
+            background: none;
+            border: none;
+            font-size: 0.7rem;
+            color: var(--text-muted);
+            cursor: pointer;
+            text-decoration: underline;
+            text-underline-offset: 3px;
+        }
+
+        .try-again-btn:hover { color: var(--text); }
+
+        /* Colors */
+        .color-black { background: #1a1a1a; }
+        .color-white { background: #fafafa; border-color: #ddd !important; }
+        .color-grey, .color-gray { background: #888; }
+        .color-beige { background: #d4c4a8; }
+        .color-brown { background: #8b5a2b; }
+        .color-navy { background: #1a3a5c; }
+        .color-blue { background: #4a7eb8; }
+        .color-red { background: #c41e3a; }
+        .color-pink { background: #d4909c; }
+        .color-purple { background: #7c5295; }
+        .color-green { background: #4a7c59; }
+        .color-yellow { background: #c9a227; }
+        .color-orange { background: #cc6633; }
+        .color-metallic { background: linear-gradient(135deg, #aaa, #ddd); }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="logo">Enclothe</div>
+        <div class="tagline">Style, curated</div>
+    </header>
+
+    <!-- Upload -->
+    <section class="upload-section" id="upload-section">
+        <h1>Build an outfit around <em>your piece</em></h1>
+        <p class="upload-intro">Upload a clothing item and get three styled outfits.</p>
+
+        <div class="upload-area" id="upload-area">
+            <div class="upload-label">Drop image here</div>
+            <div class="upload-cta">or click to browse</div>
+            <input type="file" id="file-input" accept="image/*">
+            
+            <div class="preview-container" id="preview-container">
+                <img class="preview-image" id="preview-image" src="" alt="Preview">
+                <p class="file-name" id="file-name"></p>
+            </div>
+        </div>
+
+        <button class="generate-btn" id="generate-btn" disabled>Generate Looks</button>
+        <div class="error-message" id="error-message"></div>
+    </section>
+
+    <!-- Loading -->
+    <section class="loading-section" id="loading-section">
+        <div class="spinner"></div>
+        <div class="loading-text">Curating your looks...</div>
+    </section>
+
+    <!-- Results -->
+    <section class="results-section" id="results-section">
+        <div class="results-header">
+            <div class="results-title">Three ways to wear it</div>
+            <div class="results-meta" id="results-meta"></div>
+        </div>
+
+        <div class="outfits-grid" id="outfits-grid"></div>
+
+        <div class="try-again">
+            <button class="try-again-btn" id="try-again-btn">Start over</button>
+        </div>
+    </section>
+
+    <script>
+        let selectedFile = null;
+        let generationId = null;
+
+        const uploadArea = document.getElementById('upload-area');
+        const fileInput = document.getElementById('file-input');
+        const previewContainer = document.getElementById('preview-container');
+        const previewImage = document.getElementById('preview-image');
+        const fileName = document.getElementById('file-name');
+        const generateBtn = document.getElementById('generate-btn');
+        const uploadSection = document.getElementById('upload-section');
+        const loadingSection = document.getElementById('loading-section');
+        const resultsSection = document.getElementById('results-section');
+        const outfitsGrid = document.getElementById('outfits-grid');
+        const resultsMeta = document.getElementById('results-meta');
+        const errorMessage = document.getElementById('error-message');
+        const tryAgainBtn = document.getElementById('try-again-btn');
+
+        uploadArea.addEventListener('click', () => fileInput.click());
+
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.style.borderColor = 'var(--text)';
+        });
+
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.style.borderColor = selectedFile ? 'var(--accent)' : 'var(--border)';
+        });
+
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            const file = e.dataTransfer.files[0];
+            if (file?.type.startsWith('image/')) handleFile(file);
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files[0]) handleFile(e.target.files[0]);
+        });
+
+        function handleFile(file) {
+            selectedFile = file;
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                previewImage.src = e.target.result;
+                fileName.textContent = file.name;
+                previewContainer.classList.add('visible');
+                uploadArea.classList.add('has-file');
+                generateBtn.disabled = false;
+            };
+            reader.readAsDataURL(file);
+        }
+
+        generateBtn.addEventListener('click', async () => {
+            if (!selectedFile) return;
+
+            uploadSection.style.display = 'none';
+            loadingSection.classList.add('visible');
+            resultsSection.classList.remove('visible');
+            errorMessage.classList.remove('visible');
+
+            try {
+                const formData = new FormData();
+                formData.append('file', selectedFile);
+
+                const response = await fetch('/v1/outfits:generate', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!response.ok) throw new Error(`Error ${response.status}`);
+
+                const data = await response.json();
+                generationId = data.generation_id;
+                displayResults(data);
+
+            } catch (error) {
+                loadingSection.classList.remove('visible');
+                uploadSection.style.display = 'block';
+                errorMessage.textContent = error.message;
+                errorMessage.classList.add('visible');
+            }
+        });
+
+        function displayResults(data) {
+            loadingSection.classList.remove('visible');
+            resultsSection.classList.add('visible');
+
+            const base = data.base_item;
+            resultsMeta.textContent = `${base.category} · ${base.primary_color || 'unknown'}`;
+
+            outfitsGrid.innerHTML = data.outfits.map((outfit, idx) => `
+                <div class="outfit-card">
+                    <div class="outfit-header">
+                        <span class="outfit-direction">${outfit.direction}</span>
+                        <span class="outfit-score">${outfit.score?.toFixed(2) || '—'}</span>
+                    </div>
+                    <img class="outfit-collage" src="${outfit.collage_url}" alt="${outfit.direction}">
+                    <div class="outfit-explanation">${outfit.explanation}</div>
+                    <div class="outfit-items">
+                        <div class="outfit-items-title">Pieces</div>
+                        ${outfit.items.map(item => `
+                            <div class="item-row">
+                                <span class="item-slot">${formatSlot(item.slot)}</span>
+                                <span class="item-name" title="${item.name}">${item.name}</span>
+                                <span class="item-color color-${item.primary_color || 'grey'}"></span>
+                            </div>
+                        `).join('')}
+                    </div>
+                    <div class="outfit-feedback">
+                        <button class="feedback-btn" onclick="sendFeedback(${idx}, true, this)">Like</button>
+                        <button class="feedback-btn" onclick="sendFeedback(${idx}, false, this)">Dislike</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function formatSlot(slot) {
+            const map = {
+                'accessory': 'ACC',
+                'bottom': 'BTM',
+                'shoes': 'SHOES',
+                'top': 'TOP',
+                'layer': 'LAYER'
+            };
+            return map[slot?.toLowerCase()] || slot?.toUpperCase() || '';
+        }
+
+        async function sendFeedback(idx, liked, btn) {
+            try {
+                await fetch('/v1/feedback', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ generation_id: generationId, outfit_index: idx, liked })
+                });
+                btn.parentElement.querySelectorAll('.feedback-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+            } catch (e) { console.error(e); }
+        }
+
+        tryAgainBtn.addEventListener('click', () => {
+            resultsSection.classList.remove('visible');
+            uploadSection.style.display = 'block';
+            selectedFile = null;
+            fileInput.value = '';
+            previewContainer.classList.remove('visible');
+            uploadArea.classList.remove('has-file');
+            generateBtn.disabled = true;
+        });
+    </script>
+</body>
+</html>

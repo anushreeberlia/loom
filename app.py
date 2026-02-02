@@ -1,5 +1,6 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 import uuid
 import logging
@@ -28,10 +29,9 @@ class FeedbackRequest(BaseModel):
 
 app = FastAPI(title="AI Outfit Styler")
 
-# Serve static files (collages, catalog images)
+# Ensure directories exist
 Path("collages").mkdir(exist_ok=True)
-app.mount("/static/collages", StaticFiles(directory="collages"), name="collages")
-app.mount("/static/catalog", StaticFiles(directory="catalog/images"), name="catalog")
+Path("static").mkdir(exist_ok=True)
 
 DATABASE_URL = "postgresql://localhost:5432/outfit_styler"
 
@@ -43,9 +43,20 @@ def get_db_connection():
     return psycopg2.connect(DATABASE_URL)
 
 
+@app.get("/")
+async def serve_index():
+    """Serve the main frontend page."""
+    return FileResponse("static/index.html")
+
+
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+
+# Mount static files AFTER route definitions
+app.mount("/static/collages", StaticFiles(directory="collages"), name="collages")
+app.mount("/static/catalog", StaticFiles(directory="catalog/images"), name="catalog")
 
 
 @app.post("/v1/outfits:generate")

@@ -11,12 +11,12 @@ from services.tagging import (
 
 load_dotenv()
 
-GEMINI_API_KEY = os.getenv("GOOGLE_API_KEY", "")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 
 
 def parse_description(description: str) -> dict:
     """
-    Convert plain text description to structured BaseItem JSON.
+    Convert plain text description to structured BaseItem JSON using OpenAI.
     
     Args:
         description: Plain text description from vision model
@@ -24,8 +24,8 @@ def parse_description(description: str) -> dict:
     Returns:
         Structured dict with category, colors, fit, style_tags, etc.
     """
-    if not GEMINI_API_KEY:
-        raise ValueError("GOOGLE_API_KEY not set")
+    if not OPENAI_API_KEY:
+        raise ValueError("OPENAI_API_KEY not set")
     
     prompt = f"""Convert this clothing description into structured fashion tags.
 
@@ -44,42 +44,33 @@ Description:
 
 JSON only, no markdown."""
 
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key={GEMINI_API_KEY}"
+    headers = {
+        "Authorization": f"Bearer {OPENAI_API_KEY}",
+        "Content-Type": "application/json"
+    }
     
-    # Retry up to 2 times with longer timeout
-    last_error = None
-    for attempt in range(2):
-        try:
-            response = httpx.post(
-                url,
-                json={
-                    "contents": [{"parts": [{"text": prompt}]}],
-                    "generationConfig": {"temperature": 0.2}
-                },
-                timeout=60.0
-            )
-            
-            if response.status_code == 200:
-                break
-            elif response.status_code == 429:
-                # Rate limited - wait and retry
-                import time
-                time.sleep(5)
-                last_error = f"Rate limited: {response.text}"
-                continue
-            else:
-                last_error = f"Parser API error: {response.text}"
-        except httpx.TimeoutException:
-            last_error = "Request timed out"
-            continue
-    else:
-        raise Exception(last_error or "Parser failed after retries")
+    payload = {
+        "model": "gpt-4o-mini",
+        "messages": [
+            {"role": "system", "content": "You are a fashion expert. Return only valid JSON."},
+            {"role": "user", "content": prompt}
+        ],
+        "temperature": 0.2,
+        "max_tokens": 500
+    }
+    
+    response = httpx.post(
+        "https://api.openai.com/v1/chat/completions",
+        headers=headers,
+        json=payload,
+        timeout=30.0
+    )
     
     if response.status_code != 200:
         raise Exception(f"Parser API error: {response.text}")
     
     data = response.json()
-    text = data["candidates"][0]["content"]["parts"][0]["text"]
+    text = data["choices"][0]["message"]["content"]
     
     # Parse JSON (handle markdown code blocks)
     text = text.strip()
