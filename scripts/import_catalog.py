@@ -31,6 +31,12 @@ def main(input_csv: str = DEFAULT_CSV):
             source = row.get("source", "").strip() or None
             source_item_id = row.get("source_item_id", "").strip() or None
             brand = row.get("brand", "").strip() or None
+            
+            # Parse style_tags and occasion_tags (pipe-separated in CSV)
+            style_tags_str = row.get("style_tags", "").strip()
+            occasion_tags_str = row.get("occasion_tags", "").strip()
+            style_tags = style_tags_str.split("|") if style_tags_str else []
+            occasion_tags_csv = occasion_tags_str.split("|") if occasion_tags_str else []
 
             # Validate: name exists
             if not name:
@@ -60,11 +66,17 @@ def main(input_csv: str = DEFAULT_CSV):
                 skipped += 1
                 continue
 
+            # Merge occasion from CSV column and parsed occasion_tags
+            final_occasion_tags = occasion_tags_csv.copy()
+            if occasion and occasion not in final_occasion_tags:
+                final_occasion_tags.append(occasion)
+            
             # Insert
             cursor.execute(
                 """
-                INSERT INTO catalog_items (name, category, image_url, product_url, primary_color, season_tags, occasion_tags, source, source_item_id, brand)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                INSERT INTO catalog_items (name, category, image_url, product_url, primary_color, 
+                    style_tags, season_tags, occasion_tags, source, source_item_id, brand, tagged_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
                 """,
                 (
                     name,
@@ -72,8 +84,9 @@ def main(input_csv: str = DEFAULT_CSV):
                     image_url,
                     product_url,
                     colors or None,  # primary_color as text
+                    style_tags if style_tags else [],  # style_tags as array
                     [season] if season else [],  # season_tags as array
-                    [occasion] if occasion else [],  # occasion_tags as array
+                    final_occasion_tags if final_occasion_tags else [],  # occasion_tags as array
                     source,
                     source_item_id,
                     brand,

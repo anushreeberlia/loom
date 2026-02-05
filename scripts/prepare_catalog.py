@@ -55,8 +55,8 @@ DATASETS = {
         "name_field": "prod_name",
         "category_field": "product_group_name",
         "color_field": "colour_group_name",
-        "season_field": "",  # H&M doesn't have this
-        "occasion_field": "",  # H&M doesn't have this
+        "season_field": "",  # H&M doesn't have this directly
+        "occasion_field": "",  # Derived from section_name
         "source": "h_and_m",
         "brand": "H&M",
         "category_map": {
@@ -68,7 +68,75 @@ DATASETS = {
             "Bags": "accessory",
             "Items": "accessory",  # misc items
         },
+        # H&M-specific metadata extraction
+        "extract_tags": True,
+        "style_field": "graphical_appearance_name",
+        "garment_group_field": "garment_group_name",
+        "section_field": "section_name",
+        "detail_field": "detail_desc",
     },
+}
+
+# H&M style mapping: graphical_appearance_name → style_tags
+HM_STYLE_MAP = {
+    "Solid": ["classic", "minimal"],
+    "Stripe": ["casual", "classic"],
+    "All over pattern": ["bold", "statement"],
+    "Print": ["trendy", "statement"],
+    "Melange": ["casual"],
+    "Denim": ["casual", "classic"],
+    "Check": ["classic", "preppy"],
+    "Dot": ["playful", "feminine"],
+    "Colour blocking": ["bold", "modern"],
+    "Lace": ["feminine", "romantic"],
+    "Metallic": ["statement", "bold"],
+    "Chambray": ["casual", "classic"],
+    "Contrast": ["modern", "bold"],
+    "Embroidery": ["feminine", "boho"],
+    "Sequin": ["statement", "party"],
+    "Glitter/shimmer": ["statement", "party"],
+    "Jacquard": ["elegant", "dressy"],
+    "Application/3D": ["statement", "trendy"],
+    "Placement print": ["statement", "trendy"],
+    "Argyle": ["classic", "preppy"],
+    "Neps": ["casual", "textured"],
+    "Mixed solid/pattern": ["modern", "versatile"],
+    "Treatment": ["trendy", "edgy"],
+    "Transparent": ["trendy", "bold"],
+    "Front print": ["casual", "graphic"],
+}
+
+# H&M section → occasion_tags
+HM_OCCASION_MAP = {
+    "Womens Everyday Basics": ["everyday", "casual"],
+    "Womens Everyday Collection": ["everyday", "casual"],
+    "Ladieswear": ["versatile"],
+    "Womens Big accessories": ["versatile"],
+    "Womens Small accessories": ["versatile"],
+    "Womens Trend": ["trendy", "going_out"],
+    "Contemporary Street": ["casual", "streetwear"],
+    "Contemporary Casual": ["casual"],
+    "Contemporary Smart": ["work", "smart_casual"],
+    "Divided": ["casual", "young"],
+    "Modern Classic": ["work", "classic"],
+    "Ladies Denim": ["casual", "everyday"],
+    "Mama": ["everyday"],
+    "Sport": ["athletic", "casual"],
+    "Special Occasion": ["party", "dressy"],
+}
+
+# H&M garment_group → additional style hints
+HM_GARMENT_STYLE = {
+    "Jersey Basic": ["basic", "casual"],
+    "Knitwear": ["cozy", "layering"],
+    "Blouses": ["feminine", "work"],
+    "Dresses Ladies": ["feminine", "versatile"],
+    "Trousers": ["classic", "work"],
+    "Shorts": ["casual", "summer"],
+    "Skirts": ["feminine", "versatile"],
+    "Jersey Fancy": ["dressy", "feminine"],
+    "Outdoor": ["casual", "layering"],
+    "Swimwear": ["summer", "beach"],
 }
 
 # How many items per category (~700 total)
@@ -130,6 +198,30 @@ def main(dataset_name: str):
             color = row.get(config["color_field"], "") if config["color_field"] else ""
             season = row.get(config["season_field"], "") if config["season_field"] else ""
             occasion = row.get(config["occasion_field"], "") if config["occasion_field"] else ""
+            
+            # Extract style_tags and occasion_tags from H&M metadata
+            style_tags = []
+            occasion_tags = []
+            
+            if config.get("extract_tags"):
+                # Get style from graphical_appearance_name
+                style_appearance = row.get(config.get("style_field", ""), "")
+                style_tags.extend(HM_STYLE_MAP.get(style_appearance, []))
+                
+                # Get style from garment_group_name
+                garment_group = row.get(config.get("garment_group_field", ""), "")
+                style_tags.extend(HM_GARMENT_STYLE.get(garment_group, []))
+                
+                # Get occasion from section_name
+                section = row.get(config.get("section_field", ""), "")
+                for key, tags in HM_OCCASION_MAP.items():
+                    if key.lower() in section.lower():
+                        occasion_tags.extend(tags)
+                        break
+                
+                # Deduplicate
+                style_tags = list(dict.fromkeys(style_tags))
+                occasion_tags = list(dict.fromkeys(occasion_tags))
 
             by_category[mapped].append({
                 "id": item_id,
@@ -138,6 +230,8 @@ def main(dataset_name: str):
                 "colors": color,
                 "season": season,
                 "occasion": occasion,
+                "style_tags": style_tags,
+                "occasion_tags": occasion_tags,
                 "source": config["source"],
                 "brand": config["brand"],
                 "image_file": image_file,
@@ -167,7 +261,7 @@ def main(dataset_name: str):
     # Write CSV and copy images
     with open(OUTPUT_CSV, "w", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow(["name", "category", "image_url", "product_url", "colors", "season", "occasion", "source", "source_item_id", "brand"])
+        writer.writerow(["name", "category", "image_url", "product_url", "colors", "season", "occasion", "style_tags", "occasion_tags", "source", "source_item_id", "brand"])
 
         for item in selected:
             # Copy image
@@ -175,7 +269,7 @@ def main(dataset_name: str):
             dst = OUTPUT_IMAGES / f"{item['id']}.jpg"
             shutil.copy(src, dst)
 
-            # Write row
+            # Write row (style_tags and occasion_tags as pipe-separated)
             writer.writerow([
                 item["name"],
                 item["category"],
@@ -184,6 +278,8 @@ def main(dataset_name: str):
                 item["colors"],
                 item["season"],
                 item["occasion"],
+                "|".join(item.get("style_tags", [])),
+                "|".join(item.get("occasion_tags", [])),
                 item["source"],
                 item["id"],
                 item["brand"],
