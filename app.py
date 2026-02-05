@@ -35,6 +35,10 @@ Path("static").mkdir(exist_ok=True)
 
 DATABASE_URL = "postgresql://localhost:5432/outfit_styler"
 
+# Catalog source to use for outfit generation
+# Options: 'h_and_m', 'kaggle_fashion', or None (use all)
+CATALOG_SOURCE = "h_and_m"
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -133,7 +137,8 @@ async def generate_outfits(file: UploadFile = File(...)):
                     exclude_ids=exclude_ids,
                     chosen_items={},  # No sequential conditioning in candidate phase
                     used_subtypes=used_subtypes,
-                    k=10  # Get more candidates for scoring
+                    k=10,  # Get more candidates for scoring
+                    source=CATALOG_SOURCE
                 )
                 all_candidates_by_slot[slot] = candidates
                 logger.info(f"  {slot}: {len(candidates)} candidates retrieved")

@@ -1,17 +1,20 @@
 import csv
+import argparse
 import psycopg2
 
 DATABASE_URL = "postgresql://localhost:5432/outfit_styler"
-INPUT_CSV = "catalog/items.csv"
+DEFAULT_CSV = "catalog/items.csv"
 
 ALLOWED_CATEGORIES = {"top", "bottom", "dress", "layer", "shoes", "accessory", "bag"}
 
 
-def main():
+def main(input_csv: str = DEFAULT_CSV):
     conn = psycopg2.connect(DATABASE_URL)
     cursor = conn.cursor()
 
-    with open(INPUT_CSV, "r") as f:
+    print(f"Importing from {input_csv}...")
+    
+    with open(input_csv, "r") as f:
         reader = csv.DictReader(f)
 
         inserted = 0
@@ -25,6 +28,9 @@ def main():
             colors = row.get("colors", "").strip() or None
             season = row.get("season", "").strip() or None
             occasion = row.get("occasion", "").strip() or None
+            source = row.get("source", "").strip() or None
+            source_item_id = row.get("source_item_id", "").strip() or None
+            brand = row.get("brand", "").strip() or None
 
             # Validate: name exists
             if not name:
@@ -57,17 +63,20 @@ def main():
             # Insert
             cursor.execute(
                 """
-                INSERT INTO catalog_items (name, category, image_url, product_url, colors, season_tags, occasion_tags)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                INSERT INTO catalog_items (name, category, image_url, product_url, primary_color, season_tags, occasion_tags, source, source_item_id, brand)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """,
                 (
                     name,
                     category,
                     image_url,
                     product_url,
-                    [colors] if colors else [],  # colors as array
+                    colors or None,  # primary_color as text
                     [season] if season else [],  # season_tags as array
                     [occasion] if occasion else [],  # occasion_tags as array
+                    source,
+                    source_item_id,
+                    brand,
                 )
             )
             inserted += 1
@@ -80,5 +89,8 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description="Import catalog CSV to database")
+    parser.add_argument("--csv", default=DEFAULT_CSV, help="Path to catalog CSV file")
+    args = parser.parse_args()
+    main(args.csv)
 

@@ -71,13 +71,14 @@ def main():
     conn = psycopg2.connect(DATABASE_URL)
     cursor = conn.cursor()
     
-    # Get tagged items without embeddings
+    # Get items without embeddings (tagged OR untagged with basic info)
     cursor.execute("""
         SELECT id, name, category, primary_color, fit, material,
                style_tags, occasion_tags, season_tags
         FROM catalog_items 
-        WHERE tagged_at IS NOT NULL 
-          AND embedding IS NULL;
+        WHERE embedding IS NULL
+          AND name IS NOT NULL
+          AND category IS NOT NULL;
     """)
     
     rows = cursor.fetchall()

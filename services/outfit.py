@@ -185,7 +185,7 @@ def build_base_item_text(base_item: dict) -> str:
 def generate_explanation(direction: str, base_item: dict, items_by_slot: dict[str, dict]) -> str:
     """Generate a direction-specific explanation for the outfit."""
     base_color = base_item.get("primary_color", "")
-    base_style = base_item.get("style_tags", [])[:1]
+    base_style = (base_item.get("style_tags") or [])[:1]
     base_style_str = base_style[0] if base_style else ""
     
     # Get key items for explanation
@@ -309,7 +309,7 @@ def compute_direction_bonus(
     for item in items_by_slot.values():
         if item:
             name_lower = item.get("name", "").lower()
-            tags = item.get("style_tags", [])
+            tags = item.get("style_tags") or []
             if "statement" in name_lower or any("statement" in t.lower() for t in tags):
                 has_statement = True
     
@@ -320,7 +320,7 @@ def compute_direction_bonus(
         # Reward classic/minimal tags
         for item in items_by_slot.values():
             if item:
-                tags = item.get("style_tags", [])
+                tags = item.get("style_tags") or []
                 if any(t.lower() in {"classic", "minimal", "elegant", "timeless"} for t in tags):
                     bonus += 0.05
     

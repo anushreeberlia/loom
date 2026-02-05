@@ -165,7 +165,7 @@ def apply_direction_rerank(
         score = 0.0
         color = c.get("primary_color", "")
         name_lower = c.get("name", "").lower()
-        style_tags = c.get("style_tags", [])
+        style_tags = c.get("style_tags") or []
         is_statement = "statement" in name_lower or any("statement" in t.lower() for t in style_tags)
         
         if direction == "Trendy":
@@ -318,7 +318,7 @@ def build_query_text(
     """
     base_color = base_item.get("primary_color", "")
     base_category = base_item.get("category", "top")
-    style = " ".join(base_item.get("style_tags", [])[:2])
+    style = " ".join((base_item.get("style_tags") or [])[:2])
     
     direction_lower = direction.lower()
     dir_info = STYLE_DIRECTIONS.get(direction, {})
@@ -425,7 +425,8 @@ def retrieve_candidates(
     k: int = 20,
     exclude_ids: list[int] = None,
     avoid_colors: set[str] = None,
-    prefer_colors: set[str] = None
+    prefer_colors: set[str] = None,
+    source: str = None
 ) -> list[dict]:
     """
     Vector search for candidates in a category with color filtering.
@@ -437,6 +438,7 @@ def retrieve_candidates(
         exclude_ids: Item IDs to exclude
         avoid_colors: Colors to filter out (hard constraint)
         prefer_colors: Colors to prefer (soft boost in scoring)
+        source: Catalog source to filter by (e.g., 'h_and_m', 'kaggle_fashion')
     
     Returns:
         List of catalog items sorted by similarity + color preference
@@ -447,54 +449,34 @@ def retrieve_candidates(
     exclude_ids = exclude_ids or []
     avoid_colors = avoid_colors or set()
     
-    # Build query with color filter
+    # Build dynamic WHERE clause
+    where_conditions = ["category = %s", "embedding IS NOT NULL"]
+    params = [query_embedding, category]
+    
+    if source:
+        where_conditions.append("source = %s")
+        params.append(source)
+    
+    if exclude_ids:
+        where_conditions.append("id != ALL(%s)")
+        params.append(exclude_ids)
+    
     if avoid_colors:
-        avoid_list = list(avoid_colors)
-        if exclude_ids:
-            cursor.execute("""
-                SELECT id, name, image_url, product_url, primary_color, style_tags,
-                       embedding <-> %s::vector as distance
-                FROM catalog_items
-                WHERE category = %s
-                  AND embedding IS NOT NULL
-                  AND id != ALL(%s)
-                  AND (primary_color IS NULL OR primary_color != ALL(%s))
-                ORDER BY distance
-                LIMIT %s
-            """, (query_embedding, category, exclude_ids, avoid_list, k * 2))
-        else:
-            cursor.execute("""
-                SELECT id, name, image_url, product_url, primary_color, style_tags,
-                       embedding <-> %s::vector as distance
-                FROM catalog_items
-                WHERE category = %s
-                  AND embedding IS NOT NULL
-                  AND (primary_color IS NULL OR primary_color != ALL(%s))
-                ORDER BY distance
-                LIMIT %s
-            """, (query_embedding, category, avoid_list, k * 2))
-    else:
-        if exclude_ids:
-            cursor.execute("""
-                SELECT id, name, image_url, product_url, primary_color, style_tags,
-                       embedding <-> %s::vector as distance
-                FROM catalog_items
-                WHERE category = %s
-                  AND embedding IS NOT NULL
-                  AND id != ALL(%s)
-                ORDER BY distance
-                LIMIT %s
-            """, (query_embedding, category, exclude_ids, k * 2))
-        else:
-            cursor.execute("""
-                SELECT id, name, image_url, product_url, primary_color, style_tags,
-                       embedding <-> %s::vector as distance
-                FROM catalog_items
-                WHERE category = %s
-                  AND embedding IS NOT NULL
-                ORDER BY distance
-                LIMIT %s
-            """, (query_embedding, category, k * 2))
+        where_conditions.append("(primary_color IS NULL OR primary_color != ALL(%s))")
+        params.append(list(avoid_colors))
+    
+    params.append(k * 2)  # LIMIT
+    
+    query = f"""
+        SELECT id, name, image_url, product_url, primary_color, style_tags,
+               embedding <-> %s::vector as distance
+        FROM catalog_items
+        WHERE {' AND '.join(where_conditions)}
+        ORDER BY distance
+        LIMIT %s
+    """
+    
+    cursor.execute(query, params)
     
     rows = cursor.fetchall()
     cursor.close()
@@ -526,7 +508,8 @@ def retrieve_for_slot(
     exclude_ids: list[int] = None,
     chosen_items: dict[str, dict] = None,
     used_subtypes: set[str] = None,
-    k: int = 5
+    k: int = 5,
+    source: str = None
 ) -> list[dict]:
     """
     Retrieve candidate items for a specific slot and direction.
@@ -541,6 +524,7 @@ def retrieve_for_slot(
         chosen_items: Items already chosen FOR THIS OUTFIT (sequential conditioning)
         used_subtypes: Item subtypes already used in previous outfits (e.g., {"skirt", "heels"})
         k: Number of candidates to return
+        source: Catalog source to filter by (e.g., 'h_and_m', 'kaggle_fashion')
     """
     base_color = base_item.get("primary_color", "unknown")
     
@@ -559,7 +543,8 @@ def retrieve_for_slot(
         k=k * 4,  # Get extra to account for filtering
         exclude_ids=exclude_ids,
         avoid_colors=avoid_colors,
-        prefer_colors=prefer_colors
+        prefer_colors=prefer_colors,
+        source=source
     )
     
     # Apply sanity gate (slot-aware)

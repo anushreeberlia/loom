@@ -267,6 +267,15 @@
             display: block;
         }
 
+        .outfit-collage-placeholder {
+            width: 100%;
+            padding: 4rem 2rem;
+            background: var(--bg-alt);
+            text-align: center;
+            color: var(--text-muted);
+            font-size: 0.8rem;
+        }
+
         .outfit-explanation {
             padding: 0.9rem 1rem;
             font-size: 0.8rem;
@@ -289,10 +298,9 @@
         }
 
         .item-row {
-            display: grid;
-            grid-template-columns: 45px 1fr 14px;
+            display: flex;
             align-items: center;
-            gap: 0.6rem;
+            gap: 0.5rem;
             padding: 0.35rem 0;
             font-size: 0.75rem;
             border-bottom: 1px solid var(--bg-alt);
@@ -305,12 +313,16 @@
             letter-spacing: 0.05em;
             text-transform: uppercase;
             color: var(--text-muted);
+            width: 40px;
+            flex-shrink: 0;
         }
 
         .item-name {
+            flex: 1;
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
+            min-width: 0;
         }
 
         .item-color {
@@ -318,7 +330,18 @@
             height: 10px;
             border-radius: 50%;
             border: 1px solid var(--border);
-            justify-self: end;
+        }
+
+        .item-shop {
+            font-size: 0.6rem;
+            color: var(--accent);
+            text-decoration: none;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+        }
+
+        .item-shop:hover {
+            text-decoration: underline;
         }
 
         /* Feedback */
@@ -487,8 +510,12 @@
         }
 
         generateBtn.addEventListener('click', async () => {
-            if (!selectedFile) return;
+            if (!selectedFile || generateBtn.disabled) return;
 
+            // Disable button during generation
+            generateBtn.disabled = true;
+            generateBtn.textContent = 'Generating...';
+            
             uploadSection.style.display = 'none';
             loadingSection.classList.add('visible');
             resultsSection.classList.remove('visible');
@@ -512,7 +539,9 @@
             } catch (error) {
                 loadingSection.classList.remove('visible');
                 uploadSection.style.display = 'block';
-                errorMessage.textContent = error.message;
+                generateBtn.disabled = false;
+                generateBtn.textContent = 'Generate Looks';
+                errorMessage.textContent = `Something went wrong: ${error.message}. Please try again.`;
                 errorMessage.classList.add('visible');
             }
         });
@@ -520,6 +549,8 @@
         function displayResults(data) {
             loadingSection.classList.remove('visible');
             resultsSection.classList.add('visible');
+            generateBtn.disabled = false;
+            generateBtn.textContent = 'Generate Looks';
 
             const base = data.base_item;
             resultsMeta.textContent = `${base.category} · ${base.primary_color || 'unknown'}`;
@@ -530,15 +561,18 @@
                         <span class="outfit-direction">${outfit.direction}</span>
                         <span class="outfit-score">${outfit.score?.toFixed(2) || '—'}</span>
                     </div>
-                    <img class="outfit-collage" src="${outfit.collage_url}" alt="${outfit.direction}">
-                    <div class="outfit-explanation">${outfit.explanation}</div>
+                    ${outfit.collage_url 
+                        ? `<img class="outfit-collage" src="${outfit.collage_url}" alt="${outfit.direction}" onerror="this.style.display='none'">`
+                        : '<div class="outfit-collage-placeholder">Image unavailable</div>'}
+                    <div class="outfit-explanation">${outfit.explanation || 'Styled outfit'}</div>
                     <div class="outfit-items">
                         <div class="outfit-items-title">Pieces</div>
-                        ${outfit.items.map(item => `
+                        ${(outfit.items || []).filter(item => item && item.slot && item.name).map(item => `
                             <div class="item-row">
                                 <span class="item-slot">${formatSlot(item.slot)}</span>
                                 <span class="item-name" title="${item.name}">${item.name}</span>
                                 <span class="item-color color-${item.primary_color || 'grey'}"></span>
+                                ${item.shop_url ? `<a href="${item.shop_url}" target="_blank" class="item-shop">Shop</a>` : ''}
                             </div>
                         `).join('')}
                     </div>

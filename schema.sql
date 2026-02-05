@@ -6,6 +6,11 @@ CREATE TABLE catalog_items (
     image_url TEXT NOT NULL,
     product_url TEXT,                      -- shop link (optional)
     
+    -- Source tracking (for multi-catalog support)
+    source TEXT DEFAULT 'kaggle_fashion', -- kaggle_fashion, h_and_m
+    source_item_id TEXT,                   -- original ID from source dataset
+    brand TEXT,                            -- H&M, etc.
+    
     -- Colors
     primary_color TEXT,                    -- main color (e.g., 'navy')
     secondary_colors TEXT[],               -- other colors (e.g., ['white', 'gold'])
