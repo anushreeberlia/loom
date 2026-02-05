@@ -47,11 +47,13 @@ CREATE TABLE outfit_generations (
     created_at TIMESTAMP DEFAULT NOW()
 );
 
--- feedback_events: Like/dislike tracking
+-- feedback_events: Like/dislike tracking (one per generation + outfit)
 CREATE TABLE feedback_events (
     id SERIAL PRIMARY KEY,
     generation_id INTEGER REFERENCES outfit_generations(id),
-    outfit_index INTEGER,                  -- 1, 2, or 3
+    outfit_index INTEGER NOT NULL,         -- 0, 1, or 2 (Classic, Trendy, Bold)
     liked BOOLEAN NOT NULL,
-    created_at TIMESTAMP DEFAULT NOW()
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW(),
+    UNIQUE(generation_id, outfit_index)    -- One feedback per generation + outfit
 );

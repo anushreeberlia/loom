@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
@@ -43,6 +43,44 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+def make_absolute_url(base_url: str, relative_path: str) -> str:
+    """
+    Convert a relative path to an absolute URL.
+    
+    Handles:
+    - catalog/images/xxx.jpg -> {base_url}/static/catalog/xxx.jpg
+    - collages/42/classic.jpg -> {base_url}/static/generated/42/classic.jpg
+    - /static/collages/... -> {base_url}/static/generated/...
+    """
+    if not relative_path:
+        return ""
+    
+    # Already absolute
+    if relative_path.startswith("http://") or relative_path.startswith("https://"):
+        return relative_path
+    
+    # Remove leading slash if present
+    path = relative_path.lstrip("/")
+    
+    # Catalog images: catalog/images/xxx.jpg -> /static/catalog/xxx.jpg
+    if path.startswith("catalog/images/"):
+        filename = path.replace("catalog/images/", "")
+        return f"{base_url}/static/catalog/{filename}"
+    
+    # Collages: collages/42/classic.jpg -> /static/generated/42/classic.jpg
+    if path.startswith("collages/"):
+        subpath = path.replace("collages/", "")
+        return f"{base_url}/static/generated/{subpath}"
+    
+    # Legacy: /static/collages/... -> /static/generated/...
+    if path.startswith("static/collages/"):
+        subpath = path.replace("static/collages/", "")
+        return f"{base_url}/static/generated/{subpath}"
+    
+    # Fallback: just prepend base URL
+    return f"{base_url}/{path}"
+
+
 def get_db_connection():
     return psycopg2.connect(DATABASE_URL)
 
@@ -59,13 +97,16 @@ async def health():
 
 
 # Mount static files AFTER route definitions
-app.mount("/static/collages", StaticFiles(directory="collages"), name="collages")
+app.mount("/static/generated", StaticFiles(directory="collages"), name="generated")
 app.mount("/static/catalog", StaticFiles(directory="catalog/images"), name="catalog")
 
 
 @app.post("/v1/outfits:generate")
-async def generate_outfits(file: UploadFile = File(...)):
+async def generate_outfits(request: Request, file: UploadFile = File(...)):
     logger.info("Request received: POST /v1/outfits:generate")
+    
+    # Get base URL for absolute URLs
+    base_url = str(request.base_url).rstrip("/")
 
     # Validate file
     contents = await file.read()
@@ -220,8 +261,8 @@ async def generate_outfits(file: UploadFile = File(...)):
                     items,
                     base_item=base_item_for_collage
                 )
-                outfit["collage_url"] = f"/static/{collage_path}"
-                logger.info(f"  {direction} collage: {collage_path}")
+                outfit["collage_url"] = make_absolute_url(base_url, collage_path)
+                logger.info(f"  {direction} collage: {outfit['collage_url']}")
             except Exception as e:
                 logger.error(f"  {direction} collage failed: {e}")
                 outfit["collage_url"] = None
@@ -233,7 +274,13 @@ async def generate_outfits(file: UploadFile = File(...)):
         cursor.close()
         conn.close()
 
-    # 7. Return response
+    # 7. Convert all image URLs to absolute
+    for outfit in outfits:
+        for item in outfit.get("items", []):
+            if item.get("image_url"):
+                item["image_url"] = make_absolute_url(base_url, item["image_url"])
+
+    # 8. Return response
     return {
         "generation_id": generation_id,
         "base_item": base_item,
@@ -244,7 +291,7 @@ async def generate_outfits(file: UploadFile = File(...)):
 
 @app.post("/v1/feedback")
 async def submit_feedback(req: FeedbackRequest):
-    """Submit like/dislike feedback for a generated outfit."""
+    """Submit like/dislike feedback for a generated outfit (upsert - one per generation+outfit)."""
     logger.info(f"Feedback received: gen={req.generation_id}, outfit={req.outfit_index}, liked={req.liked}")
     
     if req.outfit_index not in [0, 1, 2]:
@@ -258,16 +305,18 @@ async def submit_feedback(req: FeedbackRequest):
         if not cursor.fetchone():
             raise HTTPException(status_code=404, detail="Generation not found")
         
-        # Insert feedback
+        # Upsert feedback (insert or update if exists)
         cursor.execute(
-            """INSERT INTO feedback_events (generation_id, outfit_index, liked) 
-               VALUES (%s, %s, %s) 
+            """INSERT INTO feedback_events (generation_id, outfit_index, liked, updated_at) 
+               VALUES (%s, %s, %s, NOW()) 
+               ON CONFLICT (generation_id, outfit_index) 
+               DO UPDATE SET liked = EXCLUDED.liked, updated_at = NOW()
                RETURNING id""",
             (req.generation_id, req.outfit_index, req.liked)
         )
         feedback_id = cursor.fetchone()[0]
         conn.commit()
-        logger.info(f"Feedback stored: id={feedback_id}")
+        logger.info(f"Feedback stored/updated: id={feedback_id}")
         
         return {"feedback_id": feedback_id, "status": "recorded"}
     except HTTPException:
