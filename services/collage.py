@@ -74,17 +74,25 @@ def create_placeholder(size: tuple[int, int], text: str = "?") -> Image.Image:
 
 
 # Fixed grid positions by category
+# Default layout (for tops/bottoms):
 # ┌──────────┬──────────┐
 # │   TOP    │  BOTTOM  │
 # ├──────────┼──────────┤
 # │  SHOES   │ ACCESSOR │
 # └──────────┴──────────┘
+#
+# Dress layout:
+# ┌──────────┬──────────┐
+# │  DRESS   │  LAYER   │
+# ├──────────┼──────────┤
+# │  SHOES   │ ACCESSOR │
+# └──────────┴──────────┘
+
 SLOT_POSITIONS = {
     "top": (0, 0),                    # Top-left
     "bottom": (CELL_SIZE, 0),         # Top-right
     "shoes": (0, CELL_SIZE),          # Bottom-left
     "accessory": (CELL_SIZE, CELL_SIZE),  # Bottom-right
-    # Fallbacks for other categories
     "dress": (0, 0),                  # Top-left (full body)
     "layer": (CELL_SIZE, 0),          # Top-right
     "bag": (CELL_SIZE, CELL_SIZE),    # Bottom-right (with accessories)
@@ -100,6 +108,14 @@ SLOT_LABELS = {
     "bag": "BAG",
 }
 
+# Slots to display based on base item category
+LAYOUT_SLOTS = {
+    "dress": ["dress", "layer", "shoes", "accessory"],
+    "top": ["top", "bottom", "shoes", "accessory"],
+    "bottom": ["top", "bottom", "shoes", "accessory"],
+    "default": ["top", "bottom", "shoes", "accessory"],
+}
+
 
 def create_grid_collage(
     items: list[dict],
@@ -108,10 +124,15 @@ def create_grid_collage(
     title: str = None
 ) -> Path:
     """
-    Create a 2x2 grid collage with fixed category positions.
+    Create a 2x2 grid collage with category-aware positions.
     
-    Layout:
+    Default layout (top/bottom input):
         TOP     | BOTTOM
+        --------|--------
+        SHOES   | ACCESSORY
+    
+    Dress layout:
+        DRESS   | LAYER
         --------|--------
         SHOES   | ACCESSORY
     
@@ -130,12 +151,16 @@ def create_grid_collage(
     # Create canvas
     canvas = Image.new("RGB", (CANVAS_SIZE, CANVAS_SIZE), BACKGROUND_COLOR)
     
+    # Determine layout based on base item category
+    base_category = base_item.get("category", "top") if base_item else "top"
+    layout_slots = LAYOUT_SLOTS.get(base_category, LAYOUT_SLOTS["default"])
+    
     # Build slot -> item mapping
     slot_items = {}
     
     # Add base item first (user's input)
     if base_item:
-        base_slot = base_item.get("category", "top")
+        base_slot = base_category
         slot_items[base_slot] = {
             "image_url": base_item.get("image_url"),
             "slot": base_slot,
@@ -148,8 +173,8 @@ def create_grid_collage(
         if slot and slot not in slot_items:  # Don't override base item
             slot_items[slot] = item
     
-    # Draw each slot
-    for slot in ["top", "bottom", "shoes", "accessory"]:
+    # Draw each slot based on the layout
+    for slot in layout_slots:
         pos = SLOT_POSITIONS.get(slot, (0, 0))
         item = slot_items.get(slot)
         

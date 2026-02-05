@@ -501,6 +501,25 @@ def retrieve_candidates(
     return candidates[:k]
 
 
+# Slot to category mapping (for slots that don't have their own category)
+SLOT_CATEGORY_MAP = {
+    "layer": "top",  # Layers (jackets, cardigans) are stored under "top" category
+}
+
+# Keywords to filter layer items from tops
+LAYER_KEYWORDS = {"jacket", "cardigan", "blazer", "coat", "sweater", "hoodie", "vest", "shrug", "kimono", "poncho"}
+
+
+def filter_layer_items(candidates: list[dict]) -> list[dict]:
+    """Filter candidates to only include layer-like items (jackets, cardigans, etc.)."""
+    filtered = []
+    for c in candidates:
+        name_lower = c.get("name", "").lower()
+        if any(keyword in name_lower for keyword in LAYER_KEYWORDS):
+            filtered.append(c)
+    return filtered
+
+
 def retrieve_for_slot(
     base_item: dict, 
     direction: str, 
@@ -536,16 +555,23 @@ def retrieve_for_slot(
     query_text = build_query_text(base_item, direction, slot, chosen_items)
     query_embedding = get_query_embedding(query_text)
     
+    # Map slot to category if needed (e.g., "layer" -> "top")
+    search_category = SLOT_CATEGORY_MAP.get(slot, slot)
+    
     # Get more candidates than needed, then filter
     candidates = retrieve_candidates(
-        category=slot,
+        category=search_category,
         query_embedding=query_embedding,
-        k=k * 4,  # Get extra to account for filtering
+        k=k * 6 if slot == "layer" else k * 4,  # Get extra for layer filtering
         exclude_ids=exclude_ids,
         avoid_colors=avoid_colors,
         prefer_colors=prefer_colors,
         source=source
     )
+    
+    # For layer slot, filter to only include layer-like items
+    if slot == "layer":
+        candidates = filter_layer_items(candidates)
     
     # Apply sanity gate (slot-aware)
     candidates = filter_candidates(candidates, slot)
