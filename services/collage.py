@@ -31,11 +31,22 @@ def collage_exists(generation_id: int, direction: str) -> bool:
 def load_and_resize_image(image_path: str, size: tuple[int, int]) -> Image.Image | None:
     """Load an image and resize it to fit in the given size while maintaining aspect ratio."""
     try:
-        if not os.path.exists(image_path):
-            logger.warning(f"Image not found: {image_path}")
-            return None
+        # Handle remote URLs
+        if image_path.startswith("http"):
+            import requests
+            from io import BytesIO
+            response = requests.get(image_path, timeout=5)
+            if response.status_code != 200:
+                logger.warning(f"Image not found: {image_path} (status {response.status_code})")
+                return None
+            img = Image.open(BytesIO(response.content))
+        else:
+            # Local file
+            if not os.path.exists(image_path):
+                logger.warning(f"Image not found: {image_path}")
+                return None
+            img = Image.open(image_path)
         
-        img = Image.open(image_path)
         img = img.convert("RGB")  # Ensure RGB mode
         
         # Resize maintaining aspect ratio
