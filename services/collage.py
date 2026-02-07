@@ -183,8 +183,8 @@ def create_grid_collage(
         if item:
             image_path = item.get("image_url", "")
             
-            # Handle relative paths
-            if image_path and not image_path.startswith("/"):
+            # Handle relative paths (but not URLs)
+            if image_path and not image_path.startswith("/") and not image_path.startswith("http"):
                 image_path = str(Path(image_path))
             
             img = load_and_resize_image(image_path, cell_size)
