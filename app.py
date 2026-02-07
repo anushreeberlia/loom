@@ -305,8 +305,9 @@ async def health():
 
 
 # Mount static files AFTER route definitions
+Path("collages").mkdir(exist_ok=True)  # Ensure collages dir exists
 app.mount("/static/generated", StaticFiles(directory="collages"), name="generated")
-app.mount("/static/catalog", StaticFiles(directory="catalog/images"), name="catalog")
+# Note: catalog images are now served from Cloudinary, no local static mount needed
 
 
 @app.post("/v1/outfits:generate")
