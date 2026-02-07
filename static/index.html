@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ENCLOTHE</title>
+    <title>LOOM</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
@@ -414,7 +414,7 @@
 </head>
 <body>
     <header>
-        <div class="logo">Enclothe</div>
+        <div class="logo">Loom</div>
         <div class="tagline">Style, curated</div>
     </header>
 
@@ -464,10 +464,10 @@
 
         // Session tracking for taste vectors (personalization)
         function getSessionId() {
-            let sid = localStorage.getItem('enclothe_session');
+            let sid = localStorage.getItem('loom_session');
             if (!sid) {
                 sid = crypto.randomUUID();
-                localStorage.setItem('enclothe_session', sid);
+                localStorage.setItem('loom_session', sid);
                 console.log('New session:', sid);
             }
             return sid;

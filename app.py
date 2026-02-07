@@ -24,6 +24,10 @@ from services.outfit import (
 from services.retrieval import retrieve_for_slot, build_query_text, get_batch_embeddings
 from services.collage import generate_outfit_collage
 
+import os
+from dotenv import load_dotenv
+load_dotenv()
+
 
 class FeedbackRequest(BaseModel):
     generation_id: int
@@ -37,7 +41,7 @@ app = FastAPI(title="AI Outfit Styler")
 Path("collages").mkdir(exist_ok=True)
 Path("static").mkdir(exist_ok=True)
 
-DATABASE_URL = "postgresql://localhost:5432/outfit_styler"
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://localhost:5432/outfit_styler")
 
 # Catalog source to use for outfit generation
 # Options: 'h_and_m', 'kaggle_fashion', or None (use all)
