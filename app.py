@@ -1,10 +1,11 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException, Request
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 import uuid
 import random
 import logging
+import hashlib
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import psycopg2
@@ -28,6 +29,7 @@ class FeedbackRequest(BaseModel):
     generation_id: int
     outfit_index: int  # 0, 1, or 2
     liked: bool
+    session_id: str = None  # For taste vector tracking
 
 app = FastAPI(title="AI Outfit Styler")
 
@@ -87,6 +89,206 @@ def get_db_connection():
     return psycopg2.connect(DATABASE_URL)
 
 
+def get_cached_image_analysis(image_hash: str) -> dict | None:
+    """Check if we've already analyzed this image (by hash)."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            """SELECT input_description, parsed_tags, base_item_embedding::text
+               FROM outfit_generations 
+               WHERE input_image_hash = %s 
+               ORDER BY created_at DESC 
+               LIMIT 1""",
+            (image_hash,)
+        )
+        row = cursor.fetchone()
+        if row and row[0] and row[1]:
+            # Parse embedding from pgvector text format
+            embedding = None
+            if row[2]:
+                embedding = [float(x) for x in row[2].strip("[]").split(",")]
+            return {
+                "description": row[0],
+                "base_item": row[1],
+                "embedding": embedding
+            }
+        return None
+    except Exception as e:
+        logger.error(f"Cache lookup error: {e}")
+        return None
+    finally:
+        cursor.close()
+        conn.close()
+
+
+def get_disliked_item_ids(session_id: str) -> set[int]:
+    """Get IDs of items the user has disliked (to exclude from future results)."""
+    if not session_id:
+        return set()
+    
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        # Get all outfit items from disliked outfits for this session
+        cursor.execute(
+            """SELECT og.output_outfits, fe.outfit_index
+               FROM feedback_events fe
+               JOIN outfit_generations og ON og.id = fe.generation_id
+               WHERE fe.session_id = %s AND fe.liked = false""",
+            (session_id,)
+        )
+        
+        disliked_ids = set()
+        for row in cursor.fetchall():
+            outfits = row[0]
+            outfit_idx = row[1]
+            if outfits and outfit_idx < len(outfits):
+                outfit = outfits[outfit_idx]
+                for item in outfit.get("items", []):
+                    if item and item.get("id"):
+                        disliked_ids.add(item["id"])
+        
+        return disliked_ids
+    except Exception as e:
+        logger.error(f"Error fetching disliked items: {e}")
+        return set()
+    finally:
+        cursor.close()
+        conn.close()
+
+
+def get_taste_vector(session_id: str) -> tuple[list | None, list | None]:
+    """Retrieve taste and dislike vectors for a session, if exists."""
+    if not session_id:
+        return None, None
+    
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            """SELECT taste_embedding::text, dislike_embedding::text, like_count, dislike_count
+               FROM taste_vectors 
+               WHERE session_id = %s""",
+            (session_id,)
+        )
+        row = cursor.fetchone()
+        taste_vec = None
+        dislike_vec = None
+        
+        if row:
+            # Parse like embedding
+            if row[0] and row[2] and row[2] > 0:
+                taste_vec = [float(x) for x in row[0].strip("[]").split(",")]
+            # Parse dislike embedding
+            if row[1] and row[3] and row[3] > 0:
+                dislike_vec = [float(x) for x in row[1].strip("[]").split(",")]
+        
+        return taste_vec, dislike_vec
+    except Exception as e:
+        logger.error(f"Error fetching taste vector: {e}")
+        return None, None
+    finally:
+        cursor.close()
+        conn.close()
+
+
+def update_taste_vector(session_id: str, item_embeddings: list[list], liked: bool):
+    """
+    Update taste vector based on feedback.
+    
+    For likes: blend item embeddings into taste_embedding (moving average)
+    For dislikes: blend item embeddings into dislike_embedding (to penalize)
+    """
+    if not session_id or not item_embeddings:
+        return
+    
+    # Filter out empty embeddings
+    valid_embeddings = [e for e in item_embeddings if e and len(e) == 1536]
+    if not valid_embeddings:
+        return
+    
+    # Average the item embeddings from this outfit
+    outfit_embedding = [
+        sum(e[i] for e in valid_embeddings) / len(valid_embeddings)
+        for i in range(1536)
+    ]
+    
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        # Get current vectors
+        cursor.execute(
+            """SELECT taste_embedding::text, dislike_embedding::text, like_count, dislike_count
+               FROM taste_vectors WHERE session_id = %s""",
+            (session_id,)
+        )
+        row = cursor.fetchone()
+        
+        if liked:
+            if row and row[0]:
+                # Blend with existing taste vector
+                current_emb = [float(x) for x in row[0].strip("[]").split(",")]
+                count = row[2] or 0
+                alpha = 1.0 / (count + 1)
+                new_embedding = [
+                    (1 - alpha) * current_emb[i] + alpha * outfit_embedding[i]
+                    for i in range(1536)
+                ]
+                cursor.execute(
+                    """UPDATE taste_vectors 
+                       SET taste_embedding = %s::vector, like_count = like_count + 1, updated_at = NOW()
+                       WHERE session_id = %s""",
+                    (new_embedding, session_id)
+                )
+            else:
+                # First like
+                cursor.execute(
+                    """INSERT INTO taste_vectors (session_id, taste_embedding, like_count)
+                       VALUES (%s, %s::vector, 1)
+                       ON CONFLICT (session_id) 
+                       DO UPDATE SET taste_embedding = EXCLUDED.taste_embedding,
+                                     like_count = taste_vectors.like_count + 1, updated_at = NOW()""",
+                    (session_id, outfit_embedding)
+                )
+        else:
+            # Dislike - blend into dislike_embedding
+            if row and row[1]:
+                # Blend with existing dislike vector
+                current_emb = [float(x) for x in row[1].strip("[]").split(",")]
+                count = row[3] or 0
+                alpha = 1.0 / (count + 1)
+                new_embedding = [
+                    (1 - alpha) * current_emb[i] + alpha * outfit_embedding[i]
+                    for i in range(1536)
+                ]
+                cursor.execute(
+                    """UPDATE taste_vectors 
+                       SET dislike_embedding = %s::vector, dislike_count = dislike_count + 1, updated_at = NOW()
+                       WHERE session_id = %s""",
+                    (new_embedding, session_id)
+                )
+            else:
+                # First dislike
+                cursor.execute(
+                    """INSERT INTO taste_vectors (session_id, dislike_embedding, dislike_count)
+                       VALUES (%s, %s::vector, 1)
+                       ON CONFLICT (session_id) 
+                       DO UPDATE SET dislike_embedding = EXCLUDED.dislike_embedding,
+                                     dislike_count = taste_vectors.dislike_count + 1, updated_at = NOW()""",
+                    (session_id, outfit_embedding)
+                )
+        
+        conn.commit()
+        logger.info(f"Taste vector updated for session {session_id[:8]}... (liked={liked})")
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"Error updating taste vector: {e}")
+    finally:
+        cursor.close()
+        conn.close()
+
+
 @app.get("/")
 async def serve_index():
     """Serve the main frontend page."""
@@ -104,11 +306,21 @@ app.mount("/static/catalog", StaticFiles(directory="catalog/images"), name="cata
 
 
 @app.post("/v1/outfits:generate")
-async def generate_outfits(request: Request, file: UploadFile = File(...)):
-    logger.info("Request received: POST /v1/outfits:generate")
+async def generate_outfits(request: Request, file: UploadFile = File(...), session_id: str = Form(None)):
+    logger.info(f"Request received: POST /v1/outfits:generate (session={session_id[:8] if session_id else 'none'}...)")
     
     # Get base URL for absolute URLs
     base_url = str(request.base_url).rstrip("/")
+    
+    # Get taste vectors for personalization
+    taste_vector, dislike_vector = get_taste_vector(session_id) if session_id else (None, None)
+    if taste_vector or dislike_vector:
+        logger.info(f"Taste vectors found (likes={taste_vector is not None}, dislikes={dislike_vector is not None})")
+    
+    # Get disliked item IDs to exclude entirely
+    disliked_item_ids = get_disliked_item_ids(session_id) if session_id else set()
+    if disliked_item_ids:
+        logger.info(f"Excluding {len(disliked_item_ids)} previously disliked items")
 
     # Validate file
     contents = await file.read()
@@ -116,41 +328,53 @@ async def generate_outfits(request: Request, file: UploadFile = File(...)):
         logger.warning("No image uploaded or file is empty")
         raise HTTPException(status_code=400, detail="No image uploaded or file is empty")
 
-    # 1. Save uploaded file
+    # 1. Save uploaded file (always needed for collage)
     ext = file.filename.split(".")[-1] if file.filename else "jpg"
     filename = f"{uuid.uuid4()}.{ext}"
     upload_path = Path("uploads") / filename
     upload_path.parent.mkdir(parents=True, exist_ok=True)
     with open(upload_path, "wb") as f:
         f.write(contents)
-    logger.info(f"Image stored at: {upload_path}")
 
-    # 2. Vision: Get description from image
-    logger.info("Calling vision API...")
-    try:
-        description = describe_image(contents)
-        logger.info(f"Description: {description[:100]}...")
-    except Exception as e:
-        logger.error(f"Vision API error: {e}")
-        raise HTTPException(status_code=500, detail=f"Vision API error: {str(e)}")
+    # Compute image hash for caching
+    image_hash = hashlib.sha256(contents).hexdigest()
+    
+    # Check cache first
+    cached = get_cached_image_analysis(image_hash)
+    if cached and cached.get("embedding"):
+        logger.info(f"⚡ Cache HIT for image {image_hash[:12]}... - skipping Vision/Parser/Embedding")
+        description = cached["description"]
+        base_item = cached["base_item"]
+        embedding = cached["embedding"]
+    else:
+        logger.info(f"Cache MISS for image {image_hash[:12]}... - calling APIs")
 
-    # 3. Parser: Convert description to structured JSON
-    logger.info("Parsing description to BaseItem...")
-    try:
-        base_item = parse_description(description)
-        logger.info(f"BaseItem: {base_item}")
-    except Exception as e:
-        logger.error(f"Parser error: {e}")
-        raise HTTPException(status_code=500, detail=f"Parser error: {str(e)}")
+        # 2. Vision: Get description from image
+        logger.info("Calling vision API...")
+        try:
+            description = describe_image(contents)
+            logger.info(f"Description: {description[:100]}...")
+        except Exception as e:
+            logger.error(f"Vision API error: {e}")
+            raise HTTPException(status_code=500, detail=f"Vision API error: {str(e)}")
 
-    # 4. Embedding: Generate embedding for BaseItem
-    logger.info("Generating embedding...")
-    try:
-        embedding = embed_base_item(base_item)
-        logger.info(f"Embedding generated (dim={len(embedding)})")
-    except Exception as e:
-        logger.error(f"Embedding error: {e}")
-        raise HTTPException(status_code=500, detail=f"Embedding error: {str(e)}")
+        # 3. Parser: Convert description to structured JSON
+        logger.info("Parsing description to BaseItem...")
+        try:
+            base_item = parse_description(description)
+            logger.info(f"BaseItem: {base_item}")
+        except Exception as e:
+            logger.error(f"Parser error: {e}")
+            raise HTTPException(status_code=500, detail=f"Parser error: {str(e)}")
+
+        # 4. Embedding: Generate embedding for BaseItem
+        logger.info("Generating embedding...")
+        try:
+            embedding = embed_base_item(base_item)
+            logger.info(f"Embedding generated (dim={len(embedding)})")
+        except Exception as e:
+            logger.error(f"Embedding error: {e}")
+            raise HTTPException(status_code=500, detail=f"Embedding error: {str(e)}")
 
     # 5. Retrieve candidates and assemble outfits
     # Phase 1: BATCH all query embeddings in ONE API call
@@ -173,6 +397,33 @@ async def generate_outfits(request: Request, file: UploadFile = File(...)):
     # SINGLE API call for ALL embeddings (replaces 9-12 individual calls)
     logger.info(f"Batching {len(query_texts)} embeddings in one API call...")
     query_embeddings = get_batch_embeddings(query_texts)
+    
+    # Blend taste/dislike vectors if available (personalization)
+    if taste_vector or dislike_vector:
+        TASTE_WEIGHT = 0.25   # How much likes boost retrieval
+        DISLIKE_WEIGHT = 0.15  # How much dislikes penalize (slightly less aggressive)
+        blended_embeddings = []
+        for emb in query_embeddings:
+            blended = list(emb)  # Start with original
+            
+            # Add taste vector (boost liked styles)
+            if taste_vector:
+                blended = [
+                    (1 - TASTE_WEIGHT) * blended[i] + TASTE_WEIGHT * taste_vector[i]
+                    for i in range(len(blended))
+                ]
+            
+            # Subtract dislike vector (penalize disliked styles)
+            if dislike_vector:
+                blended = [
+                    blended[i] - DISLIKE_WEIGHT * dislike_vector[i]
+                    for i in range(len(blended))
+                ]
+            
+            blended_embeddings.append(blended)
+        query_embeddings = blended_embeddings
+        logger.info(f"Query embeddings personalized (taste={taste_vector is not None}, dislike={dislike_vector is not None})")
+    
     task_embeddings = dict(zip([(t[0], t[1], t[2]) for t in retrieval_tasks], query_embeddings))
     logger.info("Embeddings ready, retrieving candidates...")
     
@@ -185,7 +436,7 @@ async def generate_outfits(request: Request, file: UploadFile = File(...)):
                 base_item=base_item,
                 direction=direction,
                 slot=slot,
-                exclude_ids=[],
+                exclude_ids=list(disliked_item_ids),  # Exclude previously disliked items
                 chosen_items={},
                 used_subtypes=set(),
                 k=15,  # Get extra candidates for diversity across outfits
@@ -270,10 +521,10 @@ async def generate_outfits(request: Request, file: UploadFile = File(...)):
     try:
         cursor.execute(
             """INSERT INTO outfit_generations 
-               (input_image_url, input_description, parsed_tags, base_item_embedding, output_outfits, input_type) 
-               VALUES (%s, %s, %s, %s, %s, %s) 
+               (input_image_url, input_image_hash, input_description, parsed_tags, base_item_embedding, output_outfits, input_type) 
+               VALUES (%s, %s, %s, %s, %s, %s, %s) 
                RETURNING id""",
-            (str(upload_path), description, Json(base_item), embedding, Json(outfits), "image")
+            (str(upload_path), image_hash, description, Json(base_item), embedding, Json(outfits), "image")
         )
         generation_id = cursor.fetchone()[0]
         conn.commit()
@@ -328,7 +579,7 @@ async def generate_outfits(request: Request, file: UploadFile = File(...)):
 @app.post("/v1/feedback")
 async def submit_feedback(req: FeedbackRequest):
     """Submit like/dislike feedback for a generated outfit (upsert - one per generation+outfit)."""
-    logger.info(f"Feedback received: gen={req.generation_id}, outfit={req.outfit_index}, liked={req.liked}")
+    logger.info(f"Feedback received: gen={req.generation_id}, outfit={req.outfit_index}, liked={req.liked}, session={req.session_id[:8] if req.session_id else 'none'}...")
     
     if req.outfit_index not in [0, 1, 2]:
         raise HTTPException(status_code=400, detail="outfit_index must be 0, 1, or 2")
@@ -336,23 +587,41 @@ async def submit_feedback(req: FeedbackRequest):
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        # Verify generation exists
-        cursor.execute("SELECT id FROM outfit_generations WHERE id = %s", (req.generation_id,))
-        if not cursor.fetchone():
+        # Get generation with outfit data for taste vector
+        cursor.execute(
+            "SELECT output_outfits FROM outfit_generations WHERE id = %s", 
+            (req.generation_id,)
+        )
+        row = cursor.fetchone()
+        if not row:
             raise HTTPException(status_code=404, detail="Generation not found")
         
         # Upsert feedback (insert or update if exists)
         cursor.execute(
-            """INSERT INTO feedback_events (generation_id, outfit_index, liked, updated_at) 
-               VALUES (%s, %s, %s, NOW()) 
+            """INSERT INTO feedback_events (generation_id, outfit_index, liked, session_id, updated_at) 
+               VALUES (%s, %s, %s, %s, NOW()) 
                ON CONFLICT (generation_id, outfit_index) 
-               DO UPDATE SET liked = EXCLUDED.liked, updated_at = NOW()
+               DO UPDATE SET liked = EXCLUDED.liked, session_id = EXCLUDED.session_id, updated_at = NOW()
                RETURNING id""",
-            (req.generation_id, req.outfit_index, req.liked)
+            (req.generation_id, req.outfit_index, req.liked, req.session_id)
         )
         feedback_id = cursor.fetchone()[0]
         conn.commit()
         logger.info(f"Feedback stored/updated: id={feedback_id}")
+        
+        # Update taste vector if session provided
+        if req.session_id and row[0]:
+            outfits = row[0]
+            if req.outfit_index < len(outfits):
+                outfit = outfits[req.outfit_index]
+                # Extract item embeddings from the outfit
+                item_embeddings = []
+                for item in outfit.get("items", []):
+                    if item and item.get("embedding"):
+                        item_embeddings.append(item["embedding"])
+                
+                if item_embeddings:
+                    update_taste_vector(req.session_id, item_embeddings, req.liked)
         
         return {"feedback_id": feedback_id, "status": "recorded"}
     except HTTPException:

@@ -253,4 +253,3 @@ def generate_outfit_collage(
     create_grid_collage(items, output_path, base_item=base_item, title=direction)
     
     return str(output_path)
-

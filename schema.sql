@@ -39,6 +39,7 @@ CREATE INDEX ON catalog_items USING ivfflat (embedding vector_cosine_ops) WITH (
 CREATE TABLE outfit_generations (
     id SERIAL PRIMARY KEY,
     input_image_url TEXT,
+    input_image_hash TEXT,                 -- SHA-256 hash for caching
     input_description TEXT,                -- plain text description from vision
     parsed_tags JSONB,                     -- BaseItem JSON extracted from description
     base_item_embedding vector(1536),      -- embedding for retrieval
@@ -47,13 +48,29 @@ CREATE TABLE outfit_generations (
     created_at TIMESTAMP DEFAULT NOW()
 );
 
+-- Index for fast cache lookups by image hash
+CREATE INDEX idx_generations_image_hash ON outfit_generations(input_image_hash);
+
 -- feedback_events: Like/dislike tracking (one per generation + outfit)
 CREATE TABLE feedback_events (
     id SERIAL PRIMARY KEY,
     generation_id INTEGER REFERENCES outfit_generations(id),
     outfit_index INTEGER NOT NULL,         -- 0, 1, or 2 (Classic, Trendy, Bold)
     liked BOOLEAN NOT NULL,
+    session_id TEXT,                        -- Session ID for taste vector tracking
     created_at TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW(),
     UNIQUE(generation_id, outfit_index)    -- One feedback per generation + outfit
+);
+
+-- taste_vectors: Per-session style preferences
+CREATE TABLE taste_vectors (
+    id SERIAL PRIMARY KEY,
+    session_id TEXT UNIQUE NOT NULL,
+    taste_embedding vector(1536),           -- Aggregated preference embedding (likes)
+    dislike_embedding vector(1536),         -- Aggregated dislike embedding (to penalize)
+    like_count INTEGER DEFAULT 0,           -- Number of likes contributing to taste
+    dislike_count INTEGER DEFAULT 0,        -- Number of dislikes
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
 );

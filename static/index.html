@@ -462,7 +462,19 @@
         let selectedFile = null;
         let generationId = null;
 
-        const uploadArea = document.getElementById('upload-area');
+        // Session tracking for taste vectors (personalization)
+        function getSessionId() {
+            let sid = localStorage.getItem('enclothe_session');
+            if (!sid) {
+                sid = crypto.randomUUID();
+                localStorage.setItem('enclothe_session', sid);
+                console.log('New session:', sid);
+            }
+            return sid;
+        }
+        const sessionId = getSessionId();
+
+            const uploadArea = document.getElementById('upload-area');
         const fileInput = document.getElementById('file-input');
         const previewContainer = document.getElementById('preview-container');
         const previewImage = document.getElementById('preview-image');
@@ -562,6 +574,7 @@
             try {
                 const formData = new FormData();
                 formData.append('file', selectedFile);
+                formData.append('session_id', sessionId);
 
                 const response = await fetch('/v1/outfits:generate', {
                     method: 'POST',
@@ -640,10 +653,18 @@
                 await fetch('/v1/feedback', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ generation_id: generationId, outfit_index: idx, liked })
+                    body: JSON.stringify({ 
+                        generation_id: generationId, 
+                        outfit_index: idx, 
+                        liked,
+                        session_id: sessionId  // For taste vector learning
+                    })
                 });
                 btn.parentElement.querySelectorAll('.feedback-btn').forEach(b => b.classList.remove('active'));
                 btn.classList.add('active');
+                if (liked) {
+                    console.log('Taste updated: liked outfit', idx);
+                }
             } catch (e) { console.error(e); }
         }
 
