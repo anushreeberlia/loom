@@ -1,11 +1,39 @@
 import os
 import base64
 import httpx
+from io import BytesIO
+from PIL import Image
 from dotenv import load_dotenv
 
 load_dotenv()
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+
+# Max image dimension for Vision API (smaller = faster, 512-768 is plenty for clothing)
+MAX_IMAGE_SIZE = 512
+
+
+def resize_image_for_vision(image_bytes: bytes) -> bytes:
+    """Resize image to reduce API latency while keeping enough detail for clothing recognition."""
+    try:
+        img = Image.open(BytesIO(image_bytes))
+        
+        # Only resize if larger than max size
+        if max(img.size) > MAX_IMAGE_SIZE:
+            img.thumbnail((MAX_IMAGE_SIZE, MAX_IMAGE_SIZE), Image.Resampling.LANCZOS)
+            
+            # Convert to RGB if needed (handles PNG with transparency)
+            if img.mode in ('RGBA', 'P'):
+                img = img.convert('RGB')
+            
+            buffer = BytesIO()
+            img.save(buffer, format='JPEG', quality=85)
+            return buffer.getvalue()
+        
+        return image_bytes
+    except Exception:
+        # If resize fails, return original
+        return image_bytes
 
 
 def describe_image(image_bytes: bytes) -> str:
@@ -21,8 +49,11 @@ def describe_image(image_bytes: bytes) -> str:
     if not OPENAI_API_KEY:
         raise ValueError("OPENAI_API_KEY not set")
     
+    # Resize image for faster API response
+    resized_bytes = resize_image_for_vision(image_bytes)
+    
     # Encode image to base64
-    base64_image = base64.b64encode(image_bytes).decode("utf-8")
+    base64_image = base64.b64encode(resized_bytes).decode("utf-8")
     
     response = httpx.post(
         "https://api.openai.com/v1/chat/completions",
@@ -54,13 +85,14 @@ Do not guess brand. Do not add opinions. Be factual and concise."""
                         {
                             "type": "image_url",
                             "image_url": {
-                                "url": f"data:image/jpeg;base64,{base64_image}"
+                                "url": f"data:image/jpeg;base64,{base64_image}",
+                                "detail": "low"  # Faster processing, sufficient for clothing
                             }
                         }
                     ]
                 }
             ],
-            "max_tokens": 300
+            "max_tokens": 200  # Reduced from 300, description is short
         },
         timeout=30.0
     )

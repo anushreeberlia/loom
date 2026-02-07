@@ -376,11 +376,15 @@ def score_outfit(
             "breakdown": {}
         }
     
-    # Get embeddings
+    # Get embeddings (handle None items)
     base_emb = base_embedding or []
-    bottom_emb = items_by_slot.get("bottom", {}).get("embedding") or []
-    shoes_emb = items_by_slot.get("shoes", {}).get("embedding") or []
-    acc_emb = items_by_slot.get("accessory", {}).get("embedding") or []
+    bottom_item = items_by_slot.get("bottom")
+    shoes_item = items_by_slot.get("shoes")
+    acc_item = items_by_slot.get("accessory")
+    
+    bottom_emb = (bottom_item.get("embedding") if bottom_item else None) or []
+    shoes_emb = (shoes_item.get("embedding") if shoes_item else None) or []
+    acc_emb = (acc_item.get("embedding") if acc_item else None) or []
     
     # Compute similarities
     sim_base_bottom = cosine_similarity(base_emb, bottom_emb) if bottom_emb else 0.5

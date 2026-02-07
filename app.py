@@ -3,8 +3,10 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 import uuid
+import random
 import logging
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import psycopg2
 from psycopg2.extras import Json
 
@@ -18,7 +20,7 @@ from services.outfit import (
     generate_candidate_outfits,
     select_best_outfit
 )
-from services.retrieval import retrieve_for_slot, extract_item_subtype
+from services.retrieval import retrieve_for_slot, build_query_text, get_batch_embeddings
 from services.collage import generate_outfit_collage
 
 
@@ -150,53 +152,98 @@ async def generate_outfits(request: Request, file: UploadFile = File(...)):
         logger.error(f"Embedding error: {e}")
         raise HTTPException(status_code=500, detail=f"Embedding error: {str(e)}")
 
-    # 5. Retrieve candidates and assemble outfits using candidate scoring
-    logger.info("Retrieving outfit candidates...")
-    outfits = []
+    # 5. Retrieve candidates and assemble outfits
+    # Phase 1: BATCH all query embeddings in ONE API call
+    # Phase 2: PARALLEL database queries (no more API calls)
+    # Phase 3: SEQUENTIAL selection to avoid duplicate items
+    logger.info("Building query embeddings (batched)...")
     directions = ["Classic", "Trendy", "Bold"]
-    used_ids_by_slot = {}  # Track used item IDs for diversity
-    used_subtypes_by_slot = {}  # Track used item subtypes for variety
-    
     base_category = base_item.get("category", "top")
     
+    # Build list of all (direction, slot) pairs and their query texts
+    retrieval_tasks = []
+    query_texts = []
     for outfit_idx, direction in enumerate(directions):
-        logger.info(f"Building {direction} outfit...")
-        
         slots = get_slots_for_outfit(base_category, outfit_idx)
-        all_candidates_by_slot = {}
-        
-        # Step 1: Retrieve candidates for all slots
         for slot in slots:
-            exclude_ids = list(used_ids_by_slot.get(slot, set()))
-            used_subtypes = used_subtypes_by_slot.get(slot, set())
-            
-            try:
-                candidates = retrieve_for_slot(
-                    base_item=base_item,
-                    direction=direction,
-                    slot=slot,
-                    exclude_ids=exclude_ids,
-                    chosen_items={},  # No sequential conditioning in candidate phase
-                    used_subtypes=used_subtypes,
-                    k=10,  # Get more candidates for scoring
-                    source=CATALOG_SOURCE
-                )
-                all_candidates_by_slot[slot] = candidates
-                logger.info(f"  {slot}: {len(candidates)} candidates retrieved")
-                
-            except Exception as e:
-                logger.error(f"  {slot}: Retrieval error - {e}")
-                all_candidates_by_slot[slot] = []
+            query_text = build_query_text(base_item, direction, slot, {})
+            retrieval_tasks.append((outfit_idx, direction, slot))
+            query_texts.append(query_text)
+    
+    # SINGLE API call for ALL embeddings (replaces 9-12 individual calls)
+    logger.info(f"Batching {len(query_texts)} embeddings in one API call...")
+    query_embeddings = get_batch_embeddings(query_texts)
+    task_embeddings = dict(zip([(t[0], t[1], t[2]) for t in retrieval_tasks], query_embeddings))
+    logger.info("Embeddings ready, retrieving candidates...")
+    
+    def retrieve_task(task):
+        """Retrieve candidates for one (direction, slot) pair using precomputed embedding."""
+        outfit_idx, direction, slot = task
+        precomputed_emb = task_embeddings.get((outfit_idx, direction, slot))
+        try:
+            candidates = retrieve_for_slot(
+                base_item=base_item,
+                direction=direction,
+                slot=slot,
+                exclude_ids=[],
+                chosen_items={},
+                used_subtypes=set(),
+                k=15,  # Get extra candidates for diversity across outfits
+                source=CATALOG_SOURCE,
+                precomputed_embedding=precomputed_emb
+            )
+            logger.info(f"  [{direction}] {slot}: {len(candidates)} candidates")
+            return (outfit_idx, direction, slot, candidates)
+        except Exception as e:
+            logger.error(f"  [{direction}] {slot}: Retrieval error - {e}")
+            return (outfit_idx, direction, slot, [])
+    
+    # Phase 2: Run ALL database retrievals in parallel (no API calls now!)
+    all_candidates = {}  # (outfit_idx, slot) -> candidates
+    with ThreadPoolExecutor(max_workers=12) as executor:
+        futures = [executor.submit(retrieve_task, task) for task in retrieval_tasks]
+        for future in as_completed(futures):
+            outfit_idx, direction, slot, candidates = future.result()
+            all_candidates[(outfit_idx, slot)] = candidates
+    
+    logger.info("All candidates retrieved, selecting items...")
+    
+    # Phase 3: Sequential selection with diversity tracking
+    outfits = []
+    used_ids_global = set()  # Track used item IDs across ALL outfits
+    
+    for outfit_idx, direction in enumerate(directions):
+        logger.info(f"Selecting {direction} outfit...")
+        slots = get_slots_for_outfit(base_category, outfit_idx)
         
-        # Step 2: Generate candidate outfits (combinations)
+        # Filter out already-used items from candidates
+        candidates_by_slot = {}
+        for slot in slots:
+            raw_candidates = all_candidates.get((outfit_idx, slot), [])
+            # Remove items already used in previous outfits
+            filtered = [c for c in raw_candidates if c["id"] not in used_ids_global]
+            
+            # Add randomness: shuffle top candidates to get variety across generations
+            # Keep top 10, shuffle them, then add the rest
+            if len(filtered) > 5:
+                top_candidates = filtered[:10]
+                rest = filtered[10:]
+                random.shuffle(top_candidates)
+                filtered = top_candidates + rest
+            
+            candidates_by_slot[slot] = filtered
+            if len(filtered) < len(raw_candidates):
+                logger.info(f"    {slot}: {len(raw_candidates)} → {len(filtered)} after dedup")
+        
+        # Generate candidate outfits (combinations)
         candidate_outfits = generate_candidate_outfits(
             slots=slots,
-            candidates_by_slot=all_candidates_by_slot,
+            candidates_by_slot=candidates_by_slot,
             max_candidates=8
         )
-        logger.info(f"  Generated {len(candidate_outfits)} candidate outfits")
+        logger.info(f"  [{direction}] Generated {len(candidate_outfits)} candidate outfits")
         
-        # Step 3: Score and select best outfit
+        # Score and select best outfit
         best_items, score_details = select_best_outfit(
             candidate_outfits=candidate_outfits,
             base_item=base_item,
@@ -204,29 +251,18 @@ async def generate_outfits(request: Request, file: UploadFile = File(...)):
             base_embedding=embedding
         )
         
-        # Log selection
-        logger.info(f"  Best outfit score: {score_details.get('total', 0):.3f}")
-        if score_details.get("violations"):
-            logger.warning(f"  Violations: {score_details['violations']}")
-        
+        # Log selection and track used IDs
+        logger.info(f"  [{direction}] Best score: {score_details.get('total', 0):.3f}")
         for slot, item in best_items.items():
             if item:
-                logger.info(f"    {slot}: #{item['id']} - {item['name'][:35]} ({item.get('primary_color', '?')})")
-                
-                # Track for diversity across outfits
-                if slot not in used_ids_by_slot:
-                    used_ids_by_slot[slot] = set()
-                used_ids_by_slot[slot].add(item["id"])
-                
-                subtype = extract_item_subtype(item.get("name", ""), slot)
-                if subtype:
-                    if slot not in used_subtypes_by_slot:
-                        used_subtypes_by_slot[slot] = set()
-                    used_subtypes_by_slot[slot].add(subtype)
+                logger.info(f"    [{direction}] {slot}: #{item['id']} - {item['name'][:35]}")
+                used_ids_global.add(item["id"])
         
-        # Step 4: Assemble final outfit
+        # Assemble final outfit
         outfit = assemble_outfit(direction, base_item, best_items, embedding)
         outfits.append(outfit)
+    
+    logger.info("All outfits built with unique items")
 
     # 6. Store in database (get generation_id first for collages)
     conn = get_db_connection()
@@ -274,13 +310,13 @@ async def generate_outfits(request: Request, file: UploadFile = File(...)):
         cursor.close()
         conn.close()
 
-    # 7. Convert all image URLs to absolute
+    # 8. Convert all image URLs to absolute
     for outfit in outfits:
         for item in outfit.get("items", []):
             if item.get("image_url"):
                 item["image_url"] = make_absolute_url(base_url, item["image_url"])
 
-    # 8. Return response
+    # 9. Return response
     return {
         "generation_id": generation_id,
         "base_item": base_item,

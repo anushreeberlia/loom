@@ -192,6 +192,7 @@
             font-size: 1.1rem;
             font-style: italic;
             color: var(--text-muted);
+            transition: opacity 0.15s ease;
         }
 
         /* Results Section */
@@ -440,7 +441,7 @@
     <!-- Loading -->
     <section class="loading-section" id="loading-section">
         <div class="spinner"></div>
-        <div class="loading-text">Curating your looks...</div>
+        <div class="loading-text" id="loading-text">Curating your looks...</div>
     </section>
 
     <!-- Results -->
@@ -509,6 +510,40 @@
             reader.readAsDataURL(file);
         }
 
+        // Progress messages that cycle during generation
+        const progressMessages = [
+            "Analyzing your item...",
+            "Understanding the style...",
+            "Finding matching pieces...",
+            "Building Classic look...",
+            "Building Trendy look...",
+            "Building Bold look...",
+            "Creating outfit collages...",
+            "Almost there..."
+        ];
+        let progressInterval = null;
+        const loadingText = document.getElementById('loading-text');
+
+        function startProgressAnimation() {
+            let index = 0;
+            loadingText.textContent = progressMessages[0];
+            progressInterval = setInterval(() => {
+                index = (index + 1) % progressMessages.length;
+                loadingText.style.opacity = 0;
+                setTimeout(() => {
+                    loadingText.textContent = progressMessages[index];
+                    loadingText.style.opacity = 1;
+                }, 150);
+            }, 1200);
+        }
+
+        function stopProgressAnimation() {
+            if (progressInterval) {
+                clearInterval(progressInterval);
+                progressInterval = null;
+            }
+        }
+
         generateBtn.addEventListener('click', async () => {
             if (!selectedFile || generateBtn.disabled) return;
 
@@ -520,6 +555,9 @@
             loadingSection.classList.add('visible');
             resultsSection.classList.remove('visible');
             errorMessage.classList.remove('visible');
+            
+            // Start progress animation
+            startProgressAnimation();
 
             try {
                 const formData = new FormData();
@@ -534,9 +572,11 @@
 
                 const data = await response.json();
                 generationId = data.generation_id;
+                stopProgressAnimation();
                 displayResults(data);
 
             } catch (error) {
+                stopProgressAnimation();
                 loadingSection.classList.remove('visible');
                 uploadSection.style.display = 'block';
                 generateBtn.disabled = false;

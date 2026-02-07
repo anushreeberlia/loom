@@ -419,6 +419,36 @@ def get_query_embedding(text: str) -> list[float]:
     return data["data"][0]["embedding"]
 
 
+def get_batch_embeddings(texts: list[str]) -> list[list[float]]:
+    """Embed multiple texts in a single API call (much faster than individual calls)."""
+    if not OPENAI_API_KEY:
+        raise ValueError("OPENAI_API_KEY not set")
+    
+    if not texts:
+        return []
+    
+    response = httpx.post(
+        "https://api.openai.com/v1/embeddings",
+        headers={
+            "Authorization": f"Bearer {OPENAI_API_KEY}",
+            "Content-Type": "application/json"
+        },
+        json={
+            "model": EMBEDDING_MODEL,
+            "input": texts  # Batch all texts in one call
+        },
+        timeout=30.0
+    )
+    
+    if response.status_code != 200:
+        raise Exception(f"Embedding API error: {response.text}")
+    
+    data = response.json()
+    # Sort by index to maintain order (API may return out of order)
+    sorted_data = sorted(data["data"], key=lambda x: x["index"])
+    return [item["embedding"] for item in sorted_data]
+
+
 def retrieve_candidates(
     category: str, 
     query_embedding: list[float], 
@@ -469,6 +499,7 @@ def retrieve_candidates(
     
     query = f"""
         SELECT id, name, image_url, product_url, primary_color, style_tags,
+               embedding::text as embedding_text,
                embedding <-> %s::vector as distance
         FROM catalog_items
         WHERE {' AND '.join(where_conditions)}
@@ -482,8 +513,18 @@ def retrieve_candidates(
     cursor.close()
     conn.close()
     
-    columns = ["id", "name", "image_url", "product_url", "primary_color", "style_tags", "distance"]
-    candidates = [dict(zip(columns, row)) for row in rows]
+    columns = ["id", "name", "image_url", "product_url", "primary_color", "style_tags", "embedding_text", "distance"]
+    candidates = []
+    for row in rows:
+        item = dict(zip(columns, row))
+        # Parse embedding from pgvector text format: "[0.1,0.2,...]"
+        emb_text = item.pop("embedding_text", None)
+        if emb_text:
+            # Remove brackets and split by comma
+            item["embedding"] = [float(x) for x in emb_text.strip("[]").split(",")]
+        else:
+            item["embedding"] = []
+        candidates.append(item)
     
     # Apply soft scoring for preferred colors
     if prefer_colors:
@@ -528,7 +569,8 @@ def retrieve_for_slot(
     chosen_items: dict[str, dict] = None,
     used_subtypes: set[str] = None,
     k: int = 5,
-    source: str = None
+    source: str = None,
+    precomputed_embedding: list[float] = None
 ) -> list[dict]:
     """
     Retrieve candidate items for a specific slot and direction.
@@ -544,6 +586,7 @@ def retrieve_for_slot(
         used_subtypes: Item subtypes already used in previous outfits (e.g., {"skirt", "heels"})
         k: Number of candidates to return
         source: Catalog source to filter by (e.g., 'h_and_m', 'kaggle_fashion')
+        precomputed_embedding: Pre-computed query embedding (skips API call if provided)
     """
     base_color = base_item.get("primary_color", "unknown")
     
@@ -551,9 +594,12 @@ def retrieve_for_slot(
     avoid_colors = get_avoid_colors(direction, base_color, slot)
     prefer_colors = get_preferred_colors(direction, base_color, slot)
     
-    # Build direction-aware query with sequential conditioning
-    query_text = build_query_text(base_item, direction, slot, chosen_items)
-    query_embedding = get_query_embedding(query_text)
+    # Use precomputed embedding or compute new one
+    if precomputed_embedding:
+        query_embedding = precomputed_embedding
+    else:
+        query_text = build_query_text(base_item, direction, slot, chosen_items)
+        query_embedding = get_query_embedding(query_text)
     
     # Map slot to category if needed (e.g., "layer" -> "top")
     search_category = SLOT_CATEGORY_MAP.get(slot, slot)
