@@ -17,7 +17,7 @@ from services.outfit import (
 
 load_dotenv()
 
-DATABASE_URL = "postgresql://localhost:5432/outfit_styler"
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://localhost:5432/outfit_styler")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 EMBEDDING_MODEL = "text-embedding-3-small"
 
