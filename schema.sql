@@ -1,3 +1,6 @@
+-- Enable pgvector extension
+CREATE EXTENSION IF NOT EXISTS vector;
+
 -- catalog_items: Your clothing inventory (300-800 items)
 CREATE TABLE catalog_items (
     id SERIAL PRIMARY KEY,
