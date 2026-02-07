@@ -33,9 +33,9 @@ def load_and_resize_image(image_path: str, size: tuple[int, int]) -> Image.Image
     try:
         # Handle remote URLs
         if image_path.startswith("http"):
-            import requests
+            import httpx
             from io import BytesIO
-            response = requests.get(image_path, timeout=5)
+            response = httpx.get(image_path, timeout=10)
             if response.status_code != 200:
                 logger.warning(f"Image not found: {image_path} (status {response.status_code})")
                 return None
