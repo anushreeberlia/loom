@@ -499,12 +499,14 @@ async def generate_outfits(request: Request, file: UploadFile = File(...), sessi
         )
         logger.info(f"  [{direction}] Generated {len(candidate_outfits)} candidate outfits")
         
-        # Score and select best outfit
+        # Score and select best outfit (with Fixes 1-3: intent vector, formality, diversity)
         best_items, score_details = select_best_outfit(
             candidate_outfits=candidate_outfits,
             base_item=base_item,
             direction=direction,
-            base_embedding=embedding
+            base_embedding=embedding,
+            taste_vector=taste_vector,
+            dislike_vector=dislike_vector
         )
         
         # Log selection and track used IDs
@@ -514,8 +516,12 @@ async def generate_outfits(request: Request, file: UploadFile = File(...), sessi
                 logger.info(f"    [{direction}] {slot}: #{item['id']} - {item['name'][:35]}")
                 used_ids_global.add(item["id"])
         
-        # Assemble final outfit
-        outfit = assemble_outfit(direction, base_item, best_items, embedding)
+        # Assemble final outfit (with enhanced scoring)
+        outfit = assemble_outfit(
+            direction, base_item, best_items, embedding,
+            taste_vector=taste_vector,
+            dislike_vector=dislike_vector
+        )
         outfits.append(outfit)
     
     logger.info("All outfits built with unique items")

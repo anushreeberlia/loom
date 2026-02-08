@@ -164,7 +164,22 @@ def create_grid_collage(
     
     # Determine layout based on base item category
     base_category = base_item.get("category", "top") if base_item else "top"
-    layout_slots = LAYOUT_SLOTS.get(base_category, LAYOUT_SLOTS["default"])
+    layout_slots = list(LAYOUT_SLOTS.get(base_category, LAYOUT_SLOTS["default"]))
+    
+    # Check if items include a layer - if so, use custom positions
+    has_layer = any(item.get("slot") == "layer" for item in items)
+    custom_positions = None
+    if has_layer and "layer" not in layout_slots and base_category in ["top", "bottom"]:
+        # Custom layout for top/bottom with layer:
+        # INPUT  | LAYER
+        # BOTTOM | SHOES
+        layout_slots = [base_category, "layer", "bottom", "shoes"]
+        custom_positions = {
+            "top": (0, 0),                      # Top-left (input)
+            "bottom": (0, CELL_SIZE),           # Bottom-left (complementary piece)
+            "layer": (CELL_SIZE, 0),            # Top-right
+            "shoes": (CELL_SIZE, CELL_SIZE),    # Bottom-right
+        }
     
     # Build slot -> item mapping
     slot_items = {}
@@ -186,7 +201,9 @@ def create_grid_collage(
     
     # Draw each slot based on the layout
     for slot in layout_slots:
-        pos = SLOT_POSITIONS.get(slot, (0, 0))
+        # Use custom positions if available, otherwise default
+        positions = custom_positions if custom_positions else SLOT_POSITIONS
+        pos = positions.get(slot, (0, 0))
         item = slot_items.get(slot)
         
         cell_size = (CELL_SIZE - PADDING * 2, CELL_SIZE - PADDING * 2)
