@@ -166,21 +166,20 @@ def create_grid_collage(
     base_category = base_item.get("category", "top") if base_item else "top"
     layout_slots = list(LAYOUT_SLOTS.get(base_category, LAYOUT_SLOTS["default"]))
     
-    # Check if items include a layer - if so, use custom positions
+    # Check if items include a layer - if so, swap layer into accessory position
     has_layer = any(item.get("slot") == "layer" for item in items)
     custom_positions = None
     if has_layer and "layer" not in layout_slots and base_category in ["top", "bottom"]:
-        # Custom layout for top/bottom with layer:
-        # INPUT        | LAYER
-        # COMPLEMENT   | SHOES
-        # Where COMPLEMENT is the opposite of input (top->bottom, bottom->top)
+        # Keep same layout but put layer where accessory would be (bottom-right)
+        # INPUT  | COMPLEMENT
+        # SHOES  | LAYER
         complement_slot = "bottom" if base_category == "top" else "top"
-        layout_slots = [base_category, "layer", complement_slot, "shoes"]
+        layout_slots = [base_category, complement_slot, "shoes", "layer"]
         custom_positions = {
             base_category: (0, 0),              # Top-left (input)
-            complement_slot: (0, CELL_SIZE),    # Bottom-left (complementary piece)
-            "layer": (CELL_SIZE, 0),            # Top-right
-            "shoes": (CELL_SIZE, CELL_SIZE),    # Bottom-right
+            complement_slot: (CELL_SIZE, 0),    # Top-right
+            "shoes": (0, CELL_SIZE),            # Bottom-left
+            "layer": (CELL_SIZE, CELL_SIZE),    # Bottom-right (where accessory was)
         }
     
     # Build slot -> item mapping
