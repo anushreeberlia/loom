@@ -61,7 +61,7 @@ OUTFIT_SLOTS = {
     "bottom": ["top", "shoes", "accessory"],
     "dress": ["shoes", "layer", "accessory"],
     "shoes": ["top", "bottom", "accessory"],
-    "layer": ["top", "bottom", "shoes"],
+    "layer": ["bottom", "shoes", "accessory"],  # Layer input: just need bottom, shoes, accessory
     "accessory": ["top", "bottom", "shoes"],
 }
 
@@ -88,8 +88,8 @@ STYLE_DIRECTIONS = {
 }
 
 # Which outfits include a layer (for tops/bottoms)
-# Outfit 2 gets a layer for variety
-LAYER_IN_OUTFIT = {1}  # 0-indexed: outfit index 1 (the second outfit)
+# Disabled - let outfits be simpler without forced layers
+LAYER_IN_OUTFIT = set()  # No forced layers
 
 
 def get_slots_for_category(category: str) -> list[str]:
