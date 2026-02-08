@@ -527,9 +527,9 @@
             "Analyzing your item...",
             "Understanding the style...",
             "Finding matching pieces...",
-            "Building Classic look...",
-            "Building Trendy look...",
-            "Building Bold look...",
+            "Building outfit 1...",
+            "Building outfit 2...",
+            "Building outfit 3...",
             "Creating outfit collages...",
             "Almost there..."
         ];
@@ -611,11 +611,11 @@
             outfitsGrid.innerHTML = data.outfits.map((outfit, idx) => `
                 <div class="outfit-card">
                     <div class="outfit-header">
-                        <span class="outfit-direction">${outfit.direction}</span>
+                        <span class="outfit-direction">Outfit ${idx + 1}</span>
                         <span class="outfit-score">${outfit.score?.toFixed(2) || '—'}</span>
                     </div>
                     ${outfit.collage_url 
-                        ? `<img class="outfit-collage" src="${outfit.collage_url}" alt="${outfit.direction}" onerror="this.style.display='none'">`
+                        ? `<img class="outfit-collage" src="${outfit.collage_url}" alt="Outfit ${idx + 1}" onerror="this.style.display='none'">`
                         : '<div class="outfit-collage-placeholder">Image unavailable</div>'}
                     <div class="outfit-explanation">${outfit.explanation || 'Styled outfit'}</div>
                     <div class="outfit-items">
