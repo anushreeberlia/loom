@@ -468,7 +468,14 @@ async def generate_outfits(request: Request, file: UploadFile = File(...), sessi
     outfits = []
     used_ids_global = set()  # Track used item IDs across ALL outfits
     
-    for outfit_idx, direction in enumerate(directions):
+    # Randomize selection order so different directions get first pick each time
+    # This prevents the same outfit from just swapping categories on regeneration
+    selection_order = list(range(len(directions)))
+    random.shuffle(selection_order)
+    logger.info(f"Selection order: {[directions[i] for i in selection_order]}")
+    
+    for outfit_idx in selection_order:
+        direction = directions[outfit_idx]
         logger.info(f"Selecting {direction} outfit...")
         slots = get_slots_for_outfit(base_category, outfit_idx)
         

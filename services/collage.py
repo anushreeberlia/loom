@@ -171,13 +171,13 @@ def create_grid_collage(
     custom_positions = None
     if has_layer and "layer" not in layout_slots and base_category in ["top", "bottom"]:
         # Keep same layout but put layer where accessory would be (bottom-right)
-        # INPUT  | COMPLEMENT
+        # TOP always left, BOTTOM always right
+        # TOP    | BOTTOM
         # SHOES  | LAYER
-        complement_slot = "bottom" if base_category == "top" else "top"
-        layout_slots = [base_category, complement_slot, "shoes", "layer"]
+        layout_slots = ["top", "bottom", "shoes", "layer"]
         custom_positions = {
-            base_category: (0, 0),              # Top-left (input)
-            complement_slot: (CELL_SIZE, 0),    # Top-right
+            "top": (0, 0),                      # Top-left (always)
+            "bottom": (CELL_SIZE, 0),           # Top-right (always)
             "shoes": (0, CELL_SIZE),            # Bottom-left
             "layer": (CELL_SIZE, CELL_SIZE),    # Bottom-right (where accessory was)
         }
