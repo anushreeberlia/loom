@@ -31,6 +31,12 @@ def parse_description(description: str) -> dict:
 
 Return ONLY valid JSON with these keys:
 - category: one of [top, bottom, dress, layer, shoes, accessory]
+  * top = blouses, t-shirts, shirts, tanks, crop tops (worn directly on upper body, lightweight)
+  * layer = sweaters, cardigans, jackets, coats, blazers, vests, hoodies, knit sweaters (worn OVER tops, heavier)
+  * bottom = pants, jeans, skirts, shorts, trousers
+  * dress = one-piece dresses, jumpsuits, rompers
+  * shoes = any footwear
+  * accessory = bags, jewelry, scarves, hats, belts
 - primary_color: one of [black, white, gray, beige, brown, blue, navy, green, yellow, orange, red, pink, purple, metallic, multi, unknown]
 - secondary_colors: array from same palette (can be empty)
 - material: string or null

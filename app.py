@@ -486,13 +486,9 @@ async def generate_outfits(request: Request, file: UploadFile = File(...), sessi
             # Remove items already used in previous outfits
             filtered = [c for c in raw_candidates if c["id"] not in used_ids_global]
             
-            # Add randomness: shuffle top candidates to get variety across generations
-            # Keep top 10, shuffle them, then add the rest
-            if len(filtered) > 5:
-                top_candidates = filtered[:10]
-                rest = filtered[10:]
-                random.shuffle(top_candidates)
-                filtered = top_candidates + rest
+            # Add strong randomness: fully shuffle all candidates
+            # This ensures different items get considered each regeneration
+            random.shuffle(filtered)
             
             candidates_by_slot[slot] = filtered
             if len(filtered) < len(raw_candidates):
