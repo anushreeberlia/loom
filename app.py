@@ -465,7 +465,7 @@ async def generate_outfits(request: Request, file: UploadFile = File(...), sessi
     logger.info("All candidates retrieved, selecting items...")
     
     # Phase 3: Sequential selection with diversity tracking
-    outfits = []
+    outfits_by_idx = {}  # Store by index to maintain correct output order
     used_ids_global = set()  # Track used item IDs across ALL outfits
     
     # Randomize selection order so different directions get first pick each time
@@ -529,8 +529,10 @@ async def generate_outfits(request: Request, file: UploadFile = File(...), sessi
             taste_vector=taste_vector,
             dislike_vector=dislike_vector
         )
-        outfits.append(outfit)
+        outfits_by_idx[outfit_idx] = outfit
     
+    # Convert to list in correct order (Classic, Trendy, Bold)
+    outfits = [outfits_by_idx[i] for i in range(len(directions))]
     logger.info("All outfits built with unique items")
 
     # 6. Store in database (get generation_id first for collages)
