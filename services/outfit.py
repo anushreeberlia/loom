@@ -755,8 +755,7 @@ def generate_candidate_outfits(
     Generate multiple candidate outfit combinations from slot candidates.
     Uses simple combinatorial approach: vary each slot independently.
     
-    Layer and accessory are both optional, but at least one is required.
-    Scoring decides which combination works best.
+    Layer is optional (scoring decides). Accessory is always included.
     
     Args:
         slots: List of slots to fill
@@ -774,31 +773,21 @@ def generate_candidate_outfits(
         options = candidates_by_slot.get(slot, [])[:3]  # Top 3 per slot
         if options:
             slot_candidates = [(slot, opt) for opt in options]
-            # Layer and accessory are optional - include "none" as an option
-            if slot in ["layer", "accessory"]:
+            # Only layer is optional - include "no layer" as an option
+            if slot == "layer":
                 slot_candidates.append((slot, None))
             slot_options.append(slot_candidates)
         else:
             slot_options.append([(slot, None)])
     
     # Generate combinations
-    combinations = list(itertools.product(*slot_options))[:max_candidates * 2]  # Generate more, then filter
+    combinations = list(itertools.product(*slot_options))[:max_candidates]
     
-    # Convert to items_by_slot format, ensuring at least one of layer/accessory
+    # Convert to items_by_slot format
     outfits = []
     for combo in combinations:
         items_by_slot = {slot: item for slot, item in combo}
-        
-        # Require at least one of layer or accessory
-        has_layer = items_by_slot.get("layer") is not None
-        has_accessory = items_by_slot.get("accessory") is not None
-        if "layer" in items_by_slot or "accessory" in items_by_slot:
-            if not has_layer and not has_accessory:
-                continue  # Skip combos with neither
-        
         outfits.append(items_by_slot)
-        if len(outfits) >= max_candidates:
-            break
     
     return outfits
 

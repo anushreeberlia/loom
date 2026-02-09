@@ -438,8 +438,6 @@ async def generate_outfits(request: Request, file: UploadFile = File(...), sessi
         outfit_idx, direction, slot = task
         precomputed_emb = task_embeddings.get((outfit_idx, direction, slot))
         try:
-            # Retrieve more layer candidates since they're shared/filtered across outfits
-            num_candidates = 25 if slot == "layer" else 15
             candidates = retrieve_for_slot(
                 base_item=base_item,
                 direction=direction,
@@ -447,7 +445,7 @@ async def generate_outfits(request: Request, file: UploadFile = File(...), sessi
                 exclude_ids=list(disliked_item_ids),  # Exclude previously disliked items
                 chosen_items={},
                 used_subtypes=set(),
-                k=num_candidates,
+                k=15,
                 source=CATALOG_SOURCE,
                 precomputed_embedding=precomputed_emb
             )
