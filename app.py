@@ -514,11 +514,14 @@ async def generate_outfits(request: Request, file: UploadFile = File(...), sessi
         )
         
         # Log selection and track used IDs
+        # Don't track layers/accessories - they can repeat across outfits
         logger.info(f"  [{direction}] Best score: {score_details.get('total', 0):.3f}")
         for slot, item in best_items.items():
             if item:
                 logger.info(f"    [{direction}] {slot}: #{item['id']} - {item['name'][:35]}")
-                used_ids_global.add(item["id"])
+                # Only track core clothing items as "used" - layers/accessories can repeat
+                if slot not in ["layer", "accessory"]:
+                    used_ids_global.add(item["id"])
         
         # Assemble final outfit (with enhanced scoring)
         outfit = assemble_outfit(
