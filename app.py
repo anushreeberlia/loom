@@ -438,6 +438,8 @@ async def generate_outfits(request: Request, file: UploadFile = File(...), sessi
         outfit_idx, direction, slot = task
         precomputed_emb = task_embeddings.get((outfit_idx, direction, slot))
         try:
+            # Retrieve more layer candidates since they're shared/filtered across outfits
+            num_candidates = 25 if slot == "layer" else 15
             candidates = retrieve_for_slot(
                 base_item=base_item,
                 direction=direction,
@@ -445,7 +447,7 @@ async def generate_outfits(request: Request, file: UploadFile = File(...), sessi
                 exclude_ids=list(disliked_item_ids),  # Exclude previously disliked items
                 chosen_items={},
                 used_subtypes=set(),
-                k=15,  # Get extra candidates for diversity across outfits
+                k=num_candidates,
                 source=CATALOG_SOURCE,
                 precomputed_embedding=precomputed_emb
             )
@@ -514,14 +516,11 @@ async def generate_outfits(request: Request, file: UploadFile = File(...), sessi
         )
         
         # Log selection and track used IDs
-        # Don't track layers/accessories - they can repeat across outfits
         logger.info(f"  [{direction}] Best score: {score_details.get('total', 0):.3f}")
         for slot, item in best_items.items():
             if item:
                 logger.info(f"    [{direction}] {slot}: #{item['id']} - {item['name'][:35]}")
-                # Only track core clothing items as "used" - layers/accessories can repeat
-                if slot not in ["layer", "accessory"]:
-                    used_ids_global.add(item["id"])
+                used_ids_global.add(item["id"])
         
         # Assemble final outfit (with enhanced scoring)
         outfit = assemble_outfit(
