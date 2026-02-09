@@ -87,9 +87,7 @@ STYLE_DIRECTIONS = {
     },
 }
 
-# Which outfits include a layer (for tops/bottoms)
-# Disabled - let outfits be simpler without forced layers
-LAYER_IN_OUTFIT = set()  # No forced layers
+# Layer is now handled dynamically by scoring - see generate_candidate_outfits()
 
 
 def get_slots_for_category(category: str) -> list[str]:
@@ -171,23 +169,25 @@ def enforce_monochrome_cap(items_by_slot: dict, base_color: str, max_matching: i
     return items_by_slot
 
 
-def get_slots_for_outfit(base_category: str, outfit_index: int) -> list[str]:
+def get_slots_for_outfit(base_category: str, outfit_index: int = 0) -> list[str]:
     """
-    Get slots for a specific outfit, considering layer rules.
+    Get slots for a specific outfit.
+    
+    For top/bottom/shoes inputs, layer is always included as a candidate.
+    The scoring will determine if the layer improves the outfit.
     
     Args:
         base_category: Category of the user's input item
-        outfit_index: 0, 1, or 2
+        outfit_index: 0, 1, or 2 (unused now, kept for compatibility)
     
     Returns:
         List of slots to fill for this outfit
     """
     base_slots = get_slots_for_category(base_category)
     
-    # Add layer to outfit 1 (index 1) if not already included and category allows
-    if outfit_index in LAYER_IN_OUTFIT:
-        if "layer" not in base_slots and base_category in ["top", "bottom"]:
-            return base_slots + ["layer"]
+    # Always include layer for top/bottom/shoes - scoring decides if it helps
+    if "layer" not in base_slots and base_category in ["top", "bottom", "shoes"]:
+        return base_slots + ["layer"]
     
     return base_slots
 
@@ -755,6 +755,9 @@ def generate_candidate_outfits(
     Generate multiple candidate outfit combinations from slot candidates.
     Uses simple combinatorial approach: vary each slot independently.
     
+    Layer is treated as optional - both with-layer and without-layer 
+    combinations are generated, letting scoring decide what's best.
+    
     Args:
         slots: List of slots to fill
         candidates_by_slot: Dict mapping slot -> list of candidate items
@@ -770,7 +773,11 @@ def generate_candidate_outfits(
     for slot in slots:
         options = candidates_by_slot.get(slot, [])[:3]  # Top 3 per slot
         if options:
-            slot_options.append([(slot, opt) for opt in options])
+            slot_candidates = [(slot, opt) for opt in options]
+            # Layer is optional - include "no layer" as an option
+            if slot == "layer":
+                slot_candidates.append((slot, None))
+            slot_options.append(slot_candidates)
         else:
             slot_options.append([(slot, None)])
     

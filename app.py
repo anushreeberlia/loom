@@ -390,6 +390,7 @@ async def generate_outfits(request: Request, file: UploadFile = File(...), sessi
     base_category = base_item.get("category", "top")
     
     # Build list of all (direction, slot) pairs and their query texts
+    # Layer candidates are retrieved for all outfits - scoring decides if used
     retrieval_tasks = []
     query_texts = []
     for outfit_idx, direction in enumerate(directions):
