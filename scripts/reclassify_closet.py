@@ -25,11 +25,10 @@ from services.embedding import embed_base_item
 
 def get_original_url(url: str) -> str:
     """Strip transformations to get original image URL."""
-    # Remove transformation params between /upload/ and /v...
     import re
-    # Match: /upload/TRANSFORMATIONS/vXXX/... -> /upload/vXXX/...
+    # Remove everything between /upload/ and /vXXX/ (handles chained transforms with /)
     cleaned = re.sub(
-        r'(/upload/)[^v][^/]*/?(v\d+/)',
+        r'(/upload/).*?(v\d+/)',
         r'\1\2',
         url
     )
@@ -80,10 +79,10 @@ def reclassify_all():
             print("  Generating embedding...")
             embedding = embed_base_item(parsed)
             
-            # Build new URL with transformations
+            # Build new URL with transformations (chained for proper order)
             new_url = original_url.replace(
                 "/upload/",
-                "/upload/a_auto,e_background_removal,e_improve,q_auto:best,f_auto/"
+                "/upload/e_background_removal/e_trim/c_pad,ar_3:4,b_white/"
             )
             
             # Update database
