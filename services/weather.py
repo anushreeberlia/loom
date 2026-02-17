@@ -232,18 +232,27 @@ def get_material_weather_score(material: str, weather_adjustments: dict) -> int:
     return score
 
 
-def get_occasion_from_time() -> dict:
+def get_occasion_from_time(timezone_offset_hours: float = None) -> dict:
     """
     Auto-detect appropriate occasion based on current day and time.
+    
+    Args:
+        timezone_offset_hours: User's timezone offset from UTC (e.g., -8 for PST)
+                              If None, uses server time (UTC on Railway)
     
     Returns dict with:
         - occasion: str - primary occasion tag to prefer
         - avoid_occasions: list - occasions to deprioritize
         - note: str - human-readable suggestion
     """
-    from datetime import datetime
+    from datetime import datetime, timedelta
     
-    now = datetime.now()
+    now = datetime.utcnow()
+    
+    # Apply timezone offset if provided
+    if timezone_offset_hours is not None:
+        now = now + timedelta(hours=timezone_offset_hours)
+    
     hour = now.hour
     weekday = now.weekday()  # 0=Monday, 6=Sunday
     

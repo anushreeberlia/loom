@@ -1302,13 +1302,14 @@ async def get_daily_outfits(
     lat: float = None,
     lon: float = None,
     nocache: bool = False,
-    user_id: str = "default"
+    user_id: str = "default",
+    tz_offset: float = None  # Timezone offset from UTC in hours (e.g., -8 for PST)
 ):
     """
     Generate 3 weather-appropriate outfits automatically.
     Picks different base items from closet for variety.
     """
-    logger.info(f"Daily outfits: lat={lat}, lon={lon}")
+    logger.info(f"Daily outfits: lat={lat}, lon={lon}, tz={tz_offset}")
     base_url = str(request.base_url).rstrip("/")
     
     # Get taste vectors for personalization (user_id acts as session_id for closet)
@@ -1316,8 +1317,8 @@ async def get_daily_outfits(
     if taste_vector or dislike_vector:
         logger.info(f"Taste vectors found for closet user {user_id}")
     
-    # Get occasion based on day/time
-    occasion_info = get_occasion_from_time()
+    # Get occasion based on day/time (use user's timezone if provided)
+    occasion_info = get_occasion_from_time(tz_offset)
     logger.info(f"Occasion: {occasion_info['occasion']} - {occasion_info['note']}")
     
     # Fetch weather

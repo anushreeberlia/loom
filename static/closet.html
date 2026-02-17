@@ -828,6 +828,10 @@
                 if (nocache) {
                     params.push('nocache=true');
                 }
+                // Send timezone offset so server knows local time
+                const tzOffset = -new Date().getTimezoneOffset() / 60; // Convert minutes to hours
+                params.push(`tz_offset=${tzOffset}`);
+                
                 if (params.length) {
                     url += '?' + params.join('&');
                 }
