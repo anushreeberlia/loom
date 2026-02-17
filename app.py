@@ -778,6 +778,7 @@ async def add_closet_item(file: UploadFile = File(...), user_id: str = Form("def
             folder="closet",
             resource_type="image",
             transformation=[
+                {"angle": "auto"},                 # Auto-rotate based on EXIF
                 {"effect": "background_removal"},  # Remove background
                 {"effect": "improve"},             # Auto-enhance quality
                 {"quality": "auto:best"},          # Optimize quality
@@ -1027,6 +1028,7 @@ async def generate_closet_outfits(
                 folder="closet",
                 resource_type="image",
                 transformation=[
+                    {"angle": "auto"},                 # Auto-rotate based on EXIF
                     {"effect": "background_removal"},
                     {"effect": "improve"},
                     {"quality": "auto:best"},

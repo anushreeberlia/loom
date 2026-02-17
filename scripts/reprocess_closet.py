@@ -19,7 +19,7 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 def add_transformations_to_url(url: str) -> str:
     """
     Add Cloudinary transformations to existing URL.
-    e.g., /upload/v123/closet/img.jpg -> /upload/e_background_removal,e_improve,q_auto:best/v123/closet/img.jpg
+    e.g., /upload/v123/closet/img.jpg -> /upload/a_auto,e_background_removal,e_improve,q_auto:best/v123/closet/img.jpg
     """
     # Match Cloudinary URL pattern
     pattern = r'(https://res\.cloudinary\.com/[^/]+/image/upload/)(v\d+/.+)'
@@ -28,7 +28,7 @@ def add_transformations_to_url(url: str) -> str:
     if match:
         base = match.group(1)
         path = match.group(2)
-        transformations = "e_background_removal,e_improve,q_auto:best,f_auto"
+        transformations = "a_auto,e_background_removal,e_improve,q_auto:best,f_auto"
         return f"{base}{transformations}/{path}"
     
     return url  # Return unchanged if not matching pattern
@@ -46,12 +46,17 @@ def reprocess_all():
     
     updated = 0
     for item_id, name, old_url in items:
-        # Skip if already has transformations
-        if "e_background_removal" in old_url:
-            print(f"[{item_id}] {name} - Already processed, skipping")
+        # Check if already has auto-rotate
+        if "a_auto" in old_url:
+            print(f"[{item_id}] {name} - Already has auto-rotate, skipping")
             continue
         
-        new_url = add_transformations_to_url(old_url)
+        # If has old transformations without a_auto, add it
+        if "e_background_removal" in old_url:
+            # Insert a_auto at the beginning of transformations
+            new_url = old_url.replace("e_background_removal", "a_auto,e_background_removal")
+        else:
+            new_url = add_transformations_to_url(old_url)
         
         if new_url != old_url:
             print(f"[{item_id}] {name}")
