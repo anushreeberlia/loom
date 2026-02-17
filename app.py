@@ -1419,40 +1419,38 @@ async def get_daily_outfits(
     elif weather_adjustments and weather_adjustments.get("skip_layer"):
         base_categories = ["top", "bottom", "dress"]  # Skip layers in hot
     
-    # Filter out items with incompatible occasions (hard exclusion)
-    def is_occasion_compatible(item):
-        """Check if item's occasions conflict with current occasion."""
+    # Filter items to only those appropriate for the current occasion
+    def is_occasion_appropriate(item):
+        """Check if item matches current occasion (use prefer/avoid lists)."""
         item_occasions = item.get("occasion_tags") or []
         item_styles = item.get("style_tags") or []
+        all_tags = set(item_occasions + item_styles)
         
-        # Items tagged as workout/gym/athletic should only appear for casual occasions
-        workout_tags = {"gym", "workout", "athletic", "activewear", "sporty", "sports"}
-        is_workout = any(tag in workout_tags for tag in item_occasions + item_styles)
+        # If item has no occasion tags, it's considered versatile
+        if not all_tags:
+            return True
         
-        current_occasion = occasion_info.get("occasion", "")
+        # Check if item has any avoided occasion tags
+        for avoid_tag in avoid_occasions:
+            if avoid_tag in all_tags:
+                return False
         
-        # Exclude workout items unless we're in casual mode
-        if is_workout and current_occasion not in ["casual"]:
-            return False
+        # Prefer items that match the occasion, but don't exclude neutral items
+        has_preferred = any(tag in all_tags for tag in prefer_occasions)
+        has_versatile = any(tag in all_tags for tag in ["everyday", "versatile", "casual"])
         
-        # Exclude lounge/sleepwear for non-casual
-        lounge_tags = {"lounge", "loungewear", "sleepwear", "pajama"}
-        is_lounge = any(tag in lounge_tags for tag in item_occasions + item_styles)
-        if is_lounge and current_occasion not in ["casual"]:
-            return False
-        
-        return True
+        return has_preferred or has_versatile or len(all_tags) == 0
     
-    # Filter items by occasion compatibility
-    occasion_filtered_items = [i for i in all_items if is_occasion_compatible(i)]
+    # Get occasion-appropriate items first
+    appropriate_items = [i for i in all_items if is_occasion_appropriate(i)]
     
     selected_bases = []
     used_ids = set()
     
+    # First try to pick from occasion-appropriate items
     for pref_cat in base_categories:
-        candidates = [i for i in occasion_filtered_items if i["category"] == pref_cat and i["id"] not in used_ids]
+        candidates = [i for i in appropriate_items if i["category"] == pref_cat and i["id"] not in used_ids]
         if candidates:
-            # Sort by combined season + occasion score
             candidates.sort(key=item_score, reverse=True)
             selected = candidates[0]
             selected_bases.append(selected)
@@ -1460,9 +1458,9 @@ async def get_daily_outfits(
         if len(selected_bases) >= 3:
             break
     
-    # Fill remaining with any category (from filtered items)
+    # Fill remaining from appropriate items
     if len(selected_bases) < 3:
-        remaining = [i for i in occasion_filtered_items if i["id"] not in used_ids]
+        remaining = [i for i in appropriate_items if i["id"] not in used_ids]
         remaining.sort(key=item_score, reverse=True)
         for item in remaining:
             selected_bases.append(item)
@@ -1470,7 +1468,7 @@ async def get_daily_outfits(
             if len(selected_bases) >= 3:
                 break
     
-    # Fallback to all items if not enough occasion-compatible ones
+    # Fallback to all items if closet is limited
     if len(selected_bases) < 3:
         remaining = [i for i in all_items if i["id"] not in used_ids]
         remaining.sort(key=item_score, reverse=True)
