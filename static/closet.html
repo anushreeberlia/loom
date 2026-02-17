@@ -410,6 +410,37 @@
             border: 1px solid var(--border);
         }
 
+        /* Feedback buttons */
+        .outfit-feedback {
+            padding: 0.6rem 1rem;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0.5rem;
+            border-top: 1px solid var(--border);
+        }
+
+        .feedback-btn {
+            padding: 0.45rem;
+            background: transparent;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            font-size: 0.75rem;
+            cursor: pointer;
+            transition: all 0.15s;
+            color: var(--text-muted);
+        }
+
+        .feedback-btn:hover {
+            border-color: var(--text);
+            color: var(--text);
+        }
+
+        .feedback-btn.active {
+            background: var(--text);
+            color: white;
+            border-color: var(--text);
+        }
+
         .try-again {
             text-align: center;
             padding-top: 2rem;
@@ -787,11 +818,18 @@
             );
         }
 
-        async function loadDailyOutfits(lat, lon) {
+        async function loadDailyOutfits(lat, lon, nocache = false) {
             try {
                 let url = '/v1/closet/daily';
+                const params = [];
                 if (lat !== null && lon !== null) {
-                    url += `?lat=${lat}&lon=${lon}`;
+                    params.push(`lat=${lat}`, `lon=${lon}`);
+                }
+                if (nocache) {
+                    params.push('nocache=true');
+                }
+                if (params.length) {
+                    url += '?' + params.join('&');
                 }
                 
                 const res = await fetch(url);
@@ -874,6 +912,10 @@
                                 <span class="item-color color-${item.primary_color || 'grey'}"></span>
                             </div>
                         `).join('')}
+                    </div>
+                    <div class="outfit-feedback">
+                        <button class="feedback-btn" onclick="sendFeedback(${idx}, true, this)">👍 Like</button>
+                        <button class="feedback-btn" onclick="sendFeedback(${idx}, false, this)">👎 Dislike</button>
                     </div>
                 </div>
             `).join('');
@@ -1043,6 +1085,25 @@
             return map[slot?.toLowerCase()] || slot?.toUpperCase() || '';
         }
 
+        // Feedback for taste learning
+        async function sendFeedback(idx, liked, btn) {
+            try {
+                await fetch('/v1/feedback', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        outfit_index: idx, 
+                        liked,
+                        source: 'closet_daily'
+                    })
+                });
+                btn.parentElement.querySelectorAll('.feedback-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+            } catch (e) { 
+                console.error('Feedback error:', e); 
+            }
+        }
+
         document.getElementById('try-again-btn').addEventListener('click', () => {
             resultsSection.classList.remove('visible');
             selectionSection.style.display = 'block';
@@ -1058,13 +1119,13 @@
             loadCloset();
         });
 
-        // Refresh daily outfits
+        // Refresh daily outfits (with nocache to force regeneration)
         document.getElementById('refresh-daily-btn').addEventListener('click', () => {
             dailyGrid.style.display = 'none';
             dailyActions.style.display = 'none';
             dailyLoading.style.display = 'block';
             dailySubtitle.textContent = 'Generating new looks...';
-            loadDailyOutfits(userLocation?.lat, userLocation?.lon);
+            loadDailyOutfits(userLocation?.lat, userLocation?.lon, true);
         });
 
         // Switch to pick item mode

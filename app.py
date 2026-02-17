@@ -1297,6 +1297,7 @@ async def get_daily_outfits(
     request: Request,
     lat: float = None,
     lon: float = None,
+    nocache: bool = False,
     user_id: str = "default"
 ):
     """
@@ -1506,7 +1507,8 @@ async def get_daily_outfits(
                 generation_id=f"daily_{idx}",
                 direction=f"outfit_{idx + 1}",
                 items=items_for_collage,
-                base_item={"image_url": base_item["image_url"], "category": base_category}
+                base_item={"image_url": base_item["image_url"], "category": base_category},
+                force=nocache  # Force regeneration when refreshing
             )
             outfit["collage_url"] = make_absolute_url(base_url, collage_path)
         except Exception as e:
