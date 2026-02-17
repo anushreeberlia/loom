@@ -37,6 +37,11 @@ class FeedbackRequest(BaseModel):
     liked: bool
     session_id: str = None  # For taste vector tracking
 
+class ClosetFeedbackRequest(BaseModel):
+    item_ids: list[int]  # IDs of items in the outfit
+    liked: bool
+    user_id: str = "default"
+
 app = FastAPI(title="AI Outfit Styler")
 
 # Ensure directories exist
@@ -667,6 +672,46 @@ async def submit_feedback(req: FeedbackRequest):
         conn.rollback()
         logger.error(f"Feedback DB error: {e}")
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@app.post("/v1/closet/feedback")
+async def submit_closet_feedback(req: ClosetFeedbackRequest):
+    """Submit like/dislike feedback for closet outfits - updates taste vector."""
+    logger.info(f"Closet feedback: items={req.item_ids}, liked={req.liked}, user={req.user_id}")
+    
+    if not req.item_ids:
+        raise HTTPException(status_code=400, detail="item_ids required")
+    
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        # Get embeddings for the items
+        placeholders = ','.join(['%s'] * len(req.item_ids))
+        cursor.execute(
+            f"""SELECT id, embedding::text FROM user_closet_items 
+               WHERE id IN ({placeholders}) AND user_id = %s AND embedding IS NOT NULL""",
+            (*req.item_ids, req.user_id)
+        )
+        rows = cursor.fetchall()
+        
+        item_embeddings = []
+        for row in rows:
+            if row[1]:
+                embedding = [float(x) for x in row[1].strip("[]").split(",")]
+                item_embeddings.append(embedding)
+        
+        if item_embeddings:
+            # Use user_id as session_id for closet users
+            update_taste_vector(req.user_id, item_embeddings, req.liked)
+            logger.info(f"Taste vector updated: {len(item_embeddings)} embeddings, liked={req.liked}")
+        
+        return {"status": "recorded", "items_processed": len(item_embeddings)}
+    except Exception as e:
+        logger.error(f"Closet feedback error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
     finally:
         cursor.close()
         conn.close()
@@ -1307,6 +1352,11 @@ async def get_daily_outfits(
     logger.info(f"Daily outfits: lat={lat}, lon={lon}")
     base_url = str(request.base_url).rstrip("/")
     
+    # Get taste vectors for personalization (user_id acts as session_id for closet)
+    taste_vector, dislike_vector = get_taste_vector(user_id)
+    if taste_vector or dislike_vector:
+        logger.info(f"Taste vectors found for closet user {user_id}")
+    
     # Fetch weather
     weather_data = None
     weather_adjustments = None
@@ -1488,7 +1538,9 @@ async def get_daily_outfits(
                 candidate_outfits=candidate_outfits,
                 base_item=base_item,
                 direction=direction,
-                base_embedding=embedding
+                base_embedding=embedding,
+                taste_vector=taste_vector,
+                dislike_vector=dislike_vector
             )
             
             # Track used items
@@ -1496,7 +1548,11 @@ async def get_daily_outfits(
                 if item:
                     used_ids_global.add(item["id"])
             
-            outfit = assemble_outfit(direction, base_item, best_items, embedding)
+            outfit = assemble_outfit(
+                direction, base_item, best_items, embedding,
+                taste_vector=taste_vector,
+                dislike_vector=dislike_vector
+            )
             outfit["direction"] = f"Outfit {idx + 1}"
             outfit["base_item"] = base_item
         

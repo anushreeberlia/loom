@@ -892,7 +892,10 @@
             `;
         }
 
+        let dailyOutfitsData = []; // Store outfit data for feedback
+        
         function displayDailyOutfits(outfits) {
+            dailyOutfitsData = outfits; // Save for feedback
             dailyGrid.innerHTML = outfits.map((outfit, idx) => `
                 <div class="outfit-card">
                     <div class="outfit-header">
@@ -1085,20 +1088,39 @@
             return map[slot?.toLowerCase()] || slot?.toUpperCase() || '';
         }
 
-        // Feedback for taste learning
+        // Feedback for taste learning - uses item embeddings from closet
         async function sendFeedback(idx, liked, btn) {
             try {
-                await fetch('/v1/feedback', {
+                // Get item IDs from the outfit
+                const outfit = dailyOutfitsData[idx];
+                if (!outfit) return;
+                
+                const itemIds = (outfit.items || [])
+                    .filter(item => item && item.id)
+                    .map(item => item.id);
+                
+                // Also include base item if it has an ID
+                if (outfit.base_item?.id && !itemIds.includes(outfit.base_item.id)) {
+                    itemIds.push(outfit.base_item.id);
+                }
+                
+                if (itemIds.length === 0) {
+                    console.warn('No item IDs found for feedback');
+                    return;
+                }
+                
+                await fetch('/v1/closet/feedback', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ 
-                        outfit_index: idx, 
-                        liked,
-                        source: 'closet_daily'
+                        item_ids: itemIds,
+                        liked
                     })
                 });
+                
                 btn.parentElement.querySelectorAll('.feedback-btn').forEach(b => b.classList.remove('active'));
                 btn.classList.add('active');
+                console.log(`Taste updated: ${liked ? 'liked' : 'disliked'} ${itemIds.length} items`);
             } catch (e) { 
                 console.error('Feedback error:', e); 
             }
