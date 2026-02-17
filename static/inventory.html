@@ -352,33 +352,44 @@
             vertical-align: middle;
         }
 
-        .item-delete {
+        .item-actions {
             position: absolute;
             top: 0.5rem;
             right: 0.5rem;
-            width: 24px;
-            height: 24px;
+            display: flex;
+            gap: 0.35rem;
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+
+        .item-card:hover .item-actions {
+            opacity: 1;
+        }
+
+        .item-btn {
+            width: 26px;
+            height: 26px;
             background: white;
             border: 1px solid var(--border);
             border-radius: 50%;
             cursor: pointer;
             font-size: 0.7rem;
             color: var(--text-muted);
-            opacity: 0;
-            transition: all 0.2s;
             display: flex;
             align-items: center;
             justify-content: center;
+            transition: all 0.2s;
         }
 
-        .item-card:hover .item-delete {
-            opacity: 1;
+        .item-btn:hover {
+            background: var(--text);
+            border-color: var(--text);
+            color: white;
         }
 
-        .item-delete:hover {
+        .item-btn.delete:hover {
             background: var(--accent);
             border-color: var(--accent);
-            color: white;
         }
 
         /* Empty State */
@@ -714,7 +725,10 @@
             emptyState.style.display = 'none';
             itemsGrid.innerHTML = filtered.map(item => `
                 <div class="item-card" data-id="${item.id}">
-                    <button class="item-delete" onclick="deleteItem(${item.id})" title="Remove">×</button>
+                    <div class="item-actions">
+                        <button class="item-btn" onclick="rotateItem(${item.id})" title="Rotate 90°">↻</button>
+                        <button class="item-btn delete" onclick="deleteItem(${item.id})" title="Remove">×</button>
+                    </div>
                     <img class="item-image" src="${item.image_url}" alt="${item.name}" loading="lazy">
                     <div class="item-info">
                         <div class="item-category">${item.category}</div>
@@ -770,6 +784,56 @@
                 renderItems();
                 showToast(`Added ${completed} item${completed !== 1 ? 's' : ''} to closet`, 'success');
             }, 500);
+        }
+
+        async function rotateItem(id) {
+            const item = allItems.find(i => i.id === id);
+            if (!item) return;
+
+            // Parse current rotation from URL, add 90 degrees
+            const url = item.image_url;
+            let newUrl;
+            
+            // Check if already has rotation
+            const rotateMatch = url.match(/a_(\d+)/);
+            if (rotateMatch) {
+                const currentAngle = parseInt(rotateMatch[1]);
+                const newAngle = (currentAngle + 90) % 360;
+                if (newAngle === 0) {
+                    // Remove rotation entirely
+                    newUrl = url.replace(/,?a_\d+/, '').replace(/\/,/, '/');
+                } else {
+                    newUrl = url.replace(/a_\d+/, `a_${newAngle}`);
+                }
+            } else {
+                // Add rotation after other transformations
+                // Insert a_90 after /upload/ or after existing transformations
+                newUrl = url.replace(
+                    /(\/upload\/)((?:[^/]+\/)?)(v\d+)/,
+                    (match, upload, transforms, version) => {
+                        if (transforms) {
+                            return `${upload}${transforms.slice(0, -1)},a_90/${version}`;
+                        } else {
+                            return `${upload}a_90/${version}`;
+                        }
+                    }
+                );
+            }
+
+            try {
+                const res = await fetch(`/v1/closet/items/${id}/rotate`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ image_url: newUrl })
+                });
+                if (!res.ok) throw new Error('Rotate failed');
+
+                item.image_url = newUrl;
+                renderItems();
+                showToast('Rotated', 'success');
+            } catch (e) {
+                showToast('Failed to rotate', 'error');
+            }
         }
 
         async function deleteItem(id) {

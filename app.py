@@ -890,6 +890,38 @@ async def delete_closet_item(item_id: int, user_id: str = "default"):
         conn.close()
 
 
+class RotateRequest(BaseModel):
+    image_url: str
+
+
+@app.post("/v1/closet/items/{item_id}/rotate")
+async def rotate_closet_item(item_id: int, req: RotateRequest, user_id: str = "default"):
+    """Update item's image URL with rotation transformation."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            "UPDATE user_closet_items SET image_url = %s WHERE id = %s AND user_id = %s RETURNING id",
+            (req.image_url, item_id, user_id)
+        )
+        updated = cursor.fetchone()
+        if not updated:
+            raise HTTPException(status_code=404, detail="Item not found")
+        
+        conn.commit()
+        logger.info(f"Closet item rotated: id={item_id}")
+        return {"id": item_id, "image_url": req.image_url}
+    except HTTPException:
+        raise
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"Rotate error: {e}")
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+    finally:
+        cursor.close()
+        conn.close()
+
+
 @app.get("/v1/closet/items/{item_id}")
 async def get_closet_item(item_id: int, user_id: str = "default"):
     """Get a single closet item with its embedding."""
