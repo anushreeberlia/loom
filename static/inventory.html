@@ -141,7 +141,7 @@
             color: var(--text-muted);
         }
 
-        #file-input, #camera-input, #bulk-camera-input {
+        #bulk-camera-input {
             display: none;
         }
 
@@ -150,6 +150,8 @@
             cursor: pointer;
             -webkit-tap-highlight-color: rgba(0,0,0,0.1);
             touch-action: manipulation;
+            position: relative;
+            overflow: hidden;
         }
 
         /* Bulk Capture */
@@ -634,17 +636,17 @@
         </div>
 
         <div class="upload-actions">
-            <label class="upload-zone" id="upload-zone" for="file-input">
+            <label class="upload-zone" id="upload-zone">
                 <div class="upload-zone-icon">📁</div>
                 <div class="upload-zone-text">Select photos</div>
                 <div class="upload-zone-hint">tap to choose from gallery</div>
-                <input type="file" id="file-input" accept="image/*" multiple>
+                <input type="file" id="file-input" accept="image/*" multiple style="position:absolute;opacity:0;width:100%;height:100%;top:0;left:0;cursor:pointer;">
             </label>
-            <label class="upload-zone camera-zone" id="camera-zone" for="camera-input">
+            <label class="upload-zone camera-zone" id="camera-zone">
                 <div class="upload-zone-icon">📷</div>
                 <div class="upload-zone-text">Take photo</div>
                 <div class="upload-zone-hint">open camera</div>
-                <input type="file" id="camera-input" accept="image/*" capture="environment">
+                <input type="file" id="camera-input" accept="image/*" capture="environment" style="position:absolute;opacity:0;width:100%;height:100%;top:0;left:0;cursor:pointer;">
             </label>
         </div>
         
