@@ -1053,8 +1053,11 @@
                 resultsNote.textContent = 'All pieces from your closet';
             }
 
+            // Store for feedback
+            window.generatedOutfitsData = data.outfits;
+            
             outfitsGrid.innerHTML = data.outfits.map((outfit, idx) => `
-                <div class="outfit-card">
+                <div class="outfit-card" data-outfit-idx="${idx}">
                     <div class="outfit-header">
                         <span class="outfit-direction">Outfit ${idx + 1}</span>
                     </div>
@@ -1073,8 +1076,85 @@
                         `).join('')}
                         ${(outfit.items || []).length === 0 ? '<div style="color: #888; font-size: 0.8rem;">Need more items in closet for this style</div>' : ''}
                     </div>
+                    <div class="outfit-feedback">
+                        <button class="feedback-btn" onclick="sendGeneratedFeedback(${idx}, true, this)">👍 Like</button>
+                        <button class="feedback-btn" onclick="sendGeneratedFeedback(${idx}, false, this)">👎 Dislike</button>
+                    </div>
                 </div>
             `).join('');
+        }
+        
+        // Feedback for generated outfits (from one piece)
+        async function sendGeneratedFeedback(idx, liked, btn) {
+            try {
+                const outfit = window.generatedOutfitsData?.[idx];
+                if (!outfit) return;
+                
+                const itemIds = (outfit.items || [])
+                    .filter(item => item && item.id)
+                    .map(item => item.id);
+                
+                if (outfit.base_item?.id && !itemIds.includes(outfit.base_item.id)) {
+                    itemIds.push(outfit.base_item.id);
+                }
+                
+                if (itemIds.length === 0) return;
+                
+                // Record feedback for taste learning
+                await fetch('/v1/closet/feedback', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ item_ids: itemIds, liked })
+                });
+                
+                btn.parentElement.querySelectorAll('.feedback-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                
+                // If disliked, regenerate this outfit
+                if (!liked) {
+                    await regenerateCuratedOutfit(idx, itemIds);
+                }
+            } catch (e) { 
+                console.error('Feedback error:', e); 
+            }
+        }
+        
+        // Regenerate a single curated outfit after dislike
+        async function regenerateCuratedOutfit(idx, excludeIds) {
+            const card = document.querySelector(`#outfits-grid .outfit-card[data-outfit-idx="${idx}"]`);
+            if (!card) return;
+            
+            const img = card.querySelector('.outfit-collage');
+            if (img) img.style.opacity = '0.5';
+            
+            try {
+                // Get base item ID
+                const baseItemId = selectedItemId || window.generatedOutfitsData[idx]?.base_item?.id;
+                if (!baseItemId) return;
+                
+                // Use the single-outfit regenerate endpoint
+                let url = `/v1/closet/daily/regenerate/${idx}?exclude_ids=${excludeIds.join(',')}`;
+                if (userLat !== null && userLon !== null) {
+                    url += `&lat=${userLat}&lon=${userLon}`;
+                }
+                
+                const res = await fetch(url);
+                if (!res.ok) throw new Error('Regeneration failed');
+                
+                const newOutfit = await res.json();
+                
+                // Update data and UI
+                window.generatedOutfitsData[idx] = newOutfit;
+                if (img) {
+                    img.src = newOutfit.collage_url + '?t=' + Date.now();
+                }
+                
+                card.querySelectorAll('.feedback-btn').forEach(b => b.classList.remove('active'));
+                console.log(`Curated outfit ${idx + 1} regenerated`);
+            } catch (e) {
+                console.error('Regenerate error:', e);
+            }
+            if (img) img.style.opacity = '1';
         }
 
         function formatSlot(slot) {
@@ -1134,12 +1214,11 @@
         
         // Regenerate a single outfit, excluding the disliked items
         async function regenerateOutfit(idx, excludeIds) {
-            const card = document.querySelector(`.outfit-card:nth-child(${idx + 1})`);
+            const card = document.querySelectorAll('#daily-grid .outfit-card')[idx];
             if (!card) return;
             
             // Show loading state
-            const img = card.querySelector('.outfit-image');
-            const originalSrc = img?.src;
+            const img = card.querySelector('.outfit-collage');
             if (img) img.style.opacity = '0.5';
             card.querySelector('.outfit-feedback')?.classList.add('loading');
             
