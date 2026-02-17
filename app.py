@@ -24,6 +24,7 @@ from services.outfit import (
 from services.retrieval import retrieve_for_slot, build_query_text, get_batch_embeddings
 from services.collage import generate_outfit_collage
 from services.weather import fetch_weather, get_weather_outfit_adjustments, WeatherData
+from services.image_processor import process_clothing_image, auto_rotate_image
 
 import os
 from dotenv import load_dotenv
@@ -801,25 +802,25 @@ async def add_closet_item(file: UploadFile = File(...), user_id: str = Form("def
     if not contents:
         raise HTTPException(status_code=400, detail="No image uploaded")
     
-    # 1. Upload to Cloudinary with eager transformations (process once, store result)
+    # 1. Process image locally (background removal, trim, pad)
+    try:
+        logger.info("Processing image locally...")
+        processed_bytes = process_clothing_image(contents)
+        logger.info("Image processed, uploading to Cloudinary...")
+    except Exception as e:
+        logger.error(f"Image processing error: {e}")
+        # Fall back to uploading original if processing fails
+        processed_bytes = contents
+    
+    # 2. Upload processed image to Cloudinary (just storage, no transformations)
     try:
         upload_result = cloudinary.uploader.upload(
-            contents,
+            processed_bytes,
             folder="closet",
-            resource_type="image",
-            eager=[
-                # Chain: bg removal -> trim -> pad to 3:4 with white
-                {"raw_transformation": "e_background_removal/e_trim/c_pad,ar_3:4,b_white"}
-            ],
-            eager_async=False  # Wait for processing to complete
+            resource_type="image"
         )
-        # Use the eager-transformed URL if available, otherwise fall back to original
-        if upload_result.get("eager") and len(upload_result["eager"]) > 0:
-            image_url = upload_result["eager"][0]["secure_url"]
-            logger.info(f"Uploaded to Cloudinary (pre-processed): {image_url}")
-        else:
-            image_url = upload_result["secure_url"]
-            logger.info(f"Uploaded to Cloudinary (original): {image_url}")
+        image_url = upload_result["secure_url"]
+        logger.info(f"Uploaded to Cloudinary: {image_url}")
     except Exception as e:
         logger.error(f"Cloudinary upload error: {e}")
         raise HTTPException(status_code=500, detail=f"Image upload failed: {str(e)}")
@@ -1057,21 +1058,21 @@ async def generate_closet_outfits(
         if not contents:
             raise HTTPException(status_code=400, detail="No image uploaded")
         
-        # Upload to Cloudinary with eager transformations (process once, store result)
+        # Process image locally and upload to Cloudinary
+        try:
+            logger.info("Processing image locally...")
+            processed_bytes = process_clothing_image(contents)
+        except Exception as e:
+            logger.error(f"Image processing error: {e}")
+            processed_bytes = contents
+        
         try:
             upload_result = cloudinary.uploader.upload(
-                contents,
+                processed_bytes,
                 folder="closet",
-                resource_type="image",
-                eager=[
-                    {"raw_transformation": "e_background_removal/e_trim/c_pad,ar_3:4,b_white"}
-                ],
-                eager_async=False
+                resource_type="image"
             )
-            if upload_result.get("eager") and len(upload_result["eager"]) > 0:
-                input_image_url = upload_result["eager"][0]["secure_url"]
-            else:
-                input_image_url = upload_result["secure_url"]
+            input_image_url = upload_result["secure_url"]
         except Exception as e:
             logger.error(f"Cloudinary upload error: {e}")
             raise HTTPException(status_code=500, detail=f"Image upload failed: {str(e)}")
