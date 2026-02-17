@@ -1464,11 +1464,13 @@ async def get_daily_outfits(
     
     # Generate one outfit per base item
     outfits = []
-    used_ids_global = set(i["id"] for i in selected_bases)
+    used_ids_global = set()  # Don't pre-exclude bases - only exclude as used
     
     directions = ["Classic", "Trendy", "Bold"]
     
     for idx, base_item in enumerate(selected_bases[:3]):
+        # Exclude this outfit's base item from its own retrieval
+        used_ids_global.add(base_item["id"])
         direction = directions[idx] if idx < len(directions) else "Classic"
         base_category = base_item["category"]
         embedding = base_item.get("embedding")
