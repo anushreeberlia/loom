@@ -262,8 +262,8 @@ def get_occasion_from_time(timezone_offset_hours: float = None) -> dict:
         if hour >= 18:  # Evening
             return {
                 "occasion": "going-out",
-                "prefer_occasions": ["going-out", "date", "party", "dinner"],
-                "avoid_occasions": ["work", "office", "formal"],
+                "prefer_occasions": ["going-out", "date", "party", "dinner", "elegant", "chic"],
+                "avoid_occasions": ["work", "office", "formal", "sporty", "athletic", "activewear"],
                 "note": "Weekend evening - going out vibes 🎉"
             }
         else:  # Daytime weekend
@@ -278,22 +278,22 @@ def get_occasion_from_time(timezone_offset_hours: float = None) -> dict:
         if hour < 17:  # Before 5 PM
             return {
                 "occasion": "work",
-                "prefer_occasions": ["work", "office", "business-casual", "professional"],
-                "avoid_occasions": ["party", "clubbing", "beach"],
+                "prefer_occasions": ["work", "office", "business-casual", "professional", "classic", "elegant"],
+                "avoid_occasions": ["party", "clubbing", "beach", "sporty", "athletic", "activewear", "gym", "workout"],
                 "note": "Workday - office appropriate 💼"
             }
         elif hour < 20:  # 5-8 PM - transitional
             return {
                 "occasion": "smart-casual",
-                "prefer_occasions": ["smart-casual", "dinner", "after-work", "date"],
-                "avoid_occasions": ["beach", "gym", "loungewear"],
+                "prefer_occasions": ["smart-casual", "dinner", "after-work", "date", "chic"],
+                "avoid_occasions": ["beach", "gym", "loungewear", "sporty", "athletic", "activewear"],
                 "note": "Evening - smart casual for after-work 🍷"
             }
         else:  # After 8 PM
             return {
                 "occasion": "going-out",
-                "prefer_occasions": ["going-out", "dinner", "date", "night-out"],
-                "avoid_occasions": ["work", "office", "gym"],
+                "prefer_occasions": ["going-out", "dinner", "date", "night-out", "elegant", "chic"],
+                "avoid_occasions": ["work", "office", "gym", "sporty", "athletic", "activewear"],
                 "note": "Night out - dress to impress ✨"
             }
 

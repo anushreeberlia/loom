@@ -59,9 +59,14 @@ Mood: "{mood}"
 
 Return JSON with:
 - occasion: one word (work, casual, going-out, date, party, brunch, cozy, active, formal)
-- prefer_occasions: array of 3-5 tags to look for (e.g., casual, relaxed, elegant, sporty, romantic)
-- avoid_occasions: array of 2-3 tags to avoid (e.g., formal, gym, work, party)
+- prefer_occasions: array of 3-5 occasion AND style tags to look for (e.g., casual, relaxed, elegant, romantic, chic, classic)
+- avoid_occasions: array of 3-5 occasion AND style tags to EXCLUDE - be specific! Include both occasion tags (gym, work, party) AND style tags (sporty, athletic, activewear) that don't fit the mood
 - note: a short emoji-decorated summary of the vibe (max 30 chars)
+
+Examples of avoid_occasions:
+- For work/professional mood: ["party", "gym", "sporty", "athletic", "activewear", "beach"]
+- For going out/date: ["work", "office", "sporty", "athletic", "activewear", "gym"]
+- For workout: ["formal", "elegant", "work", "office"]
 
 JSON only, no explanation."""
 
@@ -1410,8 +1415,8 @@ async def get_daily_outfits(
         OCCASION_CONFIGS = {
             "work": {
                 "occasion": "work",
-                "prefer_occasions": ["work", "office", "business-casual", "professional"],
-                "avoid_occasions": ["party", "clubbing", "beach", "gym", "workout"],
+                "prefer_occasions": ["work", "office", "business-casual", "professional", "elegant", "classic"],
+                "avoid_occasions": ["party", "clubbing", "beach", "gym", "workout", "sporty", "athletic", "activewear"],
                 "note": "Work / Office 💼"
             },
             "casual": {
@@ -1422,8 +1427,8 @@ async def get_daily_outfits(
             },
             "going-out": {
                 "occasion": "going-out",
-                "prefer_occasions": ["going-out", "dinner", "date", "night-out", "party"],
-                "avoid_occasions": ["work", "office", "gym", "workout"],
+                "prefer_occasions": ["going-out", "dinner", "date", "night-out", "party", "elegant", "chic"],
+                "avoid_occasions": ["work", "office", "gym", "workout", "sporty", "athletic", "activewear"],
                 "note": "Going Out ✨"
             },
         }
@@ -1539,18 +1544,18 @@ async def get_daily_outfits(
         item_styles = item.get("style_tags") or []
         all_tags = set(item_occasions + item_styles)
         
-        # If item has no occasion tags, it's considered versatile
+        # If item has no tags, it's considered versatile
         if not all_tags:
             return True
         
-        # Check if item has any avoided occasion tags
+        # Check if item has any avoided tags (works for both occasion and style tags)
         for avoid_tag in avoid_occasions:
             if avoid_tag in all_tags:
                 return False
         
         # Prefer items that match the occasion, but don't exclude neutral items
         has_preferred = any(tag in all_tags for tag in prefer_occasions)
-        has_versatile = any(tag in all_tags for tag in ["everyday", "versatile", "casual"])
+        has_versatile = any(tag in all_tags for tag in ["everyday", "versatile"])
         
         return has_preferred or has_versatile or len(all_tags) == 0
     
