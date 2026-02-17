@@ -565,7 +565,7 @@ SLOT_CATEGORY_MAP = {
 }
 
 # Keywords to filter layer items from tops
-LAYER_KEYWORDS = {"jacket", "cardigan", "blazer", "coat", "sweater", "hoodie", "vest", "shrug", "kimono", "poncho"}
+LAYER_KEYWORDS = {"jacket", "cardigan", "blazer", "coat", "vest", "shrug", "kimono", "poncho"}
 
 
 def filter_layer_items(candidates: list[dict]) -> list[dict]:

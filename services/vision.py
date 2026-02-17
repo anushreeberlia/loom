@@ -75,8 +75,8 @@ def describe_image(image_bytes: bytes) -> str:
                             "type": "text",
                             "text": """Describe the main clothing item visible in this image. Focus on:
 - category: use these definitions:
-  * top = blouses, t-shirts, shirts, tanks, crop tops (worn directly on upper body)
-  * layer = sweaters, cardigans, jackets, coats, blazers, vests, hoodies (worn OVER tops)
+  * top = blouses, t-shirts, shirts, tanks, crop tops, sweaters, hoodies, knit tops, pullovers (main upper body piece)
+  * layer = cardigans, jackets, coats, blazers, vests (worn OPEN over other tops)
   * bottom = pants, jeans, skirts, shorts, trousers
   * dress = one-piece dresses, jumpsuits, rompers
   * shoes = any footwear
