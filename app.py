@@ -801,20 +801,25 @@ async def add_closet_item(file: UploadFile = File(...), user_id: str = Form("def
     if not contents:
         raise HTTPException(status_code=400, detail="No image uploaded")
     
-    # 1. Upload to Cloudinary with AI enhancements
+    # 1. Upload to Cloudinary with eager transformations (process once, store result)
     try:
         upload_result = cloudinary.uploader.upload(
             contents,
             folder="closet",
             resource_type="image",
-            transformation=[
-                {"effect": "background_removal"},           # Remove background
-                {"effect": "trim"},                         # Trim empty space
-                {"crop": "pad", "aspect_ratio": "3:4", "background": "white"}  # Pad to 3:4
-            ]
+            eager=[
+                # Chain: bg removal -> trim -> pad to 3:4 with white
+                {"raw_transformation": "e_background_removal/e_trim/c_pad,ar_3:4,b_white"}
+            ],
+            eager_async=False  # Wait for processing to complete
         )
-        image_url = upload_result["secure_url"]
-        logger.info(f"Uploaded to Cloudinary (enhanced): {image_url}")
+        # Use the eager-transformed URL if available, otherwise fall back to original
+        if upload_result.get("eager") and len(upload_result["eager"]) > 0:
+            image_url = upload_result["eager"][0]["secure_url"]
+            logger.info(f"Uploaded to Cloudinary (pre-processed): {image_url}")
+        else:
+            image_url = upload_result["secure_url"]
+            logger.info(f"Uploaded to Cloudinary (original): {image_url}")
     except Exception as e:
         logger.error(f"Cloudinary upload error: {e}")
         raise HTTPException(status_code=500, detail=f"Image upload failed: {str(e)}")
@@ -1052,19 +1057,21 @@ async def generate_closet_outfits(
         if not contents:
             raise HTTPException(status_code=400, detail="No image uploaded")
         
-        # Upload to Cloudinary with AI enhancements
+        # Upload to Cloudinary with eager transformations (process once, store result)
         try:
             upload_result = cloudinary.uploader.upload(
                 contents,
                 folder="closet",
                 resource_type="image",
-                transformation=[
-                    {"effect": "background_removal"},           # Remove background
-                    {"effect": "trim"},                         # Trim empty space
-                    {"crop": "pad", "aspect_ratio": "3:4", "background": "white"}  # Pad to 3:4
-                ]
+                eager=[
+                    {"raw_transformation": "e_background_removal/e_trim/c_pad,ar_3:4,b_white"}
+                ],
+                eager_async=False
             )
-            input_image_url = upload_result["secure_url"]
+            if upload_result.get("eager") and len(upload_result["eager"]) > 0:
+                input_image_url = upload_result["eager"][0]["secure_url"]
+            else:
+                input_image_url = upload_result["secure_url"]
         except Exception as e:
             logger.error(f"Cloudinary upload error: {e}")
             raise HTTPException(status_code=500, detail=f"Image upload failed: {str(e)}")
