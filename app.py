@@ -24,7 +24,7 @@ from services.outfit import (
 from services.retrieval import retrieve_for_slot, build_query_text, get_batch_embeddings
 from services.collage import generate_outfit_collage
 from services.weather import fetch_weather, get_weather_outfit_adjustments, WeatherData
-from services.image_processor import process_clothing_image, auto_rotate_image
+from services.image_processor import process_clothing_image
 
 import os
 from dotenv import load_dotenv
