@@ -23,6 +23,7 @@ from services.outfit import (
 )
 from services.retrieval import retrieve_for_slot, build_query_text, get_batch_embeddings
 from services.collage import generate_outfit_collage
+from services.weather import fetch_weather, get_weather_outfit_adjustments, WeatherData
 
 import os
 from dotenv import load_dotenv
@@ -705,6 +706,35 @@ async def get_feedback_stats():
 
 
 # =====================
+# WEATHER API ENDPOINT
+# =====================
+
+@app.get("/v1/weather")
+async def get_weather(lat: float, lon: float):
+    """
+    Get current weather and outfit recommendations.
+    
+    Args:
+        lat: Latitude
+        lon: Longitude
+        
+    Returns:
+        Weather data with outfit adjustments
+    """
+    weather = await fetch_weather(lat, lon)
+    
+    if not weather:
+        raise HTTPException(status_code=503, detail="Weather service unavailable")
+    
+    adjustments = get_weather_outfit_adjustments(weather)
+    
+    return {
+        "weather": weather.to_dict(),
+        "outfit_adjustments": adjustments
+    }
+
+
+# =====================
 # CLOSET API ENDPOINTS
 # =====================
 
@@ -968,13 +998,16 @@ async def generate_closet_outfits(
     request: Request, 
     item_id: int = Form(None),
     file: UploadFile = File(None),
-    user_id: str = Form("default")
+    user_id: str = Form("default"),
+    lat: float = Form(None),
+    lon: float = Form(None)
 ):
     """
     Generate outfits using ONLY items from user's closet.
     Either pick an existing closet item (item_id) or upload a new image.
+    Optionally pass lat/lon to factor in weather.
     """
-    logger.info(f"Closet outfit generation: item_id={item_id}, has_file={file is not None}")
+    logger.info(f"Closet outfit generation: item_id={item_id}, has_file={file is not None}, weather={lat},{lon}")
     
     base_url = str(request.base_url).rstrip("/")
     
@@ -1073,6 +1106,15 @@ async def generate_closet_outfits(
     if not embedding:
         raise HTTPException(status_code=400, detail="Item has no embedding")
     
+    # Fetch weather if location provided
+    weather_data = None
+    weather_adjustments = None
+    if lat is not None and lon is not None:
+        weather_data = await fetch_weather(lat, lon)
+        if weather_data:
+            weather_adjustments = get_weather_outfit_adjustments(weather_data)
+            logger.info(f"Weather: {weather_data.city} {weather_data.temperature_c}°C - {weather_adjustments['notes']}")
+    
     # Build query embeddings for closet retrieval
     directions = ["Classic", "Trendy", "Bold"]
     base_category = base_item.get("category", "top")
@@ -1133,6 +1175,13 @@ async def generate_closet_outfits(
     for outfit_idx in selection_order:
         direction = directions[outfit_idx]
         slots = get_slots_for_outfit(base_category, outfit_idx)
+        
+        # Adjust slots based on weather
+        if weather_adjustments:
+            if weather_adjustments["force_layer"] and "layer" not in slots:
+                slots = slots + ["layer"]
+            elif weather_adjustments["skip_layer"] and "layer" in slots:
+                slots = [s for s in slots if s != "layer"]
         
         # Filter out used items
         candidates_by_slot = {}
@@ -1216,13 +1265,252 @@ async def generate_closet_outfits(
         cursor.close()
         conn.close()
     
-    return {
+    response = {
         "generation_id": generation_id,
         "base_item": base_item,
         "description": description,
         "outfits": outfits,
         "source": "closet"
     }
+    
+    # Include weather info if available
+    if weather_data:
+        response["weather"] = weather_data.to_dict()
+        response["weather_notes"] = weather_adjustments["notes"] if weather_adjustments else []
+    
+    return response
+
+
+@app.get("/v1/closet/daily")
+async def get_daily_outfits(
+    request: Request,
+    lat: float = None,
+    lon: float = None,
+    user_id: str = "default"
+):
+    """
+    Generate 3 weather-appropriate outfits automatically.
+    Picks different base items from closet for variety.
+    """
+    logger.info(f"Daily outfits: lat={lat}, lon={lon}")
+    base_url = str(request.base_url).rstrip("/")
+    
+    # Fetch weather
+    weather_data = None
+    weather_adjustments = None
+    if lat is not None and lon is not None:
+        weather_data = await fetch_weather(lat, lon)
+        if weather_data:
+            weather_adjustments = get_weather_outfit_adjustments(weather_data)
+            logger.info(f"Weather: {weather_data.city} {weather_data.temperature_c}°C")
+    
+    # Get all closet items
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            """SELECT id, name, category, image_url, primary_color, secondary_colors,
+                      style_tags, season_tags, occasion_tags, material, fit, embedding::text
+               FROM user_closet_items 
+               WHERE user_id = %s AND embedding IS NOT NULL
+               ORDER BY created_at DESC""",
+            (user_id,)
+        )
+        rows = cursor.fetchall()
+    finally:
+        cursor.close()
+        conn.close()
+    
+    if len(rows) < 3:
+        return {
+            "outfits": [],
+            "weather": weather_data.to_dict() if weather_data else None,
+            "message": "Need at least 3 items in closet for daily outfits"
+        }
+    
+    # Parse items
+    all_items = []
+    for row in rows:
+        item = {
+            "id": row[0],
+            "name": row[1],
+            "category": row[2],
+            "image_url": row[3],
+            "primary_color": row[4],
+            "secondary_colors": row[5],
+            "style_tags": row[6],
+            "season_tags": row[7] or [],
+            "occasion_tags": row[8],
+            "material": row[9],
+            "fit": row[10],
+            "embedding": [float(x) for x in row[11].strip("[]").split(",")] if row[11] else None
+        }
+        all_items.append(item)
+    
+    # Filter items by weather season if available
+    preferred_seasons = weather_adjustments.get("preferred_seasons", []) if weather_adjustments else []
+    avoid_seasons = weather_adjustments.get("avoid_seasons", []) if weather_adjustments else []
+    
+    def season_score(item):
+        tags = item.get("season_tags") or []
+        score = 0
+        for s in preferred_seasons:
+            if s in tags or "all-season" in tags:
+                score += 1
+        for s in avoid_seasons:
+            if s in tags:
+                score -= 2
+        return score
+    
+    # Pick 3 different base items (prefer tops/layers for weather)
+    base_categories = ["top", "layer", "bottom"]
+    if weather_adjustments and weather_adjustments.get("force_layer"):
+        base_categories = ["layer", "top", "bottom"]  # Prioritize layers in cold
+    elif weather_adjustments and weather_adjustments.get("skip_layer"):
+        base_categories = ["top", "bottom", "dress"]  # Skip layers in hot
+    
+    selected_bases = []
+    used_ids = set()
+    
+    for pref_cat in base_categories:
+        candidates = [i for i in all_items if i["category"] == pref_cat and i["id"] not in used_ids]
+        if candidates:
+            # Sort by season appropriateness
+            candidates.sort(key=season_score, reverse=True)
+            selected = candidates[0]
+            selected_bases.append(selected)
+            used_ids.add(selected["id"])
+        if len(selected_bases) >= 3:
+            break
+    
+    # Fill remaining with any category
+    if len(selected_bases) < 3:
+        remaining = [i for i in all_items if i["id"] not in used_ids]
+        remaining.sort(key=season_score, reverse=True)
+        for item in remaining:
+            selected_bases.append(item)
+            used_ids.add(item["id"])
+            if len(selected_bases) >= 3:
+                break
+    
+    if len(selected_bases) < 1:
+        return {
+            "outfits": [],
+            "weather": weather_data.to_dict() if weather_data else None,
+            "message": "Not enough items in closet"
+        }
+    
+    # Generate one outfit per base item
+    outfits = []
+    used_ids_global = set(i["id"] for i in selected_bases)
+    
+    directions = ["Classic", "Trendy", "Bold"]
+    
+    for idx, base_item in enumerate(selected_bases[:3]):
+        direction = directions[idx] if idx < len(directions) else "Classic"
+        base_category = base_item["category"]
+        embedding = base_item.get("embedding")
+        
+        if not embedding:
+            continue
+        
+        # Get slots for this outfit
+        slots = get_slots_for_outfit(base_category, idx)
+        
+        # Adjust for weather
+        if weather_adjustments:
+            if weather_adjustments["force_layer"] and "layer" not in slots and base_category != "layer":
+                slots = slots + ["layer"]
+            elif weather_adjustments["skip_layer"] and "layer" in slots:
+                slots = [s for s in slots if s != "layer"]
+        
+        # Build query texts
+        query_texts = []
+        for slot in slots:
+            query_text = build_query_text(base_item, direction, slot, {})
+            query_texts.append(query_text)
+        
+        # Get embeddings
+        query_embeddings = get_batch_embeddings(query_texts)
+        
+        # Retrieve candidates from closet
+        candidates_by_slot = {}
+        for i, slot in enumerate(slots):
+            try:
+                candidates = retrieve_for_slot(
+                    base_item=base_item,
+                    direction=direction,
+                    slot=slot,
+                    exclude_ids=list(used_ids_global),
+                    chosen_items={},
+                    k=10,
+                    precomputed_embedding=query_embeddings[i],
+                    use_closet=True,
+                    user_id=user_id
+                )
+                candidates_by_slot[slot] = candidates
+            except Exception as e:
+                logger.error(f"Retrieval error for {slot}: {e}")
+                candidates_by_slot[slot] = []
+        
+        # Generate and score
+        candidate_outfits = generate_candidate_outfits(
+            slots=slots,
+            candidates_by_slot=candidates_by_slot,
+            max_candidates=8
+        )
+        
+        if not candidate_outfits:
+            outfit = {
+                "direction": f"Outfit {idx + 1}",
+                "base_item": base_item,
+                "items": [{"slot": base_category, **base_item}],
+                "explanation": "Limited items in closet",
+                "collage_url": None
+            }
+        else:
+            best_items, score_details = select_best_outfit(
+                candidate_outfits=candidate_outfits,
+                base_item=base_item,
+                direction=direction,
+                base_embedding=embedding
+            )
+            
+            # Track used items
+            for slot, item in best_items.items():
+                if item:
+                    used_ids_global.add(item["id"])
+            
+            outfit = assemble_outfit(direction, base_item, best_items, embedding)
+            outfit["direction"] = f"Outfit {idx + 1}"
+            outfit["base_item"] = base_item
+        
+        # Generate collage
+        try:
+            items_for_collage = outfit.get("items", [])
+            collage_path = generate_outfit_collage(
+                generation_id=f"daily_{idx}",
+                direction=f"outfit_{idx + 1}",
+                items=items_for_collage,
+                base_item={"image_url": base_item["image_url"], "category": base_category}
+            )
+            outfit["collage_url"] = make_absolute_url(base_url, collage_path)
+        except Exception as e:
+            logger.error(f"Collage error: {e}")
+            outfit["collage_url"] = None
+        
+        outfits.append(outfit)
+    
+    response = {
+        "outfits": outfits,
+        "source": "closet_daily"
+    }
+    
+    if weather_data:
+        response["weather"] = weather_data.to_dict()
+        response["weather_notes"] = weather_adjustments["notes"] if weather_adjustments else []
+    
+    return response
 
 
 if __name__ == "__main__":

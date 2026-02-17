@@ -442,6 +442,94 @@
         .color-yellow { background: #c9a227; }
         .color-orange { background: #cc6633; }
         .color-cream { background: #f5e6d3; }
+
+        /* Weather */
+        .weather-bar {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 0.75rem 1.5rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-size: 0.85rem;
+            margin-bottom: 1.5rem;
+            border-radius: 4px;
+        }
+
+        .weather-bar.loading {
+            background: var(--bg-alt);
+            color: var(--text-muted);
+        }
+
+        .weather-main {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .weather-icon {
+            width: 40px;
+            height: 40px;
+        }
+
+        .weather-temp {
+            font-size: 1.5rem;
+            font-weight: 600;
+        }
+
+        .weather-details {
+            font-size: 0.75rem;
+            opacity: 0.9;
+        }
+
+        .weather-suggestion {
+            font-style: italic;
+            font-size: 0.8rem;
+            opacity: 0.9;
+            max-width: 300px;
+            text-align: right;
+        }
+
+        .weather-error {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+        }
+
+        @media (max-width: 600px) {
+            .weather-bar {
+                flex-direction: column;
+                gap: 0.5rem;
+                text-align: center;
+            }
+            .weather-suggestion {
+                text-align: center;
+                max-width: none;
+            }
+        }
+
+        /* Daily Section */
+        .daily-loading {
+            text-align: center;
+            padding: 3rem;
+        }
+
+        .daily-actions {
+            text-align: center;
+            margin-top: 2rem;
+            padding-bottom: 2rem;
+        }
+
+        #daily-grid {
+            margin-bottom: 1rem;
+        }
+
+        .base-item-badge {
+            font-size: 0.55rem;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            color: var(--accent);
+            margin-left: 0.5rem;
+        }
     </style>
 </head>
 <body>
@@ -455,11 +543,37 @@
     </header>
 
     <div class="container">
-        <!-- Selection -->
-        <section id="selection-section">
+        <!-- Weather -->
+        <div class="weather-bar loading" id="weather-bar">
+            <span>📍 Getting your location for weather-aware recommendations...</span>
+        </div>
+
+        <!-- Daily Outfits (shown first) -->
+        <section id="daily-section">
             <div class="page-header">
-                <h1 class="page-title">Style from your closet</h1>
-                <p class="page-subtitle">Pick an item and get outfit ideas from pieces you own</p>
+                <h1 class="page-title">Today's Outfits</h1>
+                <p class="page-subtitle" id="daily-subtitle">Loading weather-appropriate looks from your closet...</p>
+            </div>
+            
+            <div class="daily-loading" id="daily-loading">
+                <div class="spinner"></div>
+                <div class="loading-text">Styling your day...</div>
+            </div>
+            
+            <div class="outfits-grid" id="daily-grid" style="display: none;"></div>
+            
+            <div class="daily-actions" id="daily-actions" style="display: none;">
+                <button class="generate-btn" id="refresh-daily-btn">Refresh Outfits</button>
+                <button class="try-again-btn" id="pick-item-btn" style="margin-top: 1rem; display: block;">Or pick a specific item →</button>
+            </div>
+        </section>
+
+        <!-- Selection (hidden by default) -->
+        <section id="selection-section" style="display: none;">
+            <button class="try-again-btn" id="back-to-daily-btn" style="margin-bottom: 1rem;">← Back to today's outfits</button>
+            <div class="page-header">
+                <h1 class="page-title">Style a specific item</h1>
+                <p class="page-subtitle">Pick an item and get weather-aware outfit ideas</p>
             </div>
 
             <div class="selection-section">
@@ -520,6 +634,8 @@
         let closetItems = [];
         let selectedItemId = null;
         let selectedFile = null;
+        let userLocation = null;
+        let weatherData = null;
 
         const closetGrid = document.getElementById('closet-grid');
         const emptyCloset = document.getElementById('empty-closet');
@@ -531,9 +647,16 @@
         const loadingSection = document.getElementById('loading-section');
         const resultsSection = document.getElementById('results-section');
         const outfitsGrid = document.getElementById('outfits-grid');
+        const weatherBar = document.getElementById('weather-bar');
+        const dailySection = document.getElementById('daily-section');
+        const dailyGrid = document.getElementById('daily-grid');
+        const dailyLoading = document.getElementById('daily-loading');
+        const dailyActions = document.getElementById('daily-actions');
+        const dailySubtitle = document.getElementById('daily-subtitle');
 
-        // Load closet items
+        // Load closet items and weather/daily outfits
         loadCloset();
+        initDaily();
 
         async function loadCloset() {
             try {
@@ -544,6 +667,125 @@
             } catch (e) {
                 console.error('Failed to load closet:', e);
             }
+        }
+
+        async function initDaily() {
+            // Get location first, then load daily outfits
+            if (!navigator.geolocation) {
+                weatherBar.innerHTML = '<span class="weather-error">Location not available</span>';
+                weatherBar.classList.remove('loading');
+                loadDailyOutfits(null, null);
+                return;
+            }
+
+            navigator.geolocation.getCurrentPosition(
+                async (position) => {
+                    userLocation = {
+                        lat: position.coords.latitude,
+                        lon: position.coords.longitude
+                    };
+                    loadDailyOutfits(userLocation.lat, userLocation.lon);
+                },
+                (error) => {
+                    console.log('Location denied:', error);
+                    weatherBar.innerHTML = '<span class="weather-error">📍 Allow location for weather-aware styling</span>';
+                    weatherBar.classList.remove('loading');
+                    loadDailyOutfits(null, null);
+                },
+                { timeout: 10000, enableHighAccuracy: false }
+            );
+        }
+
+        async function loadDailyOutfits(lat, lon) {
+            try {
+                let url = '/v1/closet/daily';
+                if (lat !== null && lon !== null) {
+                    url += `?lat=${lat}&lon=${lon}`;
+                }
+                
+                const res = await fetch(url);
+                if (!res.ok) throw new Error('Failed to load');
+                
+                const data = await res.json();
+                
+                // Update weather bar
+                if (data.weather) {
+                    displayWeather(data);
+                } else {
+                    weatherBar.classList.remove('loading');
+                    weatherBar.innerHTML = '<span class="weather-error">Weather unavailable</span>';
+                }
+                
+                // Update subtitle
+                if (data.weather_notes && data.weather_notes.length > 0) {
+                    dailySubtitle.textContent = data.weather_notes[0];
+                } else {
+                    dailySubtitle.textContent = 'Curated looks from your closet';
+                }
+                
+                // Display outfits or message
+                dailyLoading.style.display = 'none';
+                
+                if (data.outfits && data.outfits.length > 0) {
+                    displayDailyOutfits(data.outfits);
+                    dailyGrid.style.display = 'grid';
+                    dailyActions.style.display = 'block';
+                } else {
+                    dailySubtitle.textContent = data.message || 'Add more items to your closet for daily suggestions';
+                    dailyActions.style.display = 'block';
+                    document.getElementById('refresh-daily-btn').style.display = 'none';
+                }
+            } catch (e) {
+                console.error('Daily outfits failed:', e);
+                dailyLoading.style.display = 'none';
+                dailySubtitle.textContent = 'Could not load outfits. Try picking an item below.';
+                dailyActions.style.display = 'block';
+                document.getElementById('refresh-daily-btn').style.display = 'none';
+            }
+        }
+
+        function displayWeather(data) {
+            const w = data.weather;
+            const suggestions = data.weather_notes || [];
+            
+            weatherBar.classList.remove('loading');
+            weatherBar.innerHTML = `
+                <div class="weather-main">
+                    <img class="weather-icon" src="${w.icon_url}" alt="${w.condition}">
+                    <div>
+                        <div class="weather-temp">${Math.round(w.temperature_c)}°C</div>
+                        <div class="weather-details">${w.city} · ${w.description}</div>
+                    </div>
+                </div>
+                <div class="weather-suggestion">
+                    ${suggestions.length > 0 ? suggestions.join(' · ') : 'Perfect for any outfit'}
+                </div>
+            `;
+        }
+
+        function displayDailyOutfits(outfits) {
+            dailyGrid.innerHTML = outfits.map((outfit, idx) => `
+                <div class="outfit-card">
+                    <div class="outfit-header">
+                        <span class="outfit-direction">${outfit.direction || `Outfit ${idx + 1}`}</span>
+                        ${outfit.base_item ? `<span class="base-item-badge">starts with ${outfit.base_item.category}</span>` : ''}
+                    </div>
+                    ${outfit.collage_url 
+                        ? `<img class="outfit-collage" src="${outfit.collage_url}" alt="${outfit.direction}">`
+                        : '<div style="padding: 2rem; text-align: center; color: #888;">No collage</div>'}
+                    <div class="outfit-explanation">${outfit.explanation || 'Styled outfit'}</div>
+                    <div class="outfit-items">
+                        <div class="outfit-items-title">Pieces from your closet</div>
+                        ${(outfit.items || []).filter(item => item && item.slot).map(item => `
+                            <div class="item-row">
+                                <span class="item-slot">${formatSlot(item.slot)}</span>
+                                <span class="item-name">${item.name || 'Item'}</span>
+                                <span class="item-color color-${item.primary_color || 'grey'}"></span>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            `).join('');
         }
 
         function renderCloset() {
@@ -638,6 +880,12 @@
             } else if (selectedFile) {
                 formData.append('file', selectedFile);
             }
+            
+            // Add location for weather-aware recommendations
+            if (userLocation) {
+                formData.append('lat', userLocation.lat);
+                formData.append('lon', userLocation.lon);
+            }
 
             try {
                 const response = await fetch('/v1/closet/outfits:generate', {
@@ -660,6 +908,14 @@
         function displayResults(data) {
             loadingSection.classList.remove('visible');
             resultsSection.classList.add('visible');
+
+            // Update weather note if we have weather-aware results
+            const resultsNote = document.querySelector('.results-note');
+            if (data.weather_notes && data.weather_notes.length > 0) {
+                resultsNote.textContent = `${data.weather_notes[0]} · All pieces from your closet`;
+            } else {
+                resultsNote.textContent = 'All pieces from your closet';
+            }
 
             outfitsGrid.innerHTML = data.outfits.map((outfit, idx) => `
                 <div class="outfit-card">
@@ -709,6 +965,28 @@
             });
             // Reload closet in case new item was added
             loadCloset();
+        });
+
+        // Refresh daily outfits
+        document.getElementById('refresh-daily-btn').addEventListener('click', () => {
+            dailyGrid.style.display = 'none';
+            dailyActions.style.display = 'none';
+            dailyLoading.style.display = 'block';
+            dailySubtitle.textContent = 'Generating new looks...';
+            loadDailyOutfits(userLocation?.lat, userLocation?.lon);
+        });
+
+        // Switch to pick item mode
+        document.getElementById('pick-item-btn').addEventListener('click', () => {
+            dailySection.style.display = 'none';
+            selectionSection.style.display = 'block';
+        });
+
+        // Back to daily from selection
+        document.getElementById('back-to-daily-btn').addEventListener('click', () => {
+            selectionSection.style.display = 'none';
+            resultsSection.classList.remove('visible');
+            dailySection.style.display = 'block';
         });
     </script>
 </body>
