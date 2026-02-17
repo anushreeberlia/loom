@@ -1,0 +1,800 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>My Closet | LOOM</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #faf9f7;
+            --bg-alt: #f5f4f1;
+            --text: #1a1a1a;
+            --text-muted: #6b6b6b;
+            --accent: #c41e3a;
+            --border: #e0ddd8;
+            --success: #4a7c59;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Instrument Sans', sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            line-height: 1.5;
+        }
+
+        header {
+            padding: 1.25rem 2rem;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo {
+            font-family: 'Cormorant Garamond', serif;
+            font-size: 1rem;
+            font-weight: 500;
+            letter-spacing: 0.2em;
+            text-transform: uppercase;
+            text-decoration: none;
+            color: inherit;
+        }
+
+        nav {
+            display: flex;
+            gap: 1.5rem;
+        }
+
+        nav a {
+            font-size: 0.75rem;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            text-decoration: none;
+            color: var(--text-muted);
+            transition: color 0.2s;
+        }
+
+        nav a:hover, nav a.active {
+            color: var(--text);
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        .page-header {
+            text-align: center;
+            margin-bottom: 2.5rem;
+        }
+
+        .page-title {
+            font-family: 'Cormorant Garamond', serif;
+            font-size: 2rem;
+            font-weight: 400;
+            margin-bottom: 0.5rem;
+        }
+
+        .page-subtitle {
+            color: var(--text-muted);
+            font-size: 0.9rem;
+        }
+
+        /* Upload Actions */
+        .upload-actions {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+
+        @media (max-width: 600px) {
+            .upload-actions {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .upload-zone {
+            border: 2px dashed var(--border);
+            padding: 2rem;
+            text-align: center;
+            transition: all 0.3s ease;
+            background: white;
+            cursor: pointer;
+        }
+
+        .upload-zone:hover, .upload-zone.dragover {
+            border-color: var(--accent);
+            background: #fff8f8;
+        }
+
+        .upload-zone-icon {
+            font-size: 1.75rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .upload-zone-text {
+            font-family: 'Cormorant Garamond', serif;
+            font-size: 1.1rem;
+            font-style: italic;
+            margin-bottom: 0.25rem;
+        }
+
+        .upload-zone-hint {
+            font-size: 0.7rem;
+            color: var(--text-muted);
+        }
+
+        #file-input, #camera-input, #bulk-camera-input {
+            display: none;
+        }
+
+        /* Bulk Capture */
+        .bulk-capture {
+            background: white;
+            border: 1px solid var(--border);
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .bulk-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+
+        .bulk-count {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+        }
+
+        .bulk-done-btn {
+            padding: 0.6rem 1.25rem;
+            background: var(--text);
+            color: white;
+            border: none;
+            font-size: 0.7rem;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .bulk-done-btn:hover {
+            background: var(--accent);
+        }
+
+        .bulk-preview {
+            display: flex;
+            gap: 0.75rem;
+            flex-wrap: wrap;
+            margin-bottom: 1rem;
+            min-height: 80px;
+        }
+
+        .bulk-preview-item {
+            width: 70px;
+            height: 90px;
+            position: relative;
+        }
+
+        .bulk-preview-item img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            border: 1px solid var(--border);
+        }
+
+        .bulk-preview-remove {
+            position: absolute;
+            top: -6px;
+            right: -6px;
+            width: 18px;
+            height: 18px;
+            background: var(--accent);
+            color: white;
+            border: none;
+            border-radius: 50%;
+            font-size: 0.65rem;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .bulk-add-btn {
+            width: 100%;
+            padding: 0.75rem;
+            background: var(--bg-alt);
+            border: 1px dashed var(--border);
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .bulk-add-btn:hover {
+            border-color: var(--text);
+            color: var(--text);
+        }
+
+        /* Upload Progress */
+        .upload-progress {
+            display: none;
+            margin-bottom: 2rem;
+        }
+
+        .upload-progress.visible {
+            display: block;
+        }
+
+        .progress-bar {
+            height: 4px;
+            background: var(--border);
+            border-radius: 2px;
+            overflow: hidden;
+            margin-bottom: 0.5rem;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: var(--accent);
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+
+        .progress-text {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            text-align: center;
+        }
+
+        /* Items Grid */
+        .items-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.5rem;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .items-count {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+        }
+
+        .filter-tabs {
+            display: flex;
+            gap: 1rem;
+        }
+
+        .filter-tab {
+            font-size: 0.7rem;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            background: none;
+            border: none;
+            cursor: pointer;
+            padding: 0.25rem 0;
+            border-bottom: 1px solid transparent;
+            transition: all 0.2s;
+        }
+
+        .filter-tab:hover, .filter-tab.active {
+            color: var(--text);
+            border-bottom-color: var(--text);
+        }
+
+        .items-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+            gap: 1.25rem;
+        }
+
+        .item-card {
+            background: white;
+            border: 1px solid var(--border);
+            position: relative;
+            transition: box-shadow 0.2s;
+        }
+
+        .item-card:hover {
+            box-shadow: 0 4px 12px rgba(0,0,0,0.06);
+        }
+
+        .item-image {
+            width: 100%;
+            aspect-ratio: 3/4;
+            object-fit: cover;
+            display: block;
+        }
+
+        .item-info {
+            padding: 0.75rem;
+        }
+
+        .item-category {
+            font-size: 0.6rem;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            margin-bottom: 0.25rem;
+        }
+
+        .item-name {
+            font-size: 0.8rem;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .item-color-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 0.35rem;
+            border: 1px solid var(--border);
+            vertical-align: middle;
+        }
+
+        .item-delete {
+            position: absolute;
+            top: 0.5rem;
+            right: 0.5rem;
+            width: 24px;
+            height: 24px;
+            background: white;
+            border: 1px solid var(--border);
+            border-radius: 50%;
+            cursor: pointer;
+            font-size: 0.7rem;
+            color: var(--text-muted);
+            opacity: 0;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .item-card:hover .item-delete {
+            opacity: 1;
+        }
+
+        .item-delete:hover {
+            background: var(--accent);
+            border-color: var(--accent);
+            color: white;
+        }
+
+        /* Empty State */
+        .empty-state {
+            text-align: center;
+            padding: 4rem 2rem;
+            color: var(--text-muted);
+        }
+
+        .empty-state-icon {
+            font-size: 3rem;
+            opacity: 0.3;
+            margin-bottom: 1rem;
+        }
+
+        .empty-state-text {
+            font-family: 'Cormorant Garamond', serif;
+            font-size: 1.2rem;
+            font-style: italic;
+        }
+
+        /* Loading */
+        .loading-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(250, 249, 247, 0.9);
+            z-index: 100;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .loading-overlay.visible {
+            display: flex;
+        }
+
+        .spinner {
+            width: 24px;
+            height: 24px;
+            border: 2px solid var(--border);
+            border-top-color: var(--text);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Colors */
+        .color-black { background: #1a1a1a; }
+        .color-white { background: #fafafa; }
+        .color-grey, .color-gray { background: #888; }
+        .color-beige { background: #d4c4a8; }
+        .color-brown { background: #8b5a2b; }
+        .color-navy { background: #1a3a5c; }
+        .color-blue { background: #4a7eb8; }
+        .color-red { background: #c41e3a; }
+        .color-pink { background: #d4909c; }
+        .color-purple { background: #7c5295; }
+        .color-green { background: #4a7c59; }
+        .color-yellow { background: #c9a227; }
+        .color-orange { background: #cc6633; }
+        .color-cream { background: #f5e6d3; }
+
+        /* Toast */
+        .toast {
+            position: fixed;
+            bottom: 2rem;
+            left: 50%;
+            transform: translateX(-50%) translateY(100px);
+            background: var(--text);
+            color: white;
+            padding: 0.75rem 1.5rem;
+            font-size: 0.8rem;
+            border-radius: 4px;
+            opacity: 0;
+            transition: all 0.3s ease;
+            z-index: 200;
+        }
+
+        .toast.visible {
+            transform: translateX(-50%) translateY(0);
+            opacity: 1;
+        }
+
+        .toast.error {
+            background: var(--accent);
+        }
+
+        .toast.success {
+            background: var(--success);
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <a href="/" class="logo">Loom</a>
+        <nav>
+            <a href="/inventory" class="active">Inventory</a>
+            <a href="/closet">Style</a>
+            <a href="/demo">Demo</a>
+        </nav>
+    </header>
+
+    <div class="container">
+        <div class="page-header">
+            <h1 class="page-title">My Closet</h1>
+            <p class="page-subtitle">Upload and manage your wardrobe</p>
+        </div>
+
+        <div class="upload-actions">
+            <div class="upload-zone" id="upload-zone">
+                <div class="upload-zone-icon">📁</div>
+                <div class="upload-zone-text">Drop images here</div>
+                <div class="upload-zone-hint">or click to select files</div>
+                <input type="file" id="file-input" accept="image/*" multiple>
+            </div>
+            <div class="upload-zone camera-zone" id="camera-zone">
+                <div class="upload-zone-icon">📷</div>
+                <div class="upload-zone-text">Take photos</div>
+                <div class="upload-zone-hint">use your camera</div>
+                <input type="file" id="camera-input" accept="image/*" capture="environment">
+            </div>
+        </div>
+        
+        <!-- Bulk capture mode -->
+        <div class="bulk-capture" id="bulk-capture" style="display: none;">
+            <div class="bulk-header">
+                <span class="bulk-count" id="bulk-count">0 photos queued</span>
+                <button class="bulk-done-btn" id="bulk-done-btn">Done & Upload All</button>
+            </div>
+            <div class="bulk-preview" id="bulk-preview"></div>
+            <button class="bulk-add-btn" id="bulk-add-btn">+ Take Another</button>
+            <input type="file" id="bulk-camera-input" accept="image/*" capture="environment">
+        </div>
+
+        <div class="upload-progress" id="upload-progress">
+            <div class="progress-bar">
+                <div class="progress-fill" id="progress-fill"></div>
+            </div>
+            <div class="progress-text" id="progress-text">Uploading...</div>
+        </div>
+
+        <div class="items-header">
+            <span class="items-count" id="items-count">0 items</span>
+            <div class="filter-tabs">
+                <button class="filter-tab active" data-filter="all">All</button>
+                <button class="filter-tab" data-filter="top">Tops</button>
+                <button class="filter-tab" data-filter="bottom">Bottoms</button>
+                <button class="filter-tab" data-filter="layer">Layers</button>
+                <button class="filter-tab" data-filter="shoes">Shoes</button>
+                <button class="filter-tab" data-filter="accessory">Accessories</button>
+            </div>
+        </div>
+
+        <div class="items-grid" id="items-grid">
+            <!-- Items rendered here -->
+        </div>
+
+        <div class="empty-state" id="empty-state" style="display: none;">
+            <div class="empty-state-icon">👗</div>
+            <div class="empty-state-text">Your closet is empty</div>
+        </div>
+    </div>
+
+    <div class="loading-overlay" id="loading-overlay">
+        <div class="spinner"></div>
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+    <script>
+        const uploadZone = document.getElementById('upload-zone');
+        const fileInput = document.getElementById('file-input');
+        const cameraZone = document.getElementById('camera-zone');
+        const cameraInput = document.getElementById('camera-input');
+        const uploadProgress = document.getElementById('upload-progress');
+        const progressFill = document.getElementById('progress-fill');
+        const progressText = document.getElementById('progress-text');
+        const itemsGrid = document.getElementById('items-grid');
+        const itemsCount = document.getElementById('items-count');
+        const emptyState = document.getElementById('empty-state');
+        const loadingOverlay = document.getElementById('loading-overlay');
+        const toast = document.getElementById('toast');
+        const filterTabs = document.querySelectorAll('.filter-tab');
+        
+        // Bulk capture elements
+        const bulkCapture = document.getElementById('bulk-capture');
+        const bulkPreview = document.getElementById('bulk-preview');
+        const bulkCount = document.getElementById('bulk-count');
+        const bulkAddBtn = document.getElementById('bulk-add-btn');
+        const bulkDoneBtn = document.getElementById('bulk-done-btn');
+        const bulkCameraInput = document.getElementById('bulk-camera-input');
+        const uploadActions = document.querySelector('.upload-actions');
+
+        let allItems = [];
+        let currentFilter = 'all';
+        let bulkFiles = []; // Files queued in bulk capture mode
+
+        // Load items on page load
+        loadItems();
+
+        // File upload zone events
+        uploadZone.addEventListener('click', () => fileInput.click());
+
+        uploadZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadZone.classList.add('dragover');
+        });
+
+        uploadZone.addEventListener('dragleave', () => {
+            uploadZone.classList.remove('dragover');
+        });
+
+        uploadZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadZone.classList.remove('dragover');
+            const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'));
+            if (files.length) uploadFiles(files);
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            const files = Array.from(e.target.files);
+            if (files.length) uploadFiles(files);
+            fileInput.value = '';
+        });
+
+        // Camera zone - opens camera and enters bulk capture mode
+        cameraZone.addEventListener('click', () => cameraInput.click());
+
+        cameraInput.addEventListener('change', (e) => {
+            if (e.target.files[0]) {
+                enterBulkCaptureMode(e.target.files[0]);
+            }
+            cameraInput.value = '';
+        });
+
+        // Bulk capture mode functions
+        function enterBulkCaptureMode(firstFile) {
+            bulkFiles = [firstFile];
+            uploadActions.style.display = 'none';
+            bulkCapture.style.display = 'block';
+            renderBulkPreview();
+        }
+
+        function exitBulkCaptureMode() {
+            bulkFiles = [];
+            uploadActions.style.display = 'grid';
+            bulkCapture.style.display = 'none';
+            bulkPreview.innerHTML = '';
+        }
+
+        function renderBulkPreview() {
+            bulkCount.textContent = `${bulkFiles.length} photo${bulkFiles.length !== 1 ? 's' : ''} queued`;
+            bulkPreview.innerHTML = bulkFiles.map((file, idx) => {
+                const url = URL.createObjectURL(file);
+                return `
+                    <div class="bulk-preview-item">
+                        <img src="${url}" alt="Photo ${idx + 1}">
+                        <button class="bulk-preview-remove" onclick="removeBulkFile(${idx})">×</button>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        window.removeBulkFile = function(idx) {
+            bulkFiles.splice(idx, 1);
+            if (bulkFiles.length === 0) {
+                exitBulkCaptureMode();
+            } else {
+                renderBulkPreview();
+            }
+        };
+
+        bulkAddBtn.addEventListener('click', () => bulkCameraInput.click());
+
+        bulkCameraInput.addEventListener('change', (e) => {
+            if (e.target.files[0]) {
+                bulkFiles.push(e.target.files[0]);
+                renderBulkPreview();
+            }
+            bulkCameraInput.value = '';
+        });
+
+        bulkDoneBtn.addEventListener('click', async () => {
+            if (bulkFiles.length === 0) return;
+            const filesToUpload = [...bulkFiles];
+            exitBulkCaptureMode();
+            await uploadFiles(filesToUpload);
+        });
+
+        // Filter tabs
+        filterTabs.forEach(tab => {
+            tab.addEventListener('click', () => {
+                filterTabs.forEach(t => t.classList.remove('active'));
+                tab.classList.add('active');
+                currentFilter = tab.dataset.filter;
+                renderItems();
+            });
+        });
+
+        async function loadItems() {
+            loadingOverlay.classList.add('visible');
+            try {
+                const res = await fetch('/v1/closet/items');
+                const data = await res.json();
+                allItems = data.items || [];
+                renderItems();
+            } catch (e) {
+                showToast('Failed to load items', 'error');
+            } finally {
+                loadingOverlay.classList.remove('visible');
+            }
+        }
+
+        function renderItems() {
+            const filtered = currentFilter === 'all' 
+                ? allItems 
+                : allItems.filter(item => item.category === currentFilter);
+
+            itemsCount.textContent = `${filtered.length} item${filtered.length !== 1 ? 's' : ''}`;
+
+            if (filtered.length === 0) {
+                itemsGrid.innerHTML = '';
+                emptyState.style.display = 'block';
+                return;
+            }
+
+            emptyState.style.display = 'none';
+            itemsGrid.innerHTML = filtered.map(item => `
+                <div class="item-card" data-id="${item.id}">
+                    <button class="item-delete" onclick="deleteItem(${item.id})" title="Remove">×</button>
+                    <img class="item-image" src="${item.image_url}" alt="${item.name}" loading="lazy">
+                    <div class="item-info">
+                        <div class="item-category">${item.category}</div>
+                        <div class="item-name">
+                            <span class="item-color-dot color-${item.primary_color || 'grey'}"></span>
+                            ${item.name || 'Unnamed item'}
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        async function uploadFiles(files) {
+            uploadProgress.classList.add('visible');
+            let completed = 0;
+            const total = files.length;
+
+            for (const file of files) {
+                progressText.textContent = `Uploading ${completed + 1} of ${total}...`;
+                progressFill.style.width = `${(completed / total) * 100}%`;
+
+                try {
+                    const formData = new FormData();
+                    formData.append('file', file);
+
+                    const res = await fetch('/v1/closet/items', {
+                        method: 'POST',
+                        body: formData
+                    });
+
+                    if (!res.ok) throw new Error('Upload failed');
+
+                    const newItem = await res.json();
+                    allItems.unshift({
+                        id: newItem.id,
+                        name: newItem.name,
+                        category: newItem.category,
+                        image_url: newItem.image_url,
+                        primary_color: newItem.parsed?.primary_color
+                    });
+
+                    completed++;
+                } catch (e) {
+                    showToast(`Failed to upload ${file.name}`, 'error');
+                    completed++;
+                }
+            }
+
+            progressFill.style.width = '100%';
+            setTimeout(() => {
+                uploadProgress.classList.remove('visible');
+                progressFill.style.width = '0%';
+                renderItems();
+                showToast(`Added ${completed} item${completed !== 1 ? 's' : ''} to closet`, 'success');
+            }, 500);
+        }
+
+        async function deleteItem(id) {
+            if (!confirm('Remove this item from your closet?')) return;
+
+            try {
+                const res = await fetch(`/v1/closet/items/${id}`, { method: 'DELETE' });
+                if (!res.ok) throw new Error('Delete failed');
+
+                allItems = allItems.filter(item => item.id !== id);
+                renderItems();
+                showToast('Item removed', 'success');
+            } catch (e) {
+                showToast('Failed to remove item', 'error');
+            }
+        }
+
+        function showToast(message, type = '') {
+            toast.textContent = message;
+            toast.className = 'toast visible ' + type;
+            setTimeout(() => {
+                toast.classList.remove('visible');
+            }, 3000);
+        }
+    </script>
+</body>
+</html>
+

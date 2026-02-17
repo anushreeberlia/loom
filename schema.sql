@@ -77,3 +77,35 @@ CREATE TABLE taste_vectors (
     created_at TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW()
 );
+
+-- user_closet_items: Personal wardrobe inventory
+CREATE TABLE user_closet_items (
+    id SERIAL PRIMARY KEY,
+    user_id TEXT DEFAULT 'default',         -- For future multi-user support
+    name VARCHAR(255),                       -- Auto-generated or user-provided
+    category VARCHAR(50) NOT NULL,           -- top, bottom, shoes, layer, accessory, dress
+    image_url TEXT NOT NULL,                 -- Cloudinary URL
+    
+    -- Colors
+    primary_color TEXT,
+    secondary_colors TEXT[],
+    
+    -- Tags (from vision/parser pipeline)
+    style_tags TEXT[],
+    season_tags TEXT[],
+    occasion_tags TEXT[],
+    material VARCHAR(100),
+    fit VARCHAR(50),
+    
+    -- Vector embedding for retrieval
+    embedding vector(1536),
+    
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Index for vector similarity search on closet items
+CREATE INDEX idx_closet_embedding ON user_closet_items 
+    USING ivfflat (embedding vector_cosine_ops) WITH (lists = 50);
+    
+-- Index for filtering by user
+CREATE INDEX idx_closet_user ON user_closet_items(user_id);

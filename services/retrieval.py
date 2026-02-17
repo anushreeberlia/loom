@@ -456,7 +456,9 @@ def retrieve_candidates(
     exclude_ids: list[int] = None,
     avoid_colors: set[str] = None,
     prefer_colors: set[str] = None,
-    source: str = None
+    source: str = None,
+    use_closet: bool = False,
+    user_id: str = "default"
 ) -> list[dict]:
     """
     Vector search for candidates in a category with color filtering.
@@ -468,10 +470,12 @@ def retrieve_candidates(
         exclude_ids: Item IDs to exclude
         avoid_colors: Colors to filter out (hard constraint)
         prefer_colors: Colors to prefer (soft boost in scoring)
-        source: Catalog source to filter by (e.g., 'h_and_m', 'kaggle_fashion')
+        source: Catalog source to filter by (e.g., 'h_and_m', 'kaggle_fashion') - catalog only
+        use_closet: If True, search user_closet_items instead of catalog_items
+        user_id: User ID for closet filtering (only used if use_closet=True)
     
     Returns:
-        List of catalog items sorted by similarity + color preference
+        List of items sorted by similarity + color preference
     """
     conn = psycopg2.connect(DATABASE_URL)
     cursor = conn.cursor()
@@ -479,11 +483,24 @@ def retrieve_candidates(
     exclude_ids = exclude_ids or []
     avoid_colors = avoid_colors or set()
     
+    # Choose table and columns based on mode
+    if use_closet:
+        table = "user_closet_items"
+        select_cols = "id, name, image_url, NULL as product_url, primary_color, style_tags"
+    else:
+        table = "catalog_items"
+        select_cols = "id, name, image_url, product_url, primary_color, style_tags"
+    
     # Build dynamic WHERE clause
     where_conditions = ["category = %s", "embedding IS NOT NULL"]
     params = [query_embedding, category]
     
-    if source:
+    # Closet mode: filter by user_id
+    if use_closet:
+        where_conditions.append("user_id = %s")
+        params.append(user_id)
+    # Catalog mode: filter by source
+    elif source:
         where_conditions.append("source = %s")
         params.append(source)
     
@@ -498,10 +515,10 @@ def retrieve_candidates(
     params.append(k * 2)  # LIMIT
     
     query = f"""
-        SELECT id, name, image_url, product_url, primary_color, style_tags,
+        SELECT {select_cols},
                embedding::text as embedding_text,
                embedding <-> %s::vector as distance
-        FROM catalog_items
+        FROM {table}
         WHERE {' AND '.join(where_conditions)}
         ORDER BY distance
         LIMIT %s
@@ -570,7 +587,9 @@ def retrieve_for_slot(
     used_subtypes: set[str] = None,
     k: int = 5,
     source: str = None,
-    precomputed_embedding: list[float] = None
+    precomputed_embedding: list[float] = None,
+    use_closet: bool = False,
+    user_id: str = "default"
 ) -> list[dict]:
     """
     Retrieve candidate items for a specific slot and direction.
@@ -585,8 +604,10 @@ def retrieve_for_slot(
         chosen_items: Items already chosen FOR THIS OUTFIT (sequential conditioning)
         used_subtypes: Item subtypes already used in previous outfits (e.g., {"skirt", "heels"})
         k: Number of candidates to return
-        source: Catalog source to filter by (e.g., 'h_and_m', 'kaggle_fashion')
+        source: Catalog source to filter by (e.g., 'h_and_m', 'kaggle_fashion') - catalog only
         precomputed_embedding: Pre-computed query embedding (skips API call if provided)
+        use_closet: If True, search user's closet instead of catalog
+        user_id: User ID for closet filtering (only used if use_closet=True)
     """
     base_color = base_item.get("primary_color", "unknown")
     
@@ -602,7 +623,8 @@ def retrieve_for_slot(
         query_embedding = get_query_embedding(query_text)
     
     # Map slot to category if needed (e.g., "layer" -> "top")
-    search_category = SLOT_CATEGORY_MAP.get(slot, slot)
+    # For closet, use exact category (user categorized their items)
+    search_category = slot if use_closet else SLOT_CATEGORY_MAP.get(slot, slot)
     
     # Get more candidates than needed, then filter
     candidates = retrieve_candidates(
@@ -612,11 +634,14 @@ def retrieve_for_slot(
         exclude_ids=exclude_ids,
         avoid_colors=avoid_colors,
         prefer_colors=prefer_colors,
-        source=source
+        source=source,
+        use_closet=use_closet,
+        user_id=user_id
     )
     
-    # For layer slot, filter to only include layer-like items
-    if slot == "layer":
+    # For layer slot in catalog mode, filter to only include layer-like items
+    # (closet items are already properly categorized by user)
+    if slot == "layer" and not use_closet:
         candidates = filter_layer_items(candidates)
     
     # Apply sanity gate (slot-aware)
