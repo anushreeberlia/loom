@@ -133,42 +133,6 @@ def get_cached_image_analysis(image_hash: str) -> dict | None:
         conn.close()
 
 
-def get_disliked_item_ids(session_id: str) -> set[int]:
-    """Get IDs of items the user has disliked (to exclude from future results)."""
-    if not session_id:
-        return set()
-    
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    try:
-        # Get all outfit items from disliked outfits for this session
-        cursor.execute(
-            """SELECT og.output_outfits, fe.outfit_index
-               FROM feedback_events fe
-               JOIN outfit_generations og ON og.id = fe.generation_id
-               WHERE fe.session_id = %s AND fe.liked = false""",
-            (session_id,)
-        )
-        
-        disliked_ids = set()
-        for row in cursor.fetchall():
-            outfits = row[0]
-            outfit_idx = row[1]
-            if outfits and outfit_idx < len(outfits):
-                outfit = outfits[outfit_idx]
-                for item in outfit.get("items", []):
-                    if item and item.get("id"):
-                        disliked_ids.add(item["id"])
-        
-        return disliked_ids
-    except Exception as e:
-        logger.error(f"Error fetching disliked items: {e}")
-        return set()
-    finally:
-        cursor.close()
-        conn.close()
-
-
 def get_taste_vector(session_id: str) -> tuple[list | None, list | None]:
     """Retrieve taste and dislike vectors for a session, if exists."""
     if not session_id:
@@ -342,15 +306,10 @@ async def generate_outfits(request: Request, file: UploadFile = File(...), sessi
     # Get base URL for absolute URLs
     base_url = str(request.base_url).rstrip("/")
     
-    # Get taste vectors for personalization
+    # Get taste vectors for personalization (soft scoring, no hard exclusions)
     taste_vector, dislike_vector = get_taste_vector(session_id) if session_id else (None, None)
     if taste_vector or dislike_vector:
         logger.info(f"Taste vectors found (likes={taste_vector is not None}, dislikes={dislike_vector is not None})")
-    
-    # Get disliked item IDs to exclude entirely
-    disliked_item_ids = get_disliked_item_ids(session_id) if session_id else set()
-    if disliked_item_ids:
-        logger.info(f"Excluding {len(disliked_item_ids)} previously disliked items")
 
     # Validate file
     contents = await file.read()
@@ -467,7 +426,7 @@ async def generate_outfits(request: Request, file: UploadFile = File(...), sessi
                 base_item=base_item,
                 direction=direction,
                 slot=slot,
-                exclude_ids=list(disliked_item_ids),  # Exclude previously disliked items
+                exclude_ids=[],  # No hard exclusions - taste vectors handle preferences
                 chosen_items={},
                 used_subtypes=set(),
                 k=15,
