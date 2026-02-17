@@ -23,7 +23,7 @@ from services.outfit import (
 )
 from services.retrieval import retrieve_for_slot, build_query_text, get_batch_embeddings
 from services.collage import generate_outfit_collage
-from services.weather import fetch_weather, get_weather_outfit_adjustments, get_occasion_from_time, WeatherData
+from services.weather import fetch_weather, get_weather_outfit_adjustments, get_occasion_from_time, get_material_weather_score, WeatherData
 from services.image_processor import process_clothing_image
 
 import os
@@ -1379,7 +1379,7 @@ async def get_daily_outfits(
     avoid_occasions = occasion_info.get("avoid_occasions", [])
     
     def item_score(item):
-        """Score item by season and occasion appropriateness."""
+        """Score item by season, occasion, and material appropriateness."""
         score = 0
         
         # Season scoring
@@ -1399,6 +1399,15 @@ async def get_daily_outfits(
         for o in avoid_occasions:
             if o in occasion_tags:
                 score -= 3
+        
+        # Material scoring for weather (especially important for layers)
+        if weather_adjustments:
+            material = item.get("material") or ""
+            material_score = get_material_weather_score(material, weather_adjustments)
+            # Extra weight for layers - material matters more
+            if item.get("category") == "layer":
+                material_score *= 2
+            score += material_score
         
         return score
     

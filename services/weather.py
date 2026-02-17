@@ -176,6 +176,62 @@ def get_weather_outfit_adjustments(weather: WeatherData) -> dict:
     return adjustments
 
 
+# Material categories by warmth level
+WARM_MATERIALS = {
+    "wool", "fleece", "down", "cashmere", "sherpa", "quilted", 
+    "puffer", "knit", "chunky knit", "merino", "thermal", "corduroy"
+}
+LIGHT_MATERIALS = {
+    "cotton", "linen", "silk", "rayon", "chiffon", "mesh", 
+    "chambray", "seersucker", "jersey", "modal", "bamboo"
+}
+WATERPROOF_MATERIALS = {
+    "nylon", "polyester", "gore-tex", "waterproof", "rain", 
+    "waxed", "coated", "technical", "windbreaker"
+}
+
+
+def get_material_weather_score(material: str, weather_adjustments: dict) -> int:
+    """
+    Score a material based on weather appropriateness.
+    
+    Returns:
+        Positive score if material suits weather, negative if not
+    """
+    if not material:
+        return 0
+    
+    material_lower = material.lower()
+    score = 0
+    
+    is_cold = weather_adjustments.get("force_layer", False)
+    is_hot = weather_adjustments.get("skip_layer", False)
+    is_rainy = "rainy" in " ".join(weather_adjustments.get("notes", [])).lower()
+    
+    # Check if material matches any category
+    is_warm = any(m in material_lower for m in WARM_MATERIALS)
+    is_light = any(m in material_lower for m in LIGHT_MATERIALS)
+    is_waterproof = any(m in material_lower for m in WATERPROOF_MATERIALS)
+    
+    if is_cold:
+        if is_warm:
+            score += 3  # Warm materials great for cold
+        if is_light and "layer" in material_lower:
+            score -= 2  # Light layers bad for cold
+    
+    if is_hot:
+        if is_light:
+            score += 2  # Light materials great for hot
+        if is_warm:
+            score -= 3  # Warm materials terrible for hot
+    
+    if is_rainy:
+        if is_waterproof:
+            score += 2  # Waterproof materials great for rain
+    
+    return score
+
+
 def get_occasion_from_time() -> dict:
     """
     Auto-detect appropriate occasion based on current day and time.
