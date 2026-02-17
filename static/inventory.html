@@ -790,34 +790,23 @@
             const item = allItems.find(i => i.id === id);
             if (!item) return;
 
-            // Parse current rotation from URL, add 90 degrees
             const url = item.image_url;
             let newUrl;
             
-            // Check if already has rotation
-            const rotateMatch = url.match(/a_(\d+)/);
+            // Check if already has rotation (a_90, a_180, a_270)
+            const rotateMatch = url.match(/\/a_(\d+)(\/|,)/);
             if (rotateMatch) {
                 const currentAngle = parseInt(rotateMatch[1]);
                 const newAngle = (currentAngle + 90) % 360;
                 if (newAngle === 0) {
-                    // Remove rotation entirely
-                    newUrl = url.replace(/,?a_\d+/, '').replace(/\/,/, '/');
+                    // Remove rotation
+                    newUrl = url.replace(/\/a_\d+(?=\/)/, '');
                 } else {
-                    newUrl = url.replace(/a_\d+/, `a_${newAngle}`);
+                    newUrl = url.replace(/\/a_\d+/, `/a_${newAngle}`);
                 }
             } else {
-                // Add rotation after other transformations
-                // Insert a_90 after /upload/ or after existing transformations
-                newUrl = url.replace(
-                    /(\/upload\/)((?:[^/]+\/)?)(v\d+)/,
-                    (match, upload, transforms, version) => {
-                        if (transforms) {
-                            return `${upload}${transforms.slice(0, -1)},a_90/${version}`;
-                        } else {
-                            return `${upload}a_90/${version}`;
-                        }
-                    }
-                );
+                // Insert rotation right after /upload/
+                newUrl = url.replace('/upload/', '/upload/a_90/');
             }
 
             try {
