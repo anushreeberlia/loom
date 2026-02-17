@@ -942,39 +942,6 @@ async def add_closet_item(file: UploadFile = File(...), user_id: str = Form("def
         conn.close()
 
 
-@app.get("/v1/closet/items/debug")
-async def debug_closet_items(user_id: str = "default"):
-    """Debug: show items with/without embeddings."""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    try:
-        cursor.execute(
-            """SELECT id, name, category, 
-                      CASE WHEN embedding IS NOT NULL THEN true ELSE false END as has_embedding
-               FROM user_closet_items WHERE user_id = %s ORDER BY category, id""",
-            (user_id,)
-        )
-        rows = cursor.fetchall()
-        items = [{"id": r[0], "name": r[1], "category": r[2], "has_embedding": r[3]} for r in rows]
-        
-        # Summary by category
-        summary = {}
-        for item in items:
-            cat = item["category"]
-            if cat not in summary:
-                summary[cat] = {"total": 0, "with_embedding": 0, "without_embedding": []}
-            summary[cat]["total"] += 1
-            if item["has_embedding"]:
-                summary[cat]["with_embedding"] += 1
-            else:
-                summary[cat]["without_embedding"].append(item["id"])
-        
-        return {"items": items, "summary": summary}
-    finally:
-        cursor.close()
-        conn.close()
-
-
 @app.delete("/v1/closet/items/{item_id}")
 async def delete_closet_item(item_id: int, user_id: str = "default"):
     """Delete an item from user's closet."""
@@ -1546,7 +1513,6 @@ async def get_daily_outfits(
                     user_id=user_id
                 )
                 candidates_by_slot[slot] = candidates
-                logger.info(f"  [Daily {idx+1}] {slot}: {len(candidates)} candidates (excluded {len(used_ids_global)} ids)")
             except Exception as e:
                 logger.error(f"Retrieval error for {slot}: {e}")
                 candidates_by_slot[slot] = []
