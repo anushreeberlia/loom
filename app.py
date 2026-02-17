@@ -778,13 +778,9 @@ async def add_closet_item(file: UploadFile = File(...), user_id: str = Form("def
             folder="closet",
             resource_type="image",
             transformation=[
-                {"angle": "auto"},                 # Auto-rotate based on EXIF
-                {"effect": "background_removal"},  # Remove background
-                {"gravity": "auto", "crop": "auto", "aspect_ratio": "3:4"},  # Crop to item
-                {"background": "white"},           # White background
-                {"effect": "improve"},             # Auto-enhance quality
-                {"quality": "auto:best"},          # Optimize quality
-                {"fetch_format": "auto"}           # Best format
+                {"effect": "background_removal"},           # Remove background
+                {"effect": "trim"},                         # Trim empty space
+                {"crop": "pad", "aspect_ratio": "3:4", "background": "white"}  # Pad to 3:4
             ]
         )
         image_url = upload_result["secure_url"]
@@ -1030,13 +1026,9 @@ async def generate_closet_outfits(
                 folder="closet",
                 resource_type="image",
                 transformation=[
-                    {"angle": "auto"},                 # Auto-rotate based on EXIF
-                    {"effect": "background_removal"},  # Remove background
-                    {"gravity": "auto", "crop": "auto", "aspect_ratio": "3:4"},  # Crop to item
-                    {"background": "white"},           # White background
-                    {"effect": "improve"},             # Auto-enhance quality
-                    {"quality": "auto:best"},          # Optimize quality
-                    {"fetch_format": "auto"}           # Best format
+                    {"effect": "background_removal"},           # Remove background
+                    {"effect": "trim"},                         # Trim empty space
+                    {"crop": "pad", "aspect_ratio": "3:4", "background": "white"}  # Pad to 3:4
                 ]
             )
             input_image_url = upload_result["secure_url"]
