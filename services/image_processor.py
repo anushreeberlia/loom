@@ -18,11 +18,12 @@ logger = logging.getLogger(__name__)
 OUTPUT_WIDTH = 768
 OUTPUT_HEIGHT = 1024
 PADDING_PERCENT = 0.08  # 8% padding around garment
-MAX_INPUT_DIMENSION = 1500  # Resize large images to prevent OOM
+MAX_INPUT_DIMENSION = 1024  # Smaller to prevent OOM on Railway
 
-# Pre-load rembg model at import time
-logger.info("Pre-loading rembg model...")
-REMBG_SESSION = new_session("u2net")
+# Pre-load lightweight rembg model at import time
+# u2netp is 4MB vs u2net's 176MB - much less memory
+logger.info("Pre-loading rembg model (u2netp)...")
+REMBG_SESSION = new_session("u2netp")
 logger.info("rembg model loaded!")
 
 
@@ -75,11 +76,16 @@ def process_clothing_image(image_bytes: bytes) -> bytes:
     
     # Convert to JPEG
     output = io.BytesIO()
-    img.convert("RGB").save(output, format="JPEG", quality=92)
+    img.convert("RGB").save(output, format="JPEG", quality=85)  # Lower quality = smaller memory
     output.seek(0)
+    result = output.getvalue()
+    
+    # Force garbage collection to free memory
+    import gc
+    gc.collect()
     
     logger.info("Pipeline complete!")
-    return output.getvalue()
+    return result
 
 
 def fix_exif_orientation(image_bytes: bytes) -> Image.Image:
