@@ -530,6 +530,97 @@
             color: var(--accent);
             margin-left: 0.5rem;
         }
+
+        /* Mobile Improvements */
+        @media (max-width: 768px) {
+            header {
+                padding: 1rem;
+            }
+
+            nav {
+                gap: 1rem;
+            }
+
+            nav a {
+                font-size: 0.65rem;
+            }
+
+            .container {
+                padding: 1rem;
+            }
+
+            .page-title {
+                font-size: 1.5rem;
+            }
+
+            .page-subtitle {
+                font-size: 0.8rem;
+            }
+
+            .outfits-grid, #daily-grid {
+                grid-template-columns: 1fr;
+                gap: 1rem;
+            }
+
+            .outfit-card {
+                max-width: 100%;
+            }
+
+            .closet-grid {
+                grid-template-columns: repeat(3, 1fr);
+                gap: 0.5rem;
+            }
+
+            .closet-item-label {
+                font-size: 0.5rem;
+                padding: 0.15rem;
+            }
+
+            .selection-panel {
+                padding: 1rem;
+            }
+
+            .upload-zone {
+                padding: 1.5rem;
+            }
+
+            .generate-btn {
+                padding: 0.875rem 2rem;
+                font-size: 0.7rem;
+                width: 100%;
+            }
+
+            .weather-bar {
+                padding: 0.6rem 1rem;
+                font-size: 0.75rem;
+                border-radius: 0;
+                margin: 0 -1rem 1rem -1rem;
+                width: calc(100% + 2rem);
+            }
+
+            .weather-icon {
+                width: 32px;
+                height: 32px;
+            }
+
+            .weather-temp {
+                font-size: 1.2rem;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .closet-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+
+            .outfit-explanation {
+                font-size: 0.75rem;
+            }
+
+            .item-row {
+                font-size: 0.7rem;
+            }
+        }
     </style>
 </head>
 <body>

@@ -486,6 +486,123 @@
         .toast.success {
             background: var(--success);
         }
+
+        /* Mobile Improvements */
+        @media (max-width: 768px) {
+            header {
+                padding: 1rem;
+            }
+
+            nav {
+                gap: 1rem;
+            }
+
+            nav a {
+                font-size: 0.65rem;
+            }
+
+            .container {
+                padding: 1rem;
+            }
+
+            .page-title {
+                font-size: 1.5rem;
+            }
+
+            .upload-actions {
+                grid-template-columns: 1fr;
+            }
+
+            .upload-zone {
+                padding: 1.5rem;
+            }
+
+            .upload-zone-icon {
+                font-size: 1.5rem;
+            }
+
+            .upload-zone-text {
+                font-size: 1rem;
+            }
+
+            .items-header {
+                flex-direction: column;
+                gap: 1rem;
+                align-items: flex-start;
+            }
+
+            .filter-tabs {
+                width: 100%;
+                overflow-x: auto;
+                padding-bottom: 0.5rem;
+                -webkit-overflow-scrolling: touch;
+            }
+
+            .filter-tab {
+                white-space: nowrap;
+            }
+
+            .items-grid {
+                grid-template-columns: repeat(2, 1fr);
+                gap: 0.75rem;
+            }
+
+            .item-info {
+                padding: 0.5rem;
+            }
+
+            .item-category {
+                font-size: 0.55rem;
+            }
+
+            .item-name {
+                font-size: 0.7rem;
+            }
+
+            .item-actions {
+                gap: 0.25rem;
+            }
+
+            .item-btn {
+                width: 28px;
+                height: 28px;
+                font-size: 0.9rem;
+            }
+
+            .bulk-capture {
+                padding: 1rem;
+            }
+
+            .bulk-preview-item {
+                width: 55px;
+                height: 70px;
+            }
+
+            .toast {
+                bottom: 1rem;
+                left: 1rem;
+                right: 1rem;
+                transform: translateY(100px);
+                text-align: center;
+            }
+
+            .toast.visible {
+                transform: translateY(0);
+            }
+        }
+
+        @media (max-width: 480px) {
+            .items-grid {
+                grid-template-columns: repeat(2, 1fr);
+                gap: 0.5rem;
+            }
+
+            .item-btn {
+                width: 24px;
+                height: 24px;
+                font-size: 0.75rem;
+            }
+        }
     </style>
 </head>
 <body>
