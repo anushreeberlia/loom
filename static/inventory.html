@@ -7,6 +7,8 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+    <!-- Client-side background removal -->
+    <script src="https://cdn.jsdelivr.net/npm/@imgly/background-removal@1.4.5/dist/index.umd.js"></script>
     <style>
         :root {
             --bg: #faf9f7;
@@ -858,18 +860,43 @@
             `).join('');
         }
 
+        // Client-side background removal
+        let bgRemovalReady = false;
+        async function removeBackground(file) {
+            try {
+                progressText.textContent = 'Removing background...';
+                const imageBlob = await imglyRemoveBackground.removeBackground(file, {
+                    progress: (key, current, total) => {
+                        if (key === 'compute:inference') {
+                            progressText.textContent = `Processing (${Math.round(current/total*100)}%)...`;
+                        }
+                    }
+                });
+                // Convert to File object
+                return new File([imageBlob], file.name.replace(/\.[^/.]+$/, '.png'), { type: 'image/png' });
+            } catch (e) {
+                console.error('Background removal failed:', e);
+                return file; // Return original if bg removal fails
+            }
+        }
+
         async function uploadFiles(files) {
             uploadProgress.classList.add('visible');
             let completed = 0;
             const total = files.length;
 
             for (const file of files) {
-                progressText.textContent = `Uploading ${completed + 1} of ${total}...`;
+                progressText.textContent = `Processing ${completed + 1} of ${total}...`;
                 progressFill.style.width = `${(completed / total) * 100}%`;
 
                 try {
+                    // Remove background client-side
+                    const processedFile = await removeBackground(file);
+                    
+                    progressText.textContent = `Uploading ${completed + 1} of ${total}...`;
+                    
                     const formData = new FormData();
-                    formData.append('file', file);
+                    formData.append('file', processedFile);
 
                     const res = await fetch('/v1/closet/items', {
                         method: 'POST',
