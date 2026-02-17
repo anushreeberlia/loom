@@ -81,6 +81,10 @@ def describe_image(image_bytes: bytes) -> str:
   * dress = one-piece dresses, jumpsuits, rompers
   * shoes = any footwear
   * accessory = bags, jewelry, scarves, hats, belts
+- MATERIAL/FABRIC (REQUIRED): identify the fabric type, e.g.:
+  * cotton, linen, silk, wool, cashmere, fleece, denim, leather, suede
+  * polyester, nylon, knit, jersey, chiffon, velvet, corduroy, tweed
+  * quilted, puffer/down, mesh, technical fabric
 - colors (primary and any secondary)
 - fit (fitted, relaxed, oversized, etc.)
 - style (casual, formal, sporty, elegant, etc.)
