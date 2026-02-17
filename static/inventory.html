@@ -793,20 +793,21 @@
             const url = item.image_url;
             let newUrl;
             
-            // Check if already has rotation (a_90, a_180, a_270)
-            const rotateMatch = url.match(/\/a_(\d+)(\/|,)/);
+            // Check if already has rotation (a_90, a_180, a_270) - after c_pad
+            const rotateMatch = url.match(/,a_(\d+)\//);
             if (rotateMatch) {
                 const currentAngle = parseInt(rotateMatch[1]);
                 const newAngle = (currentAngle + 90) % 360;
                 if (newAngle === 0) {
                     // Remove rotation
-                    newUrl = url.replace(/\/a_\d+(?=\/)/, '');
+                    newUrl = url.replace(/,a_\d+\//, '/');
                 } else {
-                    newUrl = url.replace(/\/a_\d+/, `/a_${newAngle}`);
+                    newUrl = url.replace(/,a_\d+\//, `,a_${newAngle}/`);
                 }
             } else {
-                // Insert rotation right after /upload/
-                newUrl = url.replace('/upload/', '/upload/a_90/');
+                // Insert rotation after c_pad,ar_3:4,b_white and before /v
+                // URL: .../c_pad,ar_3:4,b_white/v123/...
+                newUrl = url.replace(/(b_white)(\/v)/, '$1,a_90$2');
             }
 
             try {
