@@ -1200,10 +1200,13 @@ async def generate_closet_outfits(
             candidates_by_slot[slot] = filtered
         
         # Generate and score candidate outfits
+        # If weather forces layer, make it required
+        require_layer = weather_adjustments.get("force_layer", False) if weather_adjustments else False
         candidate_outfits = generate_candidate_outfits(
             slots=slots,
             candidates_by_slot=candidates_by_slot,
-            max_candidates=8
+            max_candidates=8,
+            require_layer=require_layer
         )
         
         if not candidate_outfits:
@@ -1462,12 +1465,15 @@ async def get_daily_outfits(
                 candidates_by_slot[slot] = []
         
         # Generate and score
+        # If weather forces layer, make it required
+        require_layer = weather_adjustments.get("force_layer", False) if weather_adjustments else False
         candidate_outfits = generate_candidate_outfits(
             slots=slots,
             candidates_by_slot=candidates_by_slot,
-            max_candidates=8
+            max_candidates=8,
+            require_layer=require_layer
         )
-        
+
         if not candidate_outfits:
             outfit = {
                 "direction": f"Outfit {idx + 1}",

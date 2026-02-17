@@ -749,18 +749,20 @@ def score_outfit(
 def generate_candidate_outfits(
     slots: list[str],
     candidates_by_slot: dict[str, list[dict]],
-    max_candidates: int = 8
+    max_candidates: int = 8,
+    require_layer: bool = False
 ) -> list[dict[str, dict]]:
     """
     Generate multiple candidate outfit combinations from slot candidates.
     Uses simple combinatorial approach: vary each slot independently.
     
-    Layer is optional (scoring decides). Accessory is always included.
+    Layer is optional by default (scoring decides), unless require_layer=True.
     
     Args:
         slots: List of slots to fill
         candidates_by_slot: Dict mapping slot -> list of candidate items
         max_candidates: Max number of outfit candidates to generate
+        require_layer: If True, layer is required (e.g., cold weather)
     
     Returns:
         List of items_by_slot dicts (each is one candidate outfit)
@@ -773,8 +775,8 @@ def generate_candidate_outfits(
         options = candidates_by_slot.get(slot, [])[:3]  # Top 3 per slot
         if options:
             slot_candidates = [(slot, opt) for opt in options]
-            # Only layer is optional - include "no layer" as an option
-            if slot == "layer":
+            # Layer is optional UNLESS require_layer is True
+            if slot == "layer" and not require_layer:
                 slot_candidates.append((slot, None))
             slot_options.append(slot_candidates)
         else:

@@ -8,7 +8,10 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
     <!-- Client-side background removal -->
-    <script src="https://cdn.jsdelivr.net/npm/@imgly/background-removal@1.4.5/dist/index.umd.js"></script>
+    <script type="module">
+        import imglyRemoveBackground from 'https://cdn.jsdelivr.net/npm/@imgly/background-removal@1.4.5/+esm';
+        window.imglyRemoveBackground = imglyRemoveBackground;
+    </script>
     <style>
         :root {
             --bg: #faf9f7;
@@ -861,14 +864,26 @@
         }
 
         // Client-side background removal
-        let bgRemovalReady = false;
         async function removeBackground(file) {
+            // Wait for module to load
+            if (!window.imglyRemoveBackground) {
+                console.log('Waiting for bg removal module...');
+                await new Promise(resolve => {
+                    const check = setInterval(() => {
+                        if (window.imglyRemoveBackground) {
+                            clearInterval(check);
+                            resolve();
+                        }
+                    }, 100);
+                });
+            }
+            
             try {
-                progressText.textContent = 'Removing background...';
-                const imageBlob = await imglyRemoveBackground.removeBackground(file, {
+                progressText.textContent = 'Removing background (first time downloads model)...';
+                const imageBlob = await window.imglyRemoveBackground(file, {
                     progress: (key, current, total) => {
                         if (key === 'compute:inference') {
-                            progressText.textContent = `Processing (${Math.round(current/total*100)}%)...`;
+                            progressText.textContent = `Removing background (${Math.round(current/total*100)}%)...`;
                         }
                     }
                 });
@@ -876,6 +891,7 @@
                 return new File([imageBlob], file.name.replace(/\.[^/.]+$/, '.png'), { type: 'image/png' });
             } catch (e) {
                 console.error('Background removal failed:', e);
+                showToast('Background removal failed, uploading original', 'error');
                 return file; // Return original if bg removal fails
             }
         }

@@ -31,8 +31,8 @@ def parse_description(description: str) -> dict:
 
 Return ONLY valid JSON with these keys:
 - category: one of [top, bottom, dress, layer, shoes, accessory]
-  * top = blouses, t-shirts, shirts, tanks, crop tops, sweaters, hoodies, knit tops, pullovers (worn as main upper body piece)
-  * layer = cardigans, jackets, coats, blazers, vests, shrugs (worn OPEN over other tops)
+  * top = blouses, t-shirts, shirts, tanks, crop tops, sweaters, hoodies, knit tops, pullovers (worn as main upper body piece, NOT outerwear)
+  * layer = jackets, coats, blazers, cardigans, vests, shrugs, parkas, windbreakers, denim jackets, leather jackets (outerwear worn OVER tops)
   * bottom = pants, jeans, skirts, shorts, trousers
   * dress = one-piece dresses, jumpsuits, rompers
   * shoes = any footwear
