@@ -538,35 +538,62 @@
             }
         }
 
-        /* Occasion Selector */
-        .occasion-selector {
+        /* Mood Input */
+        .mood-input-container {
             display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 0.75rem;
+            gap: 0.5rem;
             padding: 0.75rem;
             background: var(--bg-alt);
-            border-radius: 4px;
+            border-radius: 8px;
             margin-bottom: 1.5rem;
         }
 
-        .occasion-label {
-            font-size: 0.85rem;
-            color: var(--text-muted);
-        }
-
-        #occasion-select {
-            padding: 0.5rem 1rem;
-            font-size: 0.9rem;
+        #mood-input {
+            flex: 1;
+            padding: 0.75rem 1rem;
+            font-size: 0.95rem;
             border: 1px solid var(--border);
-            border-radius: 4px;
+            border-radius: 6px;
             background: white;
-            cursor: pointer;
         }
 
-        #occasion-select:focus {
+        #mood-input:focus {
             outline: none;
             border-color: var(--primary);
+        }
+
+        #mood-input::placeholder {
+            color: #999;
+            font-style: italic;
+        }
+
+        .mood-btn {
+            padding: 0.75rem 1.25rem;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 0.9rem;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+
+        .mood-btn:hover {
+            opacity: 0.9;
+        }
+
+        .mood-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        @media (max-width: 600px) {
+            .mood-input-container {
+                flex-direction: column;
+            }
+            .mood-btn {
+                width: 100%;
+            }
         }
 
         /* Daily Section */
@@ -701,19 +728,10 @@
             <span>📍 Getting your location for weather-aware recommendations...</span>
         </div>
 
-        <!-- Occasion Selector -->
-        <div class="occasion-selector" id="occasion-selector">
-            <span class="occasion-label">What's the occasion?</span>
-            <select id="occasion-select">
-                <option value="auto">🕐 Auto (based on time)</option>
-                <option value="work">💼 Work / Office</option>
-                <option value="casual">😎 Casual / Everyday</option>
-                <option value="going-out">✨ Going Out / Dinner</option>
-                <option value="date">💕 Date Night</option>
-                <option value="party">🎉 Party</option>
-                <option value="brunch">🥂 Brunch</option>
-                <option value="workout">🏃 Workout / Gym</option>
-            </select>
+        <!-- Mood Input -->
+        <div class="mood-input-container" id="mood-container">
+            <input type="text" id="mood-input" placeholder="How are you feeling? (e.g., cozy day at home, fancy dinner, casual brunch...)" />
+            <button id="mood-btn" class="mood-btn">Style me ✨</button>
         </div>
 
         <!-- Daily Outfits (shown first) -->
@@ -821,18 +839,28 @@
         const dailyLoading = document.getElementById('daily-loading');
         const dailyActions = document.getElementById('daily-actions');
         const dailySubtitle = document.getElementById('daily-subtitle');
-        const occasionSelect = document.getElementById('occasion-select');
+        const moodInput = document.getElementById('mood-input');
+        const moodBtn = document.getElementById('mood-btn');
 
         // Load closet items and weather/daily outfits
         loadCloset();
         initDaily();
 
-        // Reload outfits when occasion changes
-        occasionSelect.addEventListener('change', () => {
-            if (userLocation) {
+        // Style based on mood description
+        moodBtn.addEventListener('click', () => {
+            const mood = moodInput.value.trim();
+            if (mood && userLocation) {
                 dailyLoading.style.display = 'block';
                 dailyGrid.style.display = 'none';
-                loadDailyOutfits(userLocation.lat, userLocation.lon, true);
+                dailyActions.style.display = 'none';
+                loadDailyOutfits(userLocation.lat, userLocation.lon, true, mood);
+            }
+        });
+
+        // Also trigger on Enter key
+        moodInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                moodBtn.click();
             }
         });
 
@@ -874,7 +902,7 @@
             );
         }
 
-        async function loadDailyOutfits(lat, lon, nocache = false) {
+        async function loadDailyOutfits(lat, lon, nocache = false, mood = null) {
             try {
                 let url = '/v1/closet/daily';
                 const params = [];
@@ -888,10 +916,9 @@
                 const tzOffset = -new Date().getTimezoneOffset() / 60; // Convert minutes to hours
                 params.push(`tz_offset=${tzOffset}`);
                 
-                // Send selected occasion (or 'auto' for time-based)
-                const selectedOccasion = occasionSelect.value;
-                if (selectedOccasion && selectedOccasion !== 'auto') {
-                    params.push(`occasion=${selectedOccasion}`);
+                // Send mood description if provided
+                if (mood) {
+                    params.push(`mood=${encodeURIComponent(mood)}`);
                 }
                 
                 if (params.length) {

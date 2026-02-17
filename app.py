@@ -27,8 +27,89 @@ from services.weather import fetch_weather, get_weather_outfit_adjustments, get_
 from services.image_processor import process_clothing_image
 
 import os
+import httpx
 from dotenv import load_dotenv
 load_dotenv()
+
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+
+
+def interpret_mood_for_occasion(mood: str) -> dict:
+    """
+    Use AI to interpret a free-form mood description into occasion preferences.
+    
+    Args:
+        mood: Free-form text like "cozy day at home", "fancy dinner date", etc.
+        
+    Returns:
+        Dict with occasion, prefer_occasions, avoid_occasions, note
+    """
+    if not OPENAI_API_KEY:
+        # Fallback to casual if no API key
+        return {
+            "occasion": "casual",
+            "prefer_occasions": ["casual", "everyday"],
+            "avoid_occasions": [],
+            "note": mood
+        }
+    
+    prompt = f"""Based on this mood/feeling description, determine the appropriate outfit occasion.
+
+Mood: "{mood}"
+
+Return JSON with:
+- occasion: one word (work, casual, going-out, date, party, brunch, cozy, active, formal)
+- prefer_occasions: array of 3-5 tags to look for (e.g., casual, relaxed, elegant, sporty, romantic)
+- avoid_occasions: array of 2-3 tags to avoid (e.g., formal, gym, work, party)
+- note: a short emoji-decorated summary of the vibe (max 30 chars)
+
+JSON only, no explanation."""
+
+    try:
+        response = httpx.post(
+            "https://api.openai.com/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {OPENAI_API_KEY}",
+                "Content-Type": "application/json"
+            },
+            json={
+                "model": "gpt-4o-mini",
+                "messages": [
+                    {"role": "system", "content": "You are a fashion stylist. Return only valid JSON."},
+                    {"role": "user", "content": prompt}
+                ],
+                "temperature": 0.3,
+                "max_tokens": 200
+            },
+            timeout=10.0
+        )
+        
+        if response.status_code == 200:
+            import json
+            text = response.json()["choices"][0]["message"]["content"]
+            # Clean up markdown if present
+            text = text.strip()
+            if text.startswith("```"):
+                lines = text.split("\n")
+                text = "\n".join(lines[1:-1])
+            
+            result = json.loads(text)
+            return {
+                "occasion": result.get("occasion", "casual"),
+                "prefer_occasions": result.get("prefer_occasions", ["casual", "everyday"]),
+                "avoid_occasions": result.get("avoid_occasions", []),
+                "note": result.get("note", mood)
+            }
+    except Exception as e:
+        logger.error(f"Mood interpretation error: {e}")
+    
+    # Fallback
+    return {
+        "occasion": "casual",
+        "prefer_occasions": ["casual", "everyday"],
+        "avoid_occasions": [],
+        "note": mood
+    }
 
 
 class FeedbackRequest(BaseModel):
@@ -1304,13 +1385,14 @@ async def get_daily_outfits(
     nocache: bool = False,
     user_id: str = "default",
     tz_offset: float = None,  # Timezone offset from UTC in hours (e.g., -8 for PST)
-    occasion: str = None  # Manual occasion override (work, casual, going-out, etc.)
+    occasion: str = None,  # Manual occasion override (work, casual, going-out, etc.)
+    mood: str = None  # Free-form mood description (e.g., "cozy day", "fancy dinner")
 ):
     """
     Generate 3 weather-appropriate outfits automatically.
     Picks different base items from closet for variety.
     """
-    logger.info(f"Daily outfits: lat={lat}, lon={lon}, tz={tz_offset}, occasion={occasion}")
+    logger.info(f"Daily outfits: lat={lat}, lon={lon}, tz={tz_offset}, mood={mood}")
     base_url = str(request.base_url).rstrip("/")
     
     # Get taste vectors for personalization (user_id acts as session_id for closet)
@@ -1318,9 +1400,13 @@ async def get_daily_outfits(
     if taste_vector or dislike_vector:
         logger.info(f"Taste vectors found for closet user {user_id}")
     
-    # Get occasion - either manual selection or auto-detect from time
-    if occasion:
-        # Manual occasion selected
+    # Get occasion - from mood description, manual selection, or auto-detect
+    if mood:
+        # Interpret mood using AI
+        occasion_info = interpret_mood_for_occasion(mood)
+        logger.info(f"Mood '{mood}' -> {occasion_info['occasion']} - {occasion_info['note']}")
+    elif occasion:
+        # Manual occasion selected (fallback for dropdown if used)
         OCCASION_CONFIGS = {
             "work": {
                 "occasion": "work",
@@ -1340,30 +1426,6 @@ async def get_daily_outfits(
                 "avoid_occasions": ["work", "office", "gym", "workout"],
                 "note": "Going Out ✨"
             },
-            "date": {
-                "occasion": "date",
-                "prefer_occasions": ["date", "dinner", "romantic", "going-out"],
-                "avoid_occasions": ["work", "gym", "casual"],
-                "note": "Date Night 💕"
-            },
-            "party": {
-                "occasion": "party",
-                "prefer_occasions": ["party", "clubbing", "night-out", "statement"],
-                "avoid_occasions": ["work", "office", "gym"],
-                "note": "Party 🎉"
-            },
-            "brunch": {
-                "occasion": "brunch",
-                "prefer_occasions": ["brunch", "casual", "weekend", "relaxed"],
-                "avoid_occasions": ["formal", "work", "gym"],
-                "note": "Brunch 🥂"
-            },
-            "workout": {
-                "occasion": "workout",
-                "prefer_occasions": ["gym", "workout", "athletic", "activewear", "sporty"],
-                "avoid_occasions": ["formal", "work", "dinner"],
-                "note": "Workout / Gym 🏃"
-            }
         }
         occasion_info = OCCASION_CONFIGS.get(occasion, OCCASION_CONFIGS["casual"])
         logger.info(f"Manual occasion: {occasion_info['occasion']} - {occasion_info['note']}")
