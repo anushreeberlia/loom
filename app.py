@@ -1513,6 +1513,7 @@ async def get_daily_outfits(
                     user_id=user_id
                 )
                 candidates_by_slot[slot] = candidates
+                logger.info(f"  [Daily {idx+1}] {slot}: {len(candidates)} candidates (excluded {len(used_ids_global)} ids)")
             except Exception as e:
                 logger.error(f"Retrieval error for {slot}: {e}")
                 candidates_by_slot[slot] = []
