@@ -1546,6 +1546,184 @@ async def get_daily_outfits(
     return response
 
 
+@app.get("/v1/closet/daily/regenerate/{idx}")
+async def regenerate_single_outfit(
+    request: Request,
+    idx: int,
+    lat: float = None,
+    lon: float = None,
+    exclude_ids: str = None,
+    user_id: str = "default"
+):
+    """
+    Regenerate a single outfit (after dislike).
+    Excludes items from the disliked outfit to get something different.
+    """
+    logger.info(f"Regenerating outfit {idx} (exclude: {exclude_ids})")
+    base_url = str(request.base_url).rstrip("/")
+    
+    # Parse exclude IDs
+    excluded = set()
+    if exclude_ids:
+        excluded = set(int(x) for x in exclude_ids.split(",") if x.strip())
+    
+    # Get taste vectors
+    taste_vector, dislike_vector = get_taste_vector(user_id)
+    
+    # Fetch weather
+    weather_data = None
+    weather_adjustments = None
+    if lat is not None and lon is not None:
+        weather_data = await fetch_weather(lat, lon)
+        if weather_data:
+            weather_adjustments = get_weather_outfit_adjustments(weather_data)
+    
+    # Get all closet items
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            """SELECT id, name, category, image_url, primary_color, secondary_colors,
+                      style_tags, season_tags, occasion_tags, material, fit, embedding::text
+               FROM user_closet_items 
+               WHERE user_id = %s AND embedding IS NOT NULL
+               ORDER BY RANDOM()""",  # Random order for variety
+            (user_id,)
+        )
+        rows = cursor.fetchall()
+    finally:
+        cursor.close()
+        conn.close()
+    
+    # Parse items
+    all_items = []
+    for row in rows:
+        item = {
+            "id": row[0],
+            "name": row[1],
+            "category": row[2],
+            "image_url": row[3],
+            "primary_color": row[4],
+            "secondary_colors": row[5],
+            "style_tags": row[6],
+            "season_tags": row[7] or [],
+            "occasion_tags": row[8],
+            "material": row[9],
+            "fit": row[10],
+            "embedding": [float(x) for x in row[11].strip("[]").split(",")] if row[11] else None
+        }
+        all_items.append(item)
+    
+    # Pick a base item NOT in excluded set
+    base_categories = ["top", "layer", "bottom", "dress"]
+    if weather_adjustments and weather_adjustments.get("force_layer"):
+        base_categories = ["layer", "top", "bottom"]
+    
+    base_item = None
+    for pref_cat in base_categories:
+        candidates = [i for i in all_items if i["category"] == pref_cat and i["id"] not in excluded]
+        if candidates:
+            base_item = candidates[0]  # Already randomized
+            break
+    
+    # Fallback to any non-excluded item
+    if not base_item:
+        for item in all_items:
+            if item["id"] not in excluded:
+                base_item = item
+                break
+    
+    if not base_item:
+        raise HTTPException(status_code=400, detail="No available items to create outfit")
+    
+    direction = ["Classic", "Trendy", "Bold"][idx % 3]
+    base_category = base_item["category"]
+    embedding = base_item.get("embedding")
+    
+    # Get slots
+    slots = get_slots_for_outfit(base_category, idx)
+    if weather_adjustments:
+        if weather_adjustments["force_layer"] and "layer" not in slots and base_category != "layer":
+            slots = slots + ["layer"]
+        elif weather_adjustments["skip_layer"] and "layer" in slots:
+            slots = [s for s in slots if s != "layer"]
+    
+    # Build queries and get embeddings
+    query_texts = [build_query_text(base_item, direction, slot, {}) for slot in slots]
+    query_embeddings = get_batch_embeddings(query_texts)
+    
+    # Retrieve candidates (excluding disliked items)
+    candidates_by_slot = {}
+    for i, slot in enumerate(slots):
+        try:
+            candidates = retrieve_for_slot(
+                base_item=base_item,
+                direction=direction,
+                slot=slot,
+                exclude_ids=list(excluded),
+                chosen_items={},
+                k=10,
+                precomputed_embedding=query_embeddings[i],
+                use_closet=True,
+                user_id=user_id
+            )
+            candidates_by_slot[slot] = candidates
+        except Exception as e:
+            logger.error(f"Retrieval error for {slot}: {e}")
+            candidates_by_slot[slot] = []
+    
+    # Generate outfit
+    require_layer = weather_adjustments.get("force_layer", False) if weather_adjustments else False
+    candidate_outfits = generate_candidate_outfits(
+        slots=slots,
+        candidates_by_slot=candidates_by_slot,
+        max_candidates=8,
+        require_layer=require_layer
+    )
+    
+    if not candidate_outfits:
+        outfit = {
+            "direction": f"Outfit {idx + 1}",
+            "base_item": base_item,
+            "items": [{"slot": base_category, **base_item}],
+            "explanation": "Limited items in closet"
+        }
+    else:
+        best_items, _ = select_best_outfit(
+            candidate_outfits=candidate_outfits,
+            base_item=base_item,
+            direction=direction,
+            base_embedding=embedding,
+            taste_vector=taste_vector,
+            dislike_vector=dislike_vector
+        )
+        
+        outfit = assemble_outfit(
+            direction, base_item, best_items, embedding,
+            taste_vector=taste_vector,
+            dislike_vector=dislike_vector
+        )
+        outfit["direction"] = f"Outfit {idx + 1}"
+        outfit["base_item"] = base_item
+    
+    # Generate new collage (forced)
+    try:
+        items_for_collage = outfit.get("items", [])
+        collage_path = generate_outfit_collage(
+            generation_id=f"daily_{idx}_regen_{uuid.uuid4().hex[:6]}",
+            direction=f"outfit_{idx + 1}",
+            items=items_for_collage,
+            base_item={"image_url": base_item["image_url"], "category": base_category},
+            force=True
+        )
+        outfit["collage_url"] = make_absolute_url(base_url, collage_path)
+    except Exception as e:
+        logger.error(f"Collage error: {e}")
+        outfit["collage_url"] = None
+    
+    return outfit
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)

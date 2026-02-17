@@ -1109,6 +1109,7 @@
                     return;
                 }
                 
+                // Record feedback for taste learning
                 await fetch('/v1/closet/feedback', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -1121,9 +1122,61 @@
                 btn.parentElement.querySelectorAll('.feedback-btn').forEach(b => b.classList.remove('active'));
                 btn.classList.add('active');
                 console.log(`Taste updated: ${liked ? 'liked' : 'disliked'} ${itemIds.length} items`);
+                
+                // If disliked, regenerate just this outfit with different items
+                if (!liked) {
+                    await regenerateOutfit(idx, itemIds);
+                }
             } catch (e) { 
                 console.error('Feedback error:', e); 
             }
+        }
+        
+        // Regenerate a single outfit, excluding the disliked items
+        async function regenerateOutfit(idx, excludeIds) {
+            const card = document.querySelector(`.outfit-card:nth-child(${idx + 1})`);
+            if (!card) return;
+            
+            // Show loading state
+            const img = card.querySelector('.outfit-image');
+            const originalSrc = img?.src;
+            if (img) img.style.opacity = '0.5';
+            card.querySelector('.outfit-feedback')?.classList.add('loading');
+            
+            try {
+                // Build URL with location and exclude IDs
+                let url = `/v1/closet/daily/regenerate/${idx}`;
+                const params = new URLSearchParams();
+                if (userLat !== null && userLon !== null) {
+                    params.append('lat', userLat);
+                    params.append('lon', userLon);
+                }
+                if (excludeIds.length > 0) {
+                    params.append('exclude_ids', excludeIds.join(','));
+                }
+                if (params.toString()) url += `?${params.toString()}`;
+                
+                const res = await fetch(url);
+                if (!res.ok) throw new Error('Regeneration failed');
+                
+                const newOutfit = await res.json();
+                
+                // Update the outfit data and UI
+                dailyOutfitsData[idx] = newOutfit;
+                if (img) {
+                    img.src = newOutfit.collage_url + '?t=' + Date.now();
+                    img.style.opacity = '1';
+                }
+                
+                // Reset feedback buttons
+                card.querySelectorAll('.feedback-btn').forEach(b => b.classList.remove('active'));
+                
+                console.log(`Outfit ${idx + 1} regenerated`);
+            } catch (e) {
+                console.error('Regenerate error:', e);
+                if (img) img.style.opacity = '1';
+            }
+            card.querySelector('.outfit-feedback')?.classList.remove('loading');
         }
 
         document.getElementById('try-again-btn').addEventListener('click', () => {
