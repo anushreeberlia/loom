@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>My Closet - Loom</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;1,400&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Cormorant Garamond', Georgia, serif;
+            background: #faf9f7;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: #2d2d2d;
+        }
+
+        .container {
+            text-align: center;
+            padding: 2rem;
+            max-width: 500px;
+        }
+
+        .logo {
+            font-size: 2rem;
+            font-weight: 400;
+            letter-spacing: 0.4em;
+            margin-bottom: 3rem;
+            color: #1a1a1a;
+        }
+
+        .logo a {
+            color: inherit;
+            text-decoration: none;
+        }
+
+        .icon {
+            font-size: 4rem;
+            margin-bottom: 1.5rem;
+        }
+
+        h1 {
+            font-size: 2rem;
+            font-weight: 500;
+            margin-bottom: 1rem;
+        }
+
+        .message {
+            font-size: 1.2rem;
+            font-style: italic;
+            color: #666;
+            margin-bottom: 2rem;
+            line-height: 1.6;
+        }
+
+        .back-link {
+            display: inline-block;
+            font-size: 1rem;
+            color: #888;
+            text-decoration: none;
+            border-bottom: 1px solid #ccc;
+            padding-bottom: 2px;
+            transition: all 0.2s;
+        }
+
+        .back-link:hover {
+            color: #1a1a1a;
+            border-color: #1a1a1a;
+        }
+
+        .features {
+            margin-top: 3rem;
+            text-align: left;
+            background: white;
+            border: 1px solid #e5e5e5;
+            padding: 2rem;
+        }
+
+        .features h3 {
+            font-size: 1rem;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            margin-bottom: 1rem;
+            color: #888;
+        }
+
+        .features ul {
+            list-style: none;
+        }
+
+        .features li {
+            padding: 0.5rem 0;
+            font-size: 1.1rem;
+            color: #555;
+        }
+
+        .features li::before {
+            content: "→ ";
+            color: #ccc;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="logo"><a href="/">LOOM</a></div>
+        
+        <div class="icon">🧥</div>
+        <h1>My Closet</h1>
+        <p class="message">
+            Upload your wardrobe and get personalized outfit recommendations 
+            from pieces you already own.
+        </p>
+
+        <a href="/" class="back-link">← Back to home</a>
+
+        <div class="features">
+            <h3>Coming Soon</h3>
+            <ul>
+                <li>Upload items from your closet</li>
+                <li>AI analyzes your style</li>
+                <li>Outfit ideas from your pieces</li>
+                <li>Weather-based suggestions</li>
+            </ul>
+        </div>
+    </div>
+</body>
+</html>
+

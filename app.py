@@ -294,9 +294,21 @@ def update_taste_vector(session_id: str, item_embeddings: list[list], liked: boo
 
 
 @app.get("/")
-async def serve_index():
-    """Serve the main frontend page."""
+async def serve_landing():
+    """Serve the landing page."""
+    return FileResponse("static/landing.html")
+
+
+@app.get("/demo")
+async def serve_demo():
+    """Serve the demo page (catalog-based, no login)."""
     return FileResponse("static/index.html")
+
+
+@app.get("/closet")
+async def serve_closet():
+    """Serve the closet page (coming soon - will require login)."""
+    return FileResponse("static/closet.html")
 
 
 @app.get("/health")

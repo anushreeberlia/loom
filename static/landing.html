@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Loom - AI Outfit Styler</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;1,400&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Cormorant Garamond', Georgia, serif;
+            background: #faf9f7;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: #2d2d2d;
+        }
+
+        .container {
+            text-align: center;
+            padding: 2rem;
+            max-width: 600px;
+        }
+
+        .logo {
+            font-size: 3.5rem;
+            font-weight: 400;
+            letter-spacing: 0.4em;
+            margin-bottom: 1rem;
+            color: #1a1a1a;
+        }
+
+        .tagline {
+            font-size: 1.3rem;
+            font-style: italic;
+            color: #666;
+            margin-bottom: 4rem;
+            font-weight: 400;
+        }
+
+        .options {
+            display: flex;
+            gap: 2rem;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        .option-card {
+            background: white;
+            border: 1px solid #e5e5e5;
+            padding: 2.5rem 3rem;
+            text-decoration: none;
+            color: inherit;
+            transition: all 0.3s ease;
+            min-width: 220px;
+        }
+
+        .option-card:hover {
+            border-color: #1a1a1a;
+            transform: translateY(-4px);
+            box-shadow: 0 8px 30px rgba(0,0,0,0.08);
+        }
+
+        .option-title {
+            font-size: 1.5rem;
+            font-weight: 500;
+            margin-bottom: 0.75rem;
+            letter-spacing: 0.1em;
+        }
+
+        .option-desc {
+            font-size: 1rem;
+            color: #888;
+            font-style: italic;
+        }
+
+        .option-card.coming-soon {
+            opacity: 0.6;
+            pointer-events: none;
+        }
+
+        .badge {
+            display: inline-block;
+            font-size: 0.7rem;
+            background: #f0f0f0;
+            padding: 0.25rem 0.5rem;
+            margin-top: 0.75rem;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+        }
+
+        footer {
+            position: absolute;
+            bottom: 2rem;
+            font-size: 0.9rem;
+            color: #aaa;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1 class="logo">LOOM</h1>
+        <p class="tagline">Style, curated</p>
+
+        <div class="options">
+            <a href="/demo" class="option-card">
+                <div class="option-title">Demo</div>
+                <div class="option-desc">Try with our catalog</div>
+            </a>
+
+            <a href="/closet" class="option-card coming-soon">
+                <div class="option-title">My Closet</div>
+                <div class="option-desc">Style from your wardrobe</div>
+                <span class="badge">Coming Soon</span>
+            </a>
+        </div>
+    </div>
+
+    <footer>
+        Build outfits around your pieces
+    </footer>
+</body>
+</html>
+
