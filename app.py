@@ -975,53 +975,6 @@ async def debug_closet_items(user_id: str = "default"):
         conn.close()
 
 
-@app.post("/v1/closet/items/fix-embeddings")
-async def fix_missing_embeddings(user_id: str = "default"):
-    """Generate embeddings for items that are missing them."""
-    from services.vision import describe_image
-    from services.parser import parse_description
-    from services.embedding import get_embedding
-    
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    fixed = []
-    
-    try:
-        # Find items without embeddings
-        cursor.execute(
-            """SELECT id, name, image_url, category 
-               FROM user_closet_items 
-               WHERE user_id = %s AND embedding IS NULL""",
-            (user_id,)
-        )
-        rows = cursor.fetchall()
-        
-        for row in rows:
-            item_id, name, image_url, category = row
-            try:
-                # Generate embedding from name + category
-                text = f"{category}: {name}" if name else category
-                embedding = get_embedding(text)
-                
-                cursor.execute(
-                    "UPDATE user_closet_items SET embedding = %s::vector WHERE id = %s",
-                    (embedding, item_id)
-                )
-                fixed.append({"id": item_id, "name": name})
-                logger.info(f"Fixed embedding for item {item_id}")
-            except Exception as e:
-                logger.error(f"Failed to fix item {item_id}: {e}")
-        
-        conn.commit()
-        return {"fixed": len(fixed), "items": fixed}
-    except Exception as e:
-        conn.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        cursor.close()
-        conn.close()
-
-
 @app.delete("/v1/closet/items/{item_id}")
 async def delete_closet_item(item_id: int, user_id: str = "default"):
     """Delete an item from user's closet."""

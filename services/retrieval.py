@@ -615,6 +615,15 @@ def retrieve_for_slot(
     avoid_colors = get_avoid_colors(direction, base_color, slot)
     prefer_colors = get_preferred_colors(direction, base_color, slot)
     
+    # For closet mode: don't hard-filter colors (small wardrobes are too restrictive)
+    # Instead, make avoid_colors a soft preference (penalized in scoring, not excluded)
+    if use_closet:
+        # Move avoid_colors to soft penalty instead of hard filter
+        avoid_colors_soft = avoid_colors
+        avoid_colors = set()  # Don't hard-exclude any colors
+    else:
+        avoid_colors_soft = set()
+    
     # Use precomputed embedding or compute new one
     if precomputed_embedding:
         query_embedding = precomputed_embedding
@@ -638,6 +647,12 @@ def retrieve_for_slot(
         use_closet=use_closet,
         user_id=user_id
     )
+    
+    # For closet: apply soft color penalty (prefer non-matching, but don't exclude)
+    if use_closet and avoid_colors_soft:
+        for c in candidates:
+            if c.get("primary_color") in avoid_colors_soft:
+                c["_color_penalty"] = True  # Mark for soft scoring penalty
     
     # For layer slot in catalog mode, filter to only include layer-like items
     # (closet items are already properly categorized by user)
