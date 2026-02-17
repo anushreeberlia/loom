@@ -10,7 +10,7 @@ import io
 import logging
 import numpy as np
 from PIL import Image, ImageEnhance, ImageOps, ExifTags
-from rembg import remove
+from rembg import remove, new_session
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +18,12 @@ logger = logging.getLogger(__name__)
 OUTPUT_WIDTH = 768
 OUTPUT_HEIGHT = 1024
 PADDING_PERCENT = 0.08  # 8% padding around garment
+MAX_INPUT_DIMENSION = 1500  # Resize large images to prevent OOM
+
+# Pre-load rembg model at import time
+logger.info("Pre-loading rembg model...")
+REMBG_SESSION = new_session("u2net")
+logger.info("rembg model loaded!")
 
 
 def process_clothing_image(image_bytes: bytes) -> bytes:
@@ -26,11 +32,12 @@ def process_clothing_image(image_bytes: bytes) -> bytes:
     
     Pipeline:
     1. EXIF orientation fix
-    2. Image cleanup (white balance, contrast)
-    3. Background removal
-    4. Orientation correction (ensure upright)
-    5. Smart cropping & framing
-    6. Normalize to standard size
+    2. Resize if too large (prevent OOM)
+    3. Image cleanup (white balance, contrast)
+    4. Background removal (using pre-loaded model)
+    5. Orientation correction (ensure upright)
+    6. Smart cropping & framing
+    7. Normalize to standard size
     
     Returns: Processed JPEG bytes
     """
@@ -40,27 +47,31 @@ def process_clothing_image(image_bytes: bytes) -> bytes:
     img = fix_exif_orientation(image_bytes)
     logger.info(f"  1. EXIF fixed, size: {img.size}")
     
-    # Step 2: Image cleanup
+    # Step 2: Resize large images to prevent OOM
+    img = resize_if_large(img)
+    logger.info(f"  2. Resized if needed: {img.size}")
+    
+    # Step 3: Image cleanup
     img = cleanup_image(img)
-    logger.info(f"  2. Image cleaned up")
+    logger.info(f"  3. Image cleaned up")
     
-    # Step 3: Background removal
+    # Step 4: Background removal (using pre-loaded session)
     img_bytes = pil_to_bytes(img, format="PNG")
-    removed_bg = remove(img_bytes)
+    removed_bg = remove(img_bytes, session=REMBG_SESSION)
     img = Image.open(io.BytesIO(removed_bg)).convert("RGBA")
-    logger.info(f"  3. Background removed")
+    logger.info(f"  4. Background removed")
     
-    # Step 4: Orientation correction
+    # Step 5: Orientation correction
     img = correct_orientation(img)
-    logger.info(f"  4. Orientation corrected")
+    logger.info(f"  5. Orientation corrected")
     
-    # Step 5: Smart crop and frame
+    # Step 6: Smart crop and frame
     img = smart_crop_and_frame(img)
-    logger.info(f"  5. Cropped and framed: {img.size}")
+    logger.info(f"  6. Cropped and framed: {img.size}")
     
-    # Step 6: Normalize to standard size
+    # Step 7: Normalize to standard size
     img = normalize_size(img)
-    logger.info(f"  6. Normalized to {img.size}")
+    logger.info(f"  7. Normalized to {img.size}")
     
     # Convert to JPEG
     output = io.BytesIO()
@@ -82,6 +93,24 @@ def fix_exif_orientation(image_bytes: bytes) -> Image.Image:
         logger.warning(f"EXIF transpose failed: {e}")
     
     return img.convert("RGB")
+
+
+def resize_if_large(img: Image.Image) -> Image.Image:
+    """
+    Resize image if larger than MAX_INPUT_DIMENSION to prevent OOM.
+    Maintains aspect ratio.
+    """
+    width, height = img.size
+    max_dim = max(width, height)
+    
+    if max_dim > MAX_INPUT_DIMENSION:
+        scale = MAX_INPUT_DIMENSION / max_dim
+        new_width = int(width * scale)
+        new_height = int(height * scale)
+        img = img.resize((new_width, new_height), Image.LANCZOS)
+        logger.info(f"    Resized from {width}x{height} to {new_width}x{new_height}")
+    
+    return img
 
 
 def cleanup_image(img: Image.Image) -> Image.Image:
