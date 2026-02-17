@@ -864,9 +864,15 @@ def assemble_outfit(
     Returns:
         Outfit dict ready for API response
     """
+    # Skip accessory when layer is present
+    has_layer = items_by_slot.get("layer") is not None
+    
     items = []
     for slot, item in items_by_slot.items():
         if item:
+            # Skip accessory if we have a layer
+            if slot == "accessory" and has_layer:
+                continue
             items.append({
                 "slot": slot,
                 "id": item["id"],
