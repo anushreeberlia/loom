@@ -61,7 +61,7 @@ OUTFIT_SLOTS = {
     "bottom": ["top", "shoes", "accessory"],
     "dress": ["shoes", "layer", "accessory"],
     "shoes": ["top", "bottom", "accessory"],
-    "layer": ["top", "bottom", "shoes", "accessory"],  # Layer input: need a top underneath!
+    "layer": ["top", "bottom", "shoes"],  # Layer input: top underneath, no accessory needed
     "accessory": ["top", "bottom", "shoes"],
 }
 

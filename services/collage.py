@@ -124,7 +124,7 @@ LAYOUT_SLOTS = {
     "dress": ["dress", "layer", "shoes", "accessory"],
     "top": ["top", "bottom", "shoes", "accessory"],
     "bottom": ["top", "bottom", "shoes", "accessory"],
-    "layer": ["layer", "bottom", "shoes", "accessory"],  # Layer input: show layer + bottom + shoes + acc
+    "layer": ["top", "bottom", "shoes", "layer"],  # Layer input: top|bottom, shoes|layer(input)
     "default": ["top", "bottom", "shoes", "accessory"],
 }
 
@@ -170,15 +170,15 @@ def create_grid_collage(
     # Custom positions based on input type
     custom_positions = None
     
-    # When input is a layer (hoodie, sweater, jacket)
+    # When input is a layer (jacket, coat, etc)
     if base_category == "layer":
-        # LAYER (input) | BOTTOM
-        # SHOES        | ACCESSORY
+        # TOP          | BOTTOM
+        # SHOES        | LAYER (input)
         custom_positions = {
-            "layer": (0, 0),                    # Top-left (input)
+            "top": (0, 0),                      # Top-left
             "bottom": (CELL_SIZE, 0),           # Top-right
             "shoes": (0, CELL_SIZE),            # Bottom-left
-            "accessory": (CELL_SIZE, CELL_SIZE), # Bottom-right
+            "layer": (CELL_SIZE, CELL_SIZE),    # Bottom-right (input)
         }
     
     # Check if items include a layer - if so, swap layer into accessory position
