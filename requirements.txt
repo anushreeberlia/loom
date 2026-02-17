@@ -8,3 +8,4 @@ pillow
 pydantic>=2.0
 cloudinary
 rembg[cpu]
+numpy

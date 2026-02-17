@@ -1,112 +1,264 @@
 """
-Local image processing - background removal, trimming, padding.
-Uses rembg (local AI model) instead of Cloudinary AI.
+Clothing Image Processing Pipeline
+
+Upload → Cleanup → Background Removal → Orientation Correction → Cropping → Save
+
+Modular design for independent improvements.
 """
 
 import io
 import logging
-from PIL import Image
+import numpy as np
+from PIL import Image, ImageEnhance, ImageOps, ExifTags
 from rembg import remove
 
 logger = logging.getLogger(__name__)
 
+# Standard output dimensions (3:4 aspect ratio, retail standard)
+OUTPUT_WIDTH = 768
+OUTPUT_HEIGHT = 1024
+PADDING_PERCENT = 0.08  # 8% padding around garment
 
-def process_clothing_image(image_bytes: bytes, target_ratio: tuple = (3, 4)) -> bytes:
+
+def process_clothing_image(image_bytes: bytes) -> bytes:
     """
-    Process a clothing image:
-    1. Remove background using rembg (local AI)
-    2. Trim empty space
-    3. Pad to target aspect ratio with white background
+    Full processing pipeline for clothing images.
     
-    Args:
-        image_bytes: Raw image bytes
-        target_ratio: Target aspect ratio as (width, height), default 3:4
-        
-    Returns:
-        Processed image as PNG bytes
+    Pipeline:
+    1. EXIF orientation fix
+    2. Image cleanup (white balance, contrast)
+    3. Background removal
+    4. Orientation correction (ensure upright)
+    5. Smart cropping & framing
+    6. Normalize to standard size
+    
+    Returns: Processed JPEG bytes
     """
-    logger.info("Processing image: removing background...")
+    logger.info("Starting image processing pipeline...")
     
-    # 1. Remove background
-    output_bytes = remove(image_bytes)
+    # Step 1: Fix EXIF orientation
+    img = fix_exif_orientation(image_bytes)
+    logger.info(f"  1. EXIF fixed, size: {img.size}")
     
-    # 2. Open as PIL Image
-    img = Image.open(io.BytesIO(output_bytes)).convert("RGBA")
+    # Step 2: Image cleanup
+    img = cleanup_image(img)
+    logger.info(f"  2. Image cleaned up")
     
-    # 3. Trim empty space (get bounding box of non-transparent pixels)
-    bbox = img.getbbox()
-    if bbox:
-        img = img.crop(bbox)
-        logger.info(f"Trimmed to {img.size}")
+    # Step 3: Background removal
+    img_bytes = pil_to_bytes(img, format="PNG")
+    removed_bg = remove(img_bytes)
+    img = Image.open(io.BytesIO(removed_bg)).convert("RGBA")
+    logger.info(f"  3. Background removed")
     
-    # 4. Pad to target aspect ratio with white background
-    target_w_ratio, target_h_ratio = target_ratio
-    current_w, current_h = img.size
-    current_ratio = current_w / current_h
-    target_ratio_val = target_w_ratio / target_h_ratio
+    # Step 4: Orientation correction
+    img = correct_orientation(img)
+    logger.info(f"  4. Orientation corrected")
     
-    if current_ratio > target_ratio_val:
-        # Too wide - add height
-        new_w = current_w
-        new_h = int(current_w / target_ratio_val)
-    else:
-        # Too tall - add width
-        new_h = current_h
-        new_w = int(current_h * target_ratio_val)
+    # Step 5: Smart crop and frame
+    img = smart_crop_and_frame(img)
+    logger.info(f"  5. Cropped and framed: {img.size}")
     
-    # Add some padding (10% margin)
-    padding = int(min(new_w, new_h) * 0.1)
-    new_w += padding * 2
-    new_h += padding * 2
+    # Step 6: Normalize to standard size
+    img = normalize_size(img)
+    logger.info(f"  6. Normalized to {img.size}")
     
-    # Create white background
-    background = Image.new("RGBA", (new_w, new_h), (255, 255, 255, 255))
-    
-    # Center the image
-    x = (new_w - current_w) // 2
-    y = (new_h - current_h) // 2
-    background.paste(img, (x, y), img)  # Use img as mask for transparency
-    
-    # Convert to RGB (no transparency) for JPEG compatibility
-    final = background.convert("RGB")
-    
-    # Save to bytes
+    # Convert to JPEG
     output = io.BytesIO()
-    final.save(output, format="JPEG", quality=90)
+    img.convert("RGB").save(output, format="JPEG", quality=92)
     output.seek(0)
     
-    logger.info(f"Processed image: {final.size}")
+    logger.info("Pipeline complete!")
     return output.getvalue()
 
 
-def auto_rotate_image(image_bytes: bytes) -> bytes:
-    """
-    Auto-rotate image based on EXIF orientation.
-    """
-    from PIL import ExifTags
-    
+def fix_exif_orientation(image_bytes: bytes) -> Image.Image:
+    """Fix image orientation based on EXIF data."""
     img = Image.open(io.BytesIO(image_bytes))
     
     try:
-        # Find orientation tag
-        for orientation in ExifTags.TAGS.keys():
-            if ExifTags.TAGS[orientation] == 'Orientation':
-                break
-        
-        exif = img._getexif()
-        if exif:
-            orientation_val = exif.get(orientation)
-            if orientation_val == 3:
-                img = img.rotate(180, expand=True)
-            elif orientation_val == 6:
-                img = img.rotate(270, expand=True)
-            elif orientation_val == 8:
-                img = img.rotate(90, expand=True)
-    except (AttributeError, KeyError, IndexError):
-        pass  # No EXIF data
+        # Use PIL's built-in EXIF transpose
+        img = ImageOps.exif_transpose(img)
+    except Exception as e:
+        logger.warning(f"EXIF transpose failed: {e}")
     
+    return img.convert("RGB")
+
+
+def cleanup_image(img: Image.Image) -> Image.Image:
+    """
+    Image cleanup layer:
+    - Auto white balance (via color enhancement)
+    - Brightness/contrast normalization
+    - Mild sharpening
+    """
+    # Convert to numpy for analysis
+    arr = np.array(img)
+    
+    # Auto white balance: stretch each channel
+    result = auto_white_balance(arr)
+    img = Image.fromarray(result)
+    
+    # Auto contrast
+    img = ImageOps.autocontrast(img, cutoff=0.5)
+    
+    # Mild brightness boost if too dark
+    brightness = get_brightness(img)
+    if brightness < 100:
+        enhancer = ImageEnhance.Brightness(img)
+        img = enhancer.enhance(1.1)
+    
+    # Mild sharpening
+    enhancer = ImageEnhance.Sharpness(img)
+    img = enhancer.enhance(1.1)
+    
+    return img
+
+
+def auto_white_balance(img_array: np.ndarray) -> np.ndarray:
+    """Simple white balance by stretching each color channel."""
+    result = np.zeros_like(img_array)
+    for i in range(3):
+        channel = img_array[:, :, i]
+        p2, p98 = np.percentile(channel, (2, 98))
+        if p98 > p2:
+            result[:, :, i] = np.clip((channel - p2) * 255.0 / (p98 - p2), 0, 255)
+        else:
+            result[:, :, i] = channel
+    return result.astype(np.uint8)
+
+
+def get_brightness(img: Image.Image) -> float:
+    """Get average brightness of image."""
+    grayscale = img.convert("L")
+    return np.mean(np.array(grayscale))
+
+
+def correct_orientation(img: Image.Image) -> Image.Image:
+    """
+    Correct garment orientation to ensure it's upright.
+    
+    Strategy:
+    1. Find bounding box of non-transparent pixels
+    2. Analyze shape - clothing is usually taller than wide
+    3. If wider than tall, rotate 90°
+    4. Check if upside down using simple heuristics
+    """
+    # Get alpha channel
+    if img.mode != "RGBA":
+        return img
+    
+    alpha = np.array(img.split()[3])
+    
+    # Find non-transparent pixels
+    coords = np.where(alpha > 10)
+    if len(coords[0]) == 0:
+        return img
+    
+    y_min, y_max = coords[0].min(), coords[0].max()
+    x_min, x_max = coords[1].min(), coords[1].max()
+    
+    height = y_max - y_min
+    width = x_max - x_min
+    
+    # If significantly wider than tall, probably needs rotation
+    if width > height * 1.3:
+        logger.info("    Rotating 90° (wider than tall)")
+        img = img.rotate(90, expand=True, resample=Image.BICUBIC)
+    
+    # Simple upside-down check: clothing usually has more detail at top
+    # (neckline, collar, shoulders) - top should have more edges
+    img_array = np.array(img.convert("L"))
+    alpha = np.array(img.split()[3]) if img.mode == "RGBA" else np.ones_like(img_array) * 255
+    
+    # Compare top third vs bottom third edge density
+    h = img_array.shape[0]
+    top_region = img_array[:h//3] * (alpha[:h//3] > 10)
+    bottom_region = img_array[2*h//3:] * (alpha[2*h//3:] > 10)
+    
+    # Simple edge detection via gradient
+    top_edges = np.abs(np.diff(top_region.astype(float))).sum() if top_region.size > 0 else 0
+    bottom_edges = np.abs(np.diff(bottom_region.astype(float))).sum() if bottom_region.size > 0 else 0
+    
+    # Normalize by area
+    top_area = np.sum(alpha[:h//3] > 10)
+    bottom_area = np.sum(alpha[2*h//3:] > 10)
+    
+    top_density = top_edges / max(top_area, 1)
+    bottom_density = bottom_edges / max(bottom_area, 1)
+    
+    # If bottom has significantly more detail, might be upside down
+    if bottom_density > top_density * 1.5:
+        logger.info("    Rotating 180° (upside down detection)")
+        img = img.rotate(180, expand=True, resample=Image.BICUBIC)
+    
+    return img
+
+
+def smart_crop_and_frame(img: Image.Image) -> Image.Image:
+    """
+    Smart cropping:
+    1. Find garment bounding box
+    2. Add consistent padding
+    3. Center on white background
+    4. Maintain 3:4 aspect ratio
+    """
+    if img.mode != "RGBA":
+        img = img.convert("RGBA")
+    
+    # Get bounding box of non-transparent pixels
+    bbox = img.getbbox()
+    if not bbox:
+        return img
+    
+    # Crop to content
+    cropped = img.crop(bbox)
+    c_width, c_height = cropped.size
+    
+    # Calculate target dimensions with padding
+    padding = int(max(c_width, c_height) * PADDING_PERCENT)
+    
+    # Determine final size maintaining 3:4 ratio
+    target_ratio = 3 / 4
+    current_ratio = c_width / c_height
+    
+    if current_ratio > target_ratio:
+        # Too wide - height determines size
+        final_width = c_width + padding * 2
+        final_height = int(final_width / target_ratio)
+    else:
+        # Too tall - width determines size  
+        final_height = c_height + padding * 2
+        final_width = int(final_height * target_ratio)
+    
+    # Create white background
+    background = Image.new("RGBA", (final_width, final_height), (255, 255, 255, 255))
+    
+    # Center the garment
+    x = (final_width - c_width) // 2
+    y = (final_height - c_height) // 2
+    background.paste(cropped, (x, y), cropped)
+    
+    return background
+
+
+def normalize_size(img: Image.Image) -> Image.Image:
+    """Resize to standard output dimensions."""
+    return img.resize((OUTPUT_WIDTH, OUTPUT_HEIGHT), Image.LANCZOS)
+
+
+def pil_to_bytes(img: Image.Image, format: str = "PNG") -> bytes:
+    """Convert PIL Image to bytes."""
     output = io.BytesIO()
-    img.save(output, format=img.format or "JPEG", quality=95)
+    img.save(output, format=format)
     output.seek(0)
     return output.getvalue()
 
+
+# Legacy function for compatibility
+def auto_rotate_image(image_bytes: bytes) -> bytes:
+    """Auto-rotate image based on EXIF orientation."""
+    img = fix_exif_orientation(image_bytes)
+    output = io.BytesIO()
+    img.save(output, format="JPEG", quality=95)
+    output.seek(0)
+    return output.getvalue()
