@@ -538,6 +538,37 @@
             }
         }
 
+        /* Occasion Selector */
+        .occasion-selector {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.75rem;
+            padding: 0.75rem;
+            background: var(--bg-alt);
+            border-radius: 4px;
+            margin-bottom: 1.5rem;
+        }
+
+        .occasion-label {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+        }
+
+        #occasion-select {
+            padding: 0.5rem 1rem;
+            font-size: 0.9rem;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            background: white;
+            cursor: pointer;
+        }
+
+        #occasion-select:focus {
+            outline: none;
+            border-color: var(--primary);
+        }
+
         /* Daily Section */
         .daily-loading {
             text-align: center;
@@ -670,6 +701,21 @@
             <span>📍 Getting your location for weather-aware recommendations...</span>
         </div>
 
+        <!-- Occasion Selector -->
+        <div class="occasion-selector" id="occasion-selector">
+            <span class="occasion-label">What's the occasion?</span>
+            <select id="occasion-select">
+                <option value="auto">🕐 Auto (based on time)</option>
+                <option value="work">💼 Work / Office</option>
+                <option value="casual">😎 Casual / Everyday</option>
+                <option value="going-out">✨ Going Out / Dinner</option>
+                <option value="date">💕 Date Night</option>
+                <option value="party">🎉 Party</option>
+                <option value="brunch">🥂 Brunch</option>
+                <option value="workout">🏃 Workout / Gym</option>
+            </select>
+        </div>
+
         <!-- Daily Outfits (shown first) -->
         <section id="daily-section">
             <div class="page-header">
@@ -775,10 +821,20 @@
         const dailyLoading = document.getElementById('daily-loading');
         const dailyActions = document.getElementById('daily-actions');
         const dailySubtitle = document.getElementById('daily-subtitle');
+        const occasionSelect = document.getElementById('occasion-select');
 
         // Load closet items and weather/daily outfits
         loadCloset();
         initDaily();
+
+        // Reload outfits when occasion changes
+        occasionSelect.addEventListener('change', () => {
+            if (userLocation) {
+                dailyLoading.style.display = 'block';
+                dailyGrid.style.display = 'none';
+                loadDailyOutfits(userLocation.lat, userLocation.lon, true);
+            }
+        });
 
         async function loadCloset() {
             try {
@@ -831,6 +887,12 @@
                 // Send timezone offset so server knows local time
                 const tzOffset = -new Date().getTimezoneOffset() / 60; // Convert minutes to hours
                 params.push(`tz_offset=${tzOffset}`);
+                
+                // Send selected occasion (or 'auto' for time-based)
+                const selectedOccasion = occasionSelect.value;
+                if (selectedOccasion && selectedOccasion !== 'auto') {
+                    params.push(`occasion=${selectedOccasion}`);
+                }
                 
                 if (params.length) {
                     url += '?' + params.join('&');

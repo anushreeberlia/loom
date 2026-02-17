@@ -1303,13 +1303,14 @@ async def get_daily_outfits(
     lon: float = None,
     nocache: bool = False,
     user_id: str = "default",
-    tz_offset: float = None  # Timezone offset from UTC in hours (e.g., -8 for PST)
+    tz_offset: float = None,  # Timezone offset from UTC in hours (e.g., -8 for PST)
+    occasion: str = None  # Manual occasion override (work, casual, going-out, etc.)
 ):
     """
     Generate 3 weather-appropriate outfits automatically.
     Picks different base items from closet for variety.
     """
-    logger.info(f"Daily outfits: lat={lat}, lon={lon}, tz={tz_offset}")
+    logger.info(f"Daily outfits: lat={lat}, lon={lon}, tz={tz_offset}, occasion={occasion}")
     base_url = str(request.base_url).rstrip("/")
     
     # Get taste vectors for personalization (user_id acts as session_id for closet)
@@ -1317,9 +1318,59 @@ async def get_daily_outfits(
     if taste_vector or dislike_vector:
         logger.info(f"Taste vectors found for closet user {user_id}")
     
-    # Get occasion based on day/time (use user's timezone if provided)
-    occasion_info = get_occasion_from_time(tz_offset)
-    logger.info(f"Occasion: {occasion_info['occasion']} - {occasion_info['note']}")
+    # Get occasion - either manual selection or auto-detect from time
+    if occasion:
+        # Manual occasion selected
+        OCCASION_CONFIGS = {
+            "work": {
+                "occasion": "work",
+                "prefer_occasions": ["work", "office", "business-casual", "professional"],
+                "avoid_occasions": ["party", "clubbing", "beach", "gym", "workout"],
+                "note": "Work / Office 💼"
+            },
+            "casual": {
+                "occasion": "casual",
+                "prefer_occasions": ["casual", "everyday", "relaxed", "brunch"],
+                "avoid_occasions": ["formal", "black-tie"],
+                "note": "Casual / Everyday 😎"
+            },
+            "going-out": {
+                "occasion": "going-out",
+                "prefer_occasions": ["going-out", "dinner", "date", "night-out", "party"],
+                "avoid_occasions": ["work", "office", "gym", "workout"],
+                "note": "Going Out ✨"
+            },
+            "date": {
+                "occasion": "date",
+                "prefer_occasions": ["date", "dinner", "romantic", "going-out"],
+                "avoid_occasions": ["work", "gym", "casual"],
+                "note": "Date Night 💕"
+            },
+            "party": {
+                "occasion": "party",
+                "prefer_occasions": ["party", "clubbing", "night-out", "statement"],
+                "avoid_occasions": ["work", "office", "gym"],
+                "note": "Party 🎉"
+            },
+            "brunch": {
+                "occasion": "brunch",
+                "prefer_occasions": ["brunch", "casual", "weekend", "relaxed"],
+                "avoid_occasions": ["formal", "work", "gym"],
+                "note": "Brunch 🥂"
+            },
+            "workout": {
+                "occasion": "workout",
+                "prefer_occasions": ["gym", "workout", "athletic", "activewear", "sporty"],
+                "avoid_occasions": ["formal", "work", "dinner"],
+                "note": "Workout / Gym 🏃"
+            }
+        }
+        occasion_info = OCCASION_CONFIGS.get(occasion, OCCASION_CONFIGS["casual"])
+        logger.info(f"Manual occasion: {occasion_info['occasion']} - {occasion_info['note']}")
+    else:
+        # Auto-detect from time
+        occasion_info = get_occasion_from_time(tz_offset)
+        logger.info(f"Auto occasion: {occasion_info['occasion']} - {occasion_info['note']}")
     
     # Fetch weather
     weather_data = None
