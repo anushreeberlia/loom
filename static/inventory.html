@@ -145,6 +145,13 @@
             display: none;
         }
 
+        /* Make upload zones work as labels on mobile */
+        .upload-zone {
+            cursor: pointer;
+            -webkit-tap-highlight-color: rgba(0,0,0,0.1);
+            touch-action: manipulation;
+        }
+
         /* Bulk Capture */
         .bulk-capture {
             background: white;
@@ -627,18 +634,18 @@
         </div>
 
         <div class="upload-actions">
-            <div class="upload-zone" id="upload-zone">
+            <label class="upload-zone" id="upload-zone" for="file-input">
                 <div class="upload-zone-icon">📁</div>
-                <div class="upload-zone-text">Drop images here</div>
-                <div class="upload-zone-hint">or click to select files</div>
+                <div class="upload-zone-text">Select photos</div>
+                <div class="upload-zone-hint">tap to choose from gallery</div>
                 <input type="file" id="file-input" accept="image/*" multiple>
-            </div>
-            <div class="upload-zone camera-zone" id="camera-zone">
+            </label>
+            <label class="upload-zone camera-zone" id="camera-zone" for="camera-input">
                 <div class="upload-zone-icon">📷</div>
-                <div class="upload-zone-text">Take photos</div>
-                <div class="upload-zone-hint">use your camera</div>
+                <div class="upload-zone-text">Take photo</div>
+                <div class="upload-zone-hint">open camera</div>
                 <input type="file" id="camera-input" accept="image/*" capture="environment">
-            </div>
+            </label>
         </div>
         
         <!-- Bulk capture mode -->
@@ -718,9 +725,7 @@
         // Load items on page load
         loadItems();
 
-        // File upload zone events
-        uploadZone.addEventListener('click', () => fileInput.click());
-
+        // File upload zone events (label handles click, just need drag)
         uploadZone.addEventListener('dragover', (e) => {
             e.preventDefault();
             uploadZone.classList.add('dragover');
@@ -744,7 +749,7 @@
         });
 
         // Camera zone - opens camera and enters bulk capture mode
-        cameraZone.addEventListener('click', () => cameraInput.click());
+        // Camera zone click handled by label - no JS needed
 
         cameraInput.addEventListener('change', (e) => {
             if (e.target.files[0]) {
