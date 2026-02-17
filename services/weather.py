@@ -175,3 +175,60 @@ def get_weather_outfit_adjustments(weather: WeatherData) -> dict:
     
     return adjustments
 
+
+def get_occasion_from_time() -> dict:
+    """
+    Auto-detect appropriate occasion based on current day and time.
+    
+    Returns dict with:
+        - occasion: str - primary occasion tag to prefer
+        - avoid_occasions: list - occasions to deprioritize
+        - note: str - human-readable suggestion
+    """
+    from datetime import datetime
+    
+    now = datetime.now()
+    hour = now.hour
+    weekday = now.weekday()  # 0=Monday, 6=Sunday
+    
+    is_weekend = weekday >= 5  # Saturday or Sunday
+    
+    if is_weekend:
+        if hour >= 18:  # Evening
+            return {
+                "occasion": "going-out",
+                "prefer_occasions": ["going-out", "date", "party", "dinner"],
+                "avoid_occasions": ["work", "office", "formal"],
+                "note": "Weekend evening - going out vibes 🎉"
+            }
+        else:  # Daytime weekend
+            return {
+                "occasion": "casual",
+                "prefer_occasions": ["casual", "brunch", "everyday", "relaxed"],
+                "avoid_occasions": ["work", "office", "formal"],
+                "note": "Weekend - keep it casual 😎"
+            }
+    else:
+        # Weekday
+        if hour < 17:  # Before 5 PM
+            return {
+                "occasion": "work",
+                "prefer_occasions": ["work", "office", "business-casual", "professional"],
+                "avoid_occasions": ["party", "clubbing", "beach"],
+                "note": "Workday - office appropriate 💼"
+            }
+        elif hour < 20:  # 5-8 PM - transitional
+            return {
+                "occasion": "smart-casual",
+                "prefer_occasions": ["smart-casual", "dinner", "after-work", "date"],
+                "avoid_occasions": ["beach", "gym", "loungewear"],
+                "note": "Evening - smart casual for after-work 🍷"
+            }
+        else:  # After 8 PM
+            return {
+                "occasion": "going-out",
+                "prefer_occasions": ["going-out", "dinner", "date", "night-out"],
+                "avoid_occasions": ["work", "office", "gym"],
+                "note": "Night out - dress to impress ✨"
+            }
+

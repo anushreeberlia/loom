@@ -876,6 +876,7 @@
         function displayWeather(data) {
             const w = data.weather;
             const suggestions = data.weather_notes || [];
+            const occasionNote = data.occasion_note || '';
             
             weatherBar.classList.remove('loading');
             weatherBar.innerHTML = `
@@ -887,7 +888,8 @@
                     </div>
                 </div>
                 <div class="weather-suggestion">
-                    ${suggestions.length > 0 ? suggestions.join(' · ') : 'Perfect for any outfit'}
+                    ${occasionNote ? `<strong>${occasionNote}</strong>` : ''}
+                    ${suggestions.length > 0 ? ' · ' + suggestions.join(' · ') : ''}
                 </div>
             `;
         }
@@ -1205,7 +1207,6 @@
                 
                 // If disliked, regenerate just this outfit with different items
                 if (!liked) {
-                    console.log('Dislike - triggering regeneration for outfit', idx);
                     await regenerateOutfit(idx, itemIds);
                 }
             } catch (e) { 
@@ -1215,12 +1216,8 @@
         
         // Regenerate a single outfit, excluding the disliked items
         async function regenerateOutfit(idx, excludeIds) {
-            console.log('regenerateOutfit called:', idx, excludeIds);
             const card = document.querySelectorAll('#daily-grid .outfit-card')[idx];
-            if (!card) {
-                console.error('Card not found for idx:', idx);
-                return;
-            }
+            if (!card) return;
             
             // Show loading state
             const img = card.querySelector('.outfit-collage');
@@ -1240,13 +1237,10 @@
                 }
                 if (params.toString()) url += `?${params.toString()}`;
                 
-                console.log('Regenerate URL:', url);
                 const res = await fetch(url);
-                console.log('Regenerate response:', res.status);
-                if (!res.ok) throw new Error('Regeneration failed: ' + res.status);
+                if (!res.ok) throw new Error('Regeneration failed');
                 
                 const newOutfit = await res.json();
-                console.log('New outfit received:', newOutfit);
                 
                 // Update the outfit data and UI
                 dailyOutfitsData[idx] = newOutfit;

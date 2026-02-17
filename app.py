@@ -23,7 +23,7 @@ from services.outfit import (
 )
 from services.retrieval import retrieve_for_slot, build_query_text, get_batch_embeddings
 from services.collage import generate_outfit_collage
-from services.weather import fetch_weather, get_weather_outfit_adjustments, WeatherData
+from services.weather import fetch_weather, get_weather_outfit_adjustments, get_occasion_from_time, WeatherData
 from services.image_processor import process_clothing_image
 
 import os
@@ -1316,6 +1316,10 @@ async def get_daily_outfits(
     if taste_vector or dislike_vector:
         logger.info(f"Taste vectors found for closet user {user_id}")
     
+    # Get occasion based on day/time
+    occasion_info = get_occasion_from_time()
+    logger.info(f"Occasion: {occasion_info['occasion']} - {occasion_info['note']}")
+    
     # Fetch weather
     weather_data = None
     weather_adjustments = None
@@ -1368,19 +1372,34 @@ async def get_daily_outfits(
         }
         all_items.append(item)
     
-    # Filter items by weather season if available
+    # Filter items by weather season and occasion
     preferred_seasons = weather_adjustments.get("preferred_seasons", []) if weather_adjustments else []
     avoid_seasons = weather_adjustments.get("avoid_seasons", []) if weather_adjustments else []
+    prefer_occasions = occasion_info.get("prefer_occasions", [])
+    avoid_occasions = occasion_info.get("avoid_occasions", [])
     
-    def season_score(item):
-        tags = item.get("season_tags") or []
+    def item_score(item):
+        """Score item by season and occasion appropriateness."""
         score = 0
+        
+        # Season scoring
+        season_tags = item.get("season_tags") or []
         for s in preferred_seasons:
-            if s in tags or "all-season" in tags:
+            if s in season_tags or "all-season" in season_tags:
                 score += 1
         for s in avoid_seasons:
-            if s in tags:
+            if s in season_tags:
                 score -= 2
+        
+        # Occasion scoring (stronger weight)
+        occasion_tags = item.get("occasion_tags") or []
+        for o in prefer_occasions:
+            if o in occasion_tags or "everyday" in occasion_tags or "versatile" in occasion_tags:
+                score += 2
+        for o in avoid_occasions:
+            if o in occasion_tags:
+                score -= 3
+        
         return score
     
     # Pick 3 different base items (prefer tops/layers for weather)
@@ -1396,8 +1415,8 @@ async def get_daily_outfits(
     for pref_cat in base_categories:
         candidates = [i for i in all_items if i["category"] == pref_cat and i["id"] not in used_ids]
         if candidates:
-            # Sort by season appropriateness
-            candidates.sort(key=season_score, reverse=True)
+            # Sort by combined season + occasion score
+            candidates.sort(key=item_score, reverse=True)
             selected = candidates[0]
             selected_bases.append(selected)
             used_ids.add(selected["id"])
@@ -1407,7 +1426,7 @@ async def get_daily_outfits(
     # Fill remaining with any category
     if len(selected_bases) < 3:
         remaining = [i for i in all_items if i["id"] not in used_ids]
-        remaining.sort(key=season_score, reverse=True)
+        remaining.sort(key=item_score, reverse=True)
         for item in remaining:
             selected_bases.append(item)
             used_ids.add(item["id"])
@@ -1536,7 +1555,9 @@ async def get_daily_outfits(
     
     response = {
         "outfits": outfits,
-        "source": "closet_daily"
+        "source": "closet_daily",
+        "occasion": occasion_info["occasion"],
+        "occasion_note": occasion_info["note"]
     }
     
     if weather_data:
