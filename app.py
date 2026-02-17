@@ -771,15 +771,21 @@ async def add_closet_item(file: UploadFile = File(...), user_id: str = Form("def
     if not contents:
         raise HTTPException(status_code=400, detail="No image uploaded")
     
-    # 1. Upload to Cloudinary
+    # 1. Upload to Cloudinary with AI enhancements
     try:
         upload_result = cloudinary.uploader.upload(
             contents,
             folder="closet",
-            resource_type="image"
+            resource_type="image",
+            transformation=[
+                {"effect": "background_removal"},  # Remove background
+                {"effect": "improve"},             # Auto-enhance quality
+                {"quality": "auto:best"},          # Optimize quality
+                {"fetch_format": "auto"}           # Best format
+            ]
         )
         image_url = upload_result["secure_url"]
-        logger.info(f"Uploaded to Cloudinary: {image_url}")
+        logger.info(f"Uploaded to Cloudinary (enhanced): {image_url}")
     except Exception as e:
         logger.error(f"Cloudinary upload error: {e}")
         raise HTTPException(status_code=500, detail=f"Image upload failed: {str(e)}")
@@ -982,12 +988,18 @@ async def generate_closet_outfits(
         if not contents:
             raise HTTPException(status_code=400, detail="No image uploaded")
         
-        # Upload to Cloudinary
+        # Upload to Cloudinary with AI enhancements
         try:
             upload_result = cloudinary.uploader.upload(
                 contents,
                 folder="closet",
-                resource_type="image"
+                resource_type="image",
+                transformation=[
+                    {"effect": "background_removal"},
+                    {"effect": "improve"},
+                    {"quality": "auto:best"},
+                    {"fetch_format": "auto"}
+                ]
             )
             input_image_url = upload_result["secure_url"]
         except Exception as e:
