@@ -322,6 +322,7 @@
             display: grid;
             grid-template-columns: repeat(3, 1fr);
             gap: 1.5rem;
+            align-items: stretch;
         }
 
         @media (max-width: 900px) {
@@ -335,6 +336,9 @@
         .outfit-card {
             background: white;
             border: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            height: 100%;
         }
 
         .outfit-header {
@@ -367,6 +371,7 @@
 
         .outfit-items {
             padding: 0.9rem 1rem;
+            flex-grow: 1;
         }
 
         .outfit-items-title {
@@ -1046,7 +1051,6 @@
                                 <span class="item-slot">${formatSlot(item.slot)}</span>
                                 <span class="item-name">${item.name || 'Item'}</span>
                                 <span class="item-color color-${item.primary_color || 'grey'}"></span>
-                                ${item.score !== undefined ? `<span class="item-score" title="Match score">${item.score}</span>` : ''}
                             </div>
                             ${(item.style_tags?.length || item.occasion_tags?.length) ? `<div class="item-tags">${[...(item.style_tags || []), ...(item.occasion_tags || [])].slice(0,3).join(', ')}</div>` : ''}
                         `).join('')}
@@ -1207,7 +1211,6 @@
                                 <span class="item-slot">${formatSlot(item.slot)}</span>
                                 <span class="item-name">${item.name || 'Item'}</span>
                                 <span class="item-color color-${item.primary_color || 'grey'}"></span>
-                                ${item.score !== undefined ? `<span class="item-score" title="Match score">${item.score}</span>` : ''}
                             </div>
                             ${(item.style_tags?.length || item.occasion_tags?.length) ? `<div class="item-tags">${[...(item.style_tags || []), ...(item.occasion_tags || [])].slice(0,3).join(', ')}</div>` : ''}
                         `).join('')}

@@ -135,17 +135,17 @@ def compute_occasion_score(item_embedding: list[float], occasion: str) -> float:
     return float(vibe_sim - anti_sim)
 
 
-def filter_by_occasion_semantic(candidates: list[dict], occasion: str, threshold: float = -0.05) -> list[dict]:
+def filter_by_occasion_semantic(candidates: list[dict], occasion: str, threshold: float = -0.02) -> list[dict]:
     """
     Filter and rank candidates by semantic occasion fit.
     
     Args:
         candidates: List of items with embeddings
         occasion: The target occasion (work, casual, going-out, etc.)
-        threshold: Minimum occasion score to include (default -0.05 allows slight mismatches)
+        threshold: Minimum occasion score to include (items below this are filtered out)
     
     Returns:
-        Sorted candidates (best fits first) - NEVER filters out all items
+        Filtered and sorted candidates (best fits first)
     """
     if occasion not in OCCASION_SEMANTIC_CONTEXTS:
         return candidates  # No filtering if unknown occasion
@@ -154,15 +154,29 @@ def filter_by_occasion_semantic(candidates: list[dict], occasion: str, threshold
         return candidates
     
     # Score all candidates
+    scored = []
+    filtered_out = []
     for c in candidates:
         if not c.get("embedding"):
             c["_occasion_score"] = 0  # No embedding = neutral
+            scored.append(c)
         else:
-            c["_occasion_score"] = compute_occasion_score(c["embedding"], occasion)
+            score = compute_occasion_score(c["embedding"], occasion)
+            c["_occasion_score"] = score
+            if score >= threshold:
+                scored.append(c)
+            else:
+                filtered_out.append(c)
     
-    # Sort by occasion score (best fits first) - DON'T filter, just rank
-    candidates.sort(key=lambda x: x.get("_occasion_score", 0), reverse=True)
-    return candidates
+    # Sort by occasion score (best fits first)
+    scored.sort(key=lambda x: x.get("_occasion_score", 0), reverse=True)
+    
+    # If we filtered out everything, return at least some items (sorted by score)
+    if not scored and filtered_out:
+        filtered_out.sort(key=lambda x: x.get("_occasion_score", 0), reverse=True)
+        return filtered_out[:3]  # Return top 3 even if below threshold
+    
+    return scored
 
 
 def infer_product_type(item_name: str, slot: str) -> dict:
