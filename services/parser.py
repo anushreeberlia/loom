@@ -41,8 +41,8 @@ Return ONLY valid JSON with these keys:
 - secondary_colors: array from same palette (can be empty)
 - material: REQUIRED string - the fabric type, e.g.: cotton, linen, silk, wool, cashmere, fleece, denim, leather, suede, polyester, nylon, knit, jersey, chiffon, velvet, corduroy, tweed, quilted, puffer, mesh, canvas, satin. If unclear, make best guess based on appearance.
 - fit: one of [fitted, slim, straight, relaxed, oversized, wide, cropped, loose, unknown]
-- style_tags: array (from: minimalist, classic, edgy, romantic, sporty, bohemian, streetwear, preppy, elegant, casual, chic, vintage, statement, workwear)
-- occasion_tags: array (from: everyday, casual, work, dinner, party, formal, vacation, lounge, wedding_guest)
+- style_tags: array (from: minimalist, classic, edgy, romantic, sporty, athletic, activewear, bohemian, streetwear, preppy, elegant, casual, chic, vintage, statement, workwear, sexy, glamorous, trendy)
+- occasion_tags: array (from: everyday, casual, work, dinner, party, formal, vacation, lounge, wedding_guest, going-out, clubbing, gym, workout, date, night-out, brunch)
 - season_tags: array - use EITHER all_season OR subset of [spring, summer, fall, winter], NEVER both
 
 Description:
