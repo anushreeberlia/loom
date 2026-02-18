@@ -1744,18 +1744,33 @@ async def get_daily_outfits(
         candidates_by_slot = {}
         for i, slot in enumerate(slots):
             try:
+                # First try without re-using items from other outfits
                 candidates = retrieve_for_slot(
                     base_item=base_item,
                     direction=direction,
                     slot=slot,
-                    exclude_ids=[],  # Allow re-using items - better than forcing inappropriate ones
+                    exclude_ids=list(used_ids_global),  # Prefer diversity
                     chosen_items={},
                     k=10,
                     precomputed_embedding=query_embeddings[i],
                     use_closet=True,
                     user_id=user_id,
-                    occasion=occasion_name  # Semantic filtering - no hardcoded keywords!
+                    occasion=occasion_name
                 )
+                # If no good candidates, allow re-use
+                if not candidates:
+                    candidates = retrieve_for_slot(
+                        base_item=base_item,
+                        direction=direction,
+                        slot=slot,
+                        exclude_ids=[],  # Allow re-use as fallback
+                        chosen_items={},
+                        k=10,
+                        precomputed_embedding=query_embeddings[i],
+                        use_closet=True,
+                        user_id=user_id,
+                        occasion=occasion_name
+                    )
                 candidates_by_slot[slot] = candidates
             except Exception as e:
                 logger.error(f"Retrieval error for {slot}: {e}")
