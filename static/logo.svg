@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 40" width="120" height="40">
+  <!-- Interwoven threads forming "LOOM" concept -->
+  <defs>
+    <linearGradient id="thread" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#1a1a1a"/>
+      <stop offset="100%" style="stop-color:#4a4a4a"/>
+    </linearGradient>
+  </defs>
+  
+  <!-- Woven pattern icon -->
+  <g transform="translate(2, 8)">
+    <!-- Vertical threads -->
+    <line x1="4" y1="0" x2="4" y2="24" stroke="#c41e3a" stroke-width="2" stroke-linecap="round"/>
+    <line x1="12" y1="0" x2="12" y2="24" stroke="#1a1a1a" stroke-width="2" stroke-linecap="round"/>
+    <line x1="20" y1="0" x2="20" y2="24" stroke="#c41e3a" stroke-width="2" stroke-linecap="round"/>
+    
+    <!-- Horizontal weave -->
+    <path d="M0,6 Q4,4 8,6 Q12,8 16,6 Q20,4 24,6" stroke="#1a1a1a" stroke-width="2" fill="none" stroke-linecap="round"/>
+    <path d="M0,12 Q4,14 8,12 Q12,10 16,12 Q20,14 24,12" stroke="#6b6b6b" stroke-width="2" fill="none" stroke-linecap="round"/>
+    <path d="M0,18 Q4,16 8,18 Q12,20 16,18 Q20,16 24,18" stroke="#1a1a1a" stroke-width="2" fill="none" stroke-linecap="round"/>
+  </g>
+  
+  <!-- LOOM text -->
+  <text x="38" y="28" font-family="Georgia, serif" font-size="22" font-weight="400" letter-spacing="3" fill="#1a1a1a">LOOM</text>
+</svg>
