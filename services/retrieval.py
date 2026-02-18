@@ -82,8 +82,13 @@ OCCASION_SEMANTIC_CONTEXTS = {
         "anti_vibe": "gym workout athletic sporty sweatpants loungewear pajamas ultra casual sloppy"
     },
     "workout": {
-        "vibe": "athletic sporty gym fitness activewear performance breathable stretchy comfortable movement exercise training",
-        "anti_vibe": "formal dressy elegant heels business office work professional evening gown party"
+        "vibe": "athletic sporty gym fitness activewear performance breathable stretchy comfortable movement exercise training leggings sneakers",
+        "anti_vibe": "formal dressy elegant heels business office work professional evening gown party blazer suit"
+    },
+    # "active" is returned by AI for workout moods - alias to workout
+    "active": {
+        "vibe": "athletic sporty gym fitness activewear performance breathable stretchy comfortable movement exercise training leggings sneakers",
+        "anti_vibe": "formal dressy elegant heels business office work professional evening gown party blazer suit"
     }
 }
 

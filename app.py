@@ -425,32 +425,32 @@ async def generate_outfits(request: Request, file: UploadFile = File(...), sessi
     else:
         logger.info(f"Cache MISS for image {image_hash[:12]}... - calling APIs")
 
-        # 2. Vision: Get description from image
-        logger.info("Calling vision API...")
-        try:
-            description = describe_image(contents)
-            logger.info(f"Description: {description[:100]}...")
-        except Exception as e:
-            logger.error(f"Vision API error: {e}")
-            raise HTTPException(status_code=500, detail=f"Vision API error: {str(e)}")
+    # 2. Vision: Get description from image
+    logger.info("Calling vision API...")
+    try:
+        description = describe_image(contents)
+        logger.info(f"Description: {description[:100]}...")
+    except Exception as e:
+        logger.error(f"Vision API error: {e}")
+        raise HTTPException(status_code=500, detail=f"Vision API error: {str(e)}")
 
-        # 3. Parser: Convert description to structured JSON
-        logger.info("Parsing description to BaseItem...")
-        try:
-            base_item = parse_description(description)
-            logger.info(f"BaseItem: {base_item}")
-        except Exception as e:
-            logger.error(f"Parser error: {e}")
-            raise HTTPException(status_code=500, detail=f"Parser error: {str(e)}")
+    # 3. Parser: Convert description to structured JSON
+    logger.info("Parsing description to BaseItem...")
+    try:
+        base_item = parse_description(description)
+        logger.info(f"BaseItem: {base_item}")
+    except Exception as e:
+        logger.error(f"Parser error: {e}")
+        raise HTTPException(status_code=500, detail=f"Parser error: {str(e)}")
 
-        # 4. Embedding: Generate embedding for BaseItem
-        logger.info("Generating embedding...")
-        try:
-            embedding = embed_base_item(base_item)
-            logger.info(f"Embedding generated (dim={len(embedding)})")
-        except Exception as e:
-            logger.error(f"Embedding error: {e}")
-            raise HTTPException(status_code=500, detail=f"Embedding error: {str(e)}")
+    # 4. Embedding: Generate embedding for BaseItem
+    logger.info("Generating embedding...")
+    try:
+        embedding = embed_base_item(base_item)
+        logger.info(f"Embedding generated (dim={len(embedding)})")
+    except Exception as e:
+        logger.error(f"Embedding error: {e}")
+        raise HTTPException(status_code=500, detail=f"Embedding error: {str(e)}")
 
     # 5. Retrieve candidates and assemble outfits
     # Phase 1: BATCH all query embeddings in ONE API call
@@ -508,11 +508,11 @@ async def generate_outfits(request: Request, file: UploadFile = File(...), sessi
         """Retrieve candidates for one (direction, slot) pair using precomputed embedding."""
         outfit_idx, direction, slot = task
         precomputed_emb = task_embeddings.get((outfit_idx, direction, slot))
-        try:
-            candidates = retrieve_for_slot(
-                base_item=base_item,
-                direction=direction,
-                slot=slot,
+            try:
+                candidates = retrieve_for_slot(
+                    base_item=base_item,
+                    direction=direction,
+                    slot=slot,
                 exclude_ids=[],  # No hard exclusions - taste vectors handle preferences
                 chosen_items={},
                 used_subtypes=set(),
@@ -522,7 +522,7 @@ async def generate_outfits(request: Request, file: UploadFile = File(...), sessi
             )
             logger.info(f"  [{direction}] {slot}: {len(candidates)} candidates")
             return (outfit_idx, direction, slot, candidates)
-        except Exception as e:
+            except Exception as e:
             logger.error(f"  [{direction}] {slot}: Retrieval error - {e}")
             return (outfit_idx, direction, slot, [])
     
@@ -1618,9 +1618,11 @@ async def get_daily_outfits(
     avoid_seasons = weather_adjustments.get("avoid_seasons", []) if weather_adjustments else []
     prefer_occasions = occasion_info.get("prefer_occasions", [])
     avoid_occasions = occasion_info.get("avoid_occasions", [])
+    occasion_name = occasion_info.get("occasion", "casual")  # For semantic scoring
     
     def item_score(item):
         """Score item by season, occasion, style, and material appropriateness."""
+        from services.retrieval import compute_occasion_score
         score = 0
         
         # Season scoring
@@ -1637,12 +1639,19 @@ async def get_daily_outfits(
         style_tags = item.get("style_tags") or []
         all_item_tags = set(occasion_tags + style_tags)
         
-        for o in prefer_occasions:
-            if o in all_item_tags or "everyday" in all_item_tags or "versatile" in all_item_tags:
-                score += 3  # Strong boost for matching tags
+        # Count direct tag matches (not "everyday" fallback)
+        direct_matches = sum(1 for o in prefer_occasions if o in all_item_tags)
+        score += direct_matches * 5  # Strong boost for direct matches
+        
+        # Penalize items with avoided tags
         for o in avoid_occasions:
             if o in all_item_tags:
                 score -= 5  # Strong penalty for avoided tags
+        
+        # SEMANTIC scoring using embeddings - this is the key for workout/active occasions
+        if item.get("embedding") and occasion_name:
+            semantic_score = compute_occasion_score(item["embedding"], occasion_name, all_item_tags)
+            score += semantic_score * 15  # Strong weight for semantic fit
         
         # Material scoring for weather (especially important for layers)
         if weather_adjustments:
@@ -1664,7 +1673,10 @@ async def get_daily_outfits(
     scored_tops = [(item, item_score(item)) for item in tops_only]
     scored_tops.sort(key=lambda x: x[1], reverse=True)
     
-    logger.info(f"Scored {len(scored_tops)} tops")
+    logger.info(f"Scored {len(scored_tops)} tops for occasion: {occasion_name}")
+    # Log top 5 for debugging
+    for item, score in scored_tops[:5]:
+        logger.info(f"  Top candidate: {item['name']} score={score:.1f} tags={item.get('style_tags', [])}")
     
     selected_bases = []
     used_ids = set()
@@ -1674,7 +1686,7 @@ async def get_daily_outfits(
         
         # Get tops within 3 points of best score
         top_tier = [item for item, score in scored_tops if score >= best_score - 3]
-        logger.info(f"Top tier ({best_score} to {best_score-3}): {len(top_tier)} tops")
+        logger.info(f"Top tier ({best_score:.1f} to {best_score-3:.1f}): {len(top_tier)} tops")
         
         # Shuffle and pick 3
         random.shuffle(top_tier)
