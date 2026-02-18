@@ -380,7 +380,7 @@ def get_current_user(auth_token: Optional[str] = Cookie(None)) -> Optional[dict]
 
 
 def get_or_create_user(email: str, name: str, google_id: str, profile_image: str = None) -> dict:
-    """Get existing user or create new one"""
+    """Get existing user or create new one. Migrates 'default' closet data to new user."""
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
@@ -402,9 +402,23 @@ def get_or_create_user(email: str, name: str, google_id: str, profile_image: str
             (email, name, google_id, profile_image)
         )
         user_id = cursor.fetchone()[0]
+        
+        # Migrate "default" closet data to this new user
+        cursor.execute(
+            """UPDATE user_closet_items SET user_id = %s WHERE user_id = 'default'""",
+            (str(user_id),)
+        )
+        migrated_count = cursor.rowcount
+        
+        # Also migrate taste vectors
+        cursor.execute(
+            """UPDATE taste_vectors SET session_id = %s WHERE session_id = 'default'""",
+            (str(user_id),)
+        )
+        
         conn.commit()
         
-        logger.info(f"Created new user: {email} (id={user_id})")
+        logger.info(f"Created new user: {email} (id={user_id}), migrated {migrated_count} closet items")
         return {"id": user_id, "email": email, "name": name, "profile_image": profile_image}
     except Exception as e:
         logger.error(f"User creation error: {e}")
@@ -413,6 +427,25 @@ def get_or_create_user(email: str, name: str, google_id: str, profile_image: str
     finally:
         cursor.close()
         conn.close()
+
+
+def require_auth(auth_token: Optional[str]) -> int:
+    """
+    Require authentication and return user_id.
+    Raises HTTPException 401 if not authenticated.
+    """
+    if not auth_token:
+        raise HTTPException(status_code=401, detail="Authentication required. Please sign in.")
+    
+    payload = verify_jwt_token(auth_token)
+    if not payload:
+        raise HTTPException(status_code=401, detail="Invalid or expired token. Please sign in again.")
+    
+    user_id = payload.get("sub")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Invalid token. Please sign in again.")
+    
+    return str(user_id)
 
 
 @app.get("/auth/google")
@@ -694,11 +727,11 @@ async def generate_outfits(request: Request, file: UploadFile = File(...), sessi
         """Retrieve candidates for one (direction, slot) pair using precomputed embedding."""
         outfit_idx, direction, slot = task
         precomputed_emb = task_embeddings.get((outfit_idx, direction, slot))
-        try:
-            candidates = retrieve_for_slot(
-                base_item=base_item,
-                direction=direction,
-                slot=slot,
+            try:
+                candidates = retrieve_for_slot(
+                    base_item=base_item,
+                    direction=direction,
+                    slot=slot,
                 exclude_ids=[],  # No hard exclusions - taste vectors handle preferences
                 chosen_items={},
                 used_subtypes=set(),
@@ -708,7 +741,7 @@ async def generate_outfits(request: Request, file: UploadFile = File(...), sessi
             )
             logger.info(f"  [{direction}] {slot}: {len(candidates)} candidates")
             return (outfit_idx, direction, slot, candidates)
-        except Exception as e:
+            except Exception as e:
             logger.error(f"  [{direction}] {slot}: Retrieval error - {e}")
             return (outfit_idx, direction, slot, [])
     
@@ -910,9 +943,10 @@ async def submit_feedback(req: FeedbackRequest):
 
 
 @app.post("/v1/closet/feedback")
-async def submit_closet_feedback(req: ClosetFeedbackRequest):
-    """Submit like/dislike feedback for closet outfits - updates taste vector."""
-    logger.info(f"Closet feedback: items={req.item_ids}, liked={req.liked}, user={req.user_id}")
+async def submit_closet_feedback(req: ClosetFeedbackRequest, auth_token: Optional[str] = Cookie(None)):
+    """Submit like/dislike feedback for closet outfits - updates taste vector. Requires authentication."""
+    user_id = require_auth(auth_token)
+    logger.info(f"Closet feedback: items={req.item_ids}, liked={req.liked}, user={user_id}")
     
     if not req.item_ids:
         raise HTTPException(status_code=400, detail="item_ids required")
@@ -925,7 +959,7 @@ async def submit_closet_feedback(req: ClosetFeedbackRequest):
         cursor.execute(
             f"""SELECT id, embedding::text FROM user_closet_items 
                WHERE id IN ({placeholders}) AND user_id = %s AND embedding IS NOT NULL""",
-            (*req.item_ids, req.user_id)
+            (*req.item_ids, user_id)
         )
         rows = cursor.fetchall()
         
@@ -937,7 +971,7 @@ async def submit_closet_feedback(req: ClosetFeedbackRequest):
         
         if item_embeddings:
             # Use user_id as session_id for closet users
-            update_taste_vector(req.user_id, item_embeddings, req.liked)
+            update_taste_vector(user_id, item_embeddings, req.liked)
             logger.info(f"Taste vector updated: {len(item_embeddings)} embeddings, liked={req.liked}")
         
         return {"status": "recorded", "items_processed": len(item_embeddings)}
@@ -1028,8 +1062,10 @@ cloudinary.config(
 
 
 @app.get("/v1/closet/items")
-async def list_closet_items(user_id: str = "default"):
-    """List all items in user's closet."""
+async def list_closet_items(auth_token: Optional[str] = Cookie(None)):
+    """List all items in user's closet. Requires authentication."""
+    user_id = require_auth(auth_token)
+    
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
@@ -1067,11 +1103,13 @@ async def list_closet_items(user_id: str = "default"):
 
 
 @app.post("/v1/closet/items")
-async def add_closet_item(file: UploadFile = File(...), user_id: str = Form("default")):
+async def add_closet_item(request: Request, file: UploadFile = File(...)):
     """
-    Upload a new item to user's closet.
+    Upload a new item to user's closet. Requires authentication.
     Processes image through vision/parser pipeline and stores with embedding.
     """
+    auth_token = request.cookies.get("auth_token")
+    user_id = require_auth(auth_token)
     logger.info(f"Adding closet item for user: {user_id}")
     
     # Read and validate file
@@ -1175,8 +1213,10 @@ async def add_closet_item(file: UploadFile = File(...), user_id: str = Form("def
 
 
 @app.delete("/v1/closet/items/{item_id}")
-async def delete_closet_item(item_id: int, user_id: str = "default"):
-    """Delete an item from user's closet."""
+async def delete_closet_item(item_id: int, auth_token: Optional[str] = Cookie(None)):
+    """Delete an item from user's closet. Requires authentication."""
+    user_id = require_auth(auth_token)
+    
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
@@ -1207,7 +1247,8 @@ class RotateRequest(BaseModel):
 
 
 @app.post("/v1/closet/items/{item_id}/rotate")
-async def rotate_closet_item(item_id: int, req: RotateRequest, user_id: str = "default"):
+async def rotate_closet_item(item_id: int, req: RotateRequest, auth_token: Optional[str] = Cookie(None)):
+    user_id = require_auth(auth_token)
     """Update item's image URL with rotation transformation."""
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -1313,9 +1354,10 @@ async def retag_all_closet_items(user_id: str = "default"):
 
 
 @app.post("/v1/closet/items/{item_id}/retag")
-async def retag_single_item(item_id: int, user_id: str = "default"):
-    """Re-tag a single item with updated vision + parser."""
+async def retag_single_item(item_id: int, auth_token: Optional[str] = Cookie(None)):
+    """Re-tag a single item with updated vision + parser. Requires authentication."""
     import httpx
+    user_id = require_auth(auth_token)
     
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -1395,8 +1437,11 @@ async def retag_single_item(item_id: int, user_id: str = "default"):
 
 
 @app.post("/v1/closet/items/{item_id}/reupload")
-async def reupload_closet_item(item_id: int, file: UploadFile = File(...), user_id: str = "default"):
-    """Re-upload an item's image (after client-side background removal). Keeps transparency."""
+async def reupload_closet_item(request: Request, item_id: int, file: UploadFile = File(...)):
+    """Re-upload an item's image (after client-side background removal). Requires authentication."""
+    auth_token = request.cookies.get("auth_token")
+    user_id = require_auth(auth_token)
+    
     try:
         # Read image bytes directly - no processing to preserve transparency
         image_bytes = await file.read()
@@ -1438,8 +1483,10 @@ async def reupload_closet_item(item_id: int, file: UploadFile = File(...), user_
 
 
 @app.get("/v1/closet/items/{item_id}")
-async def get_closet_item(item_id: int, user_id: str = "default"):
-    """Get a single closet item with its embedding."""
+async def get_closet_item(item_id: int, auth_token: Optional[str] = Cookie(None)):
+    """Get a single closet item with its embedding. Requires authentication."""
+    user_id = require_auth(auth_token)
+    
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
@@ -1484,15 +1531,16 @@ async def generate_closet_outfits(
     request: Request, 
     item_id: int = Form(None),
     file: UploadFile = File(None),
-    user_id: str = Form("default"),
     lat: float = Form(None),
     lon: float = Form(None)
 ):
     """
-    Generate outfits using ONLY items from user's closet.
+    Generate outfits using ONLY items from user's closet. Requires authentication.
     Either pick an existing closet item (item_id) or upload a new image.
     Optionally pass lat/lon to factor in weather.
     """
+    auth_token = request.cookies.get("auth_token")
+    user_id = require_auth(auth_token)
     logger.info(f"Closet outfit generation: item_id={item_id}, has_file={file is not None}, weather={lat},{lon}")
     
     base_url = str(request.base_url).rstrip("/")
@@ -1778,15 +1826,16 @@ async def get_daily_outfits(
     lat: float = None,
     lon: float = None,
     nocache: bool = True,  # Always regenerate daily outfits
-    user_id: str = "default",
     tz_offset: float = None,  # Timezone offset from UTC in hours (e.g., -8 for PST)
     occasion: str = None,  # Manual occasion override (work, casual, going-out, etc.)
     mood: str = None  # Free-form mood description (e.g., "cozy day", "fancy dinner")
 ):
     """
-    Generate 3 weather-appropriate outfits automatically.
+    Generate 3 weather-appropriate outfits automatically. Requires authentication.
     Picks different base items from closet for variety.
     """
+    auth_token = request.cookies.get("auth_token")
+    user_id = require_auth(auth_token)
     logger.info(f"Daily outfits: lat={lat}, lon={lon}, tz={tz_offset}, mood={mood}")
     base_url = str(request.base_url).rstrip("/")
     
@@ -2141,13 +2190,14 @@ async def regenerate_single_outfit(
     lon: float = None,
     exclude_ids: str = None,
     tz_offset: float = None,
-    mood_text: str = None,
-    user_id: str = "default"
+    mood_text: str = None
 ):
     """
-    Regenerate a single outfit (after dislike).
+    Regenerate a single outfit (after dislike). Requires authentication.
     Excludes items from the disliked outfit to get something different.
     """
+    auth_token = request.cookies.get("auth_token")
+    user_id = require_auth(auth_token)
     logger.info(f"Regenerating outfit {idx} (exclude: {exclude_ids}, tz_offset: {tz_offset}, mood: {mood_text})")
     base_url = str(request.base_url).rstrip("/")
     
