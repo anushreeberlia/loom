@@ -418,7 +418,11 @@ def get_or_create_user(email: str, name: str, google_id: str, profile_image: str
 @app.get("/auth/google")
 async def google_login(request: Request):
     """Redirect to Google OAuth"""
-    redirect_uri = str(request.base_url).rstrip("/") + "/auth/google/callback"
+    # Force HTTPS for production (Railway proxy reports http)
+    base = str(request.base_url).rstrip("/")
+    if base.startswith("http://") and "railway.app" in base:
+        base = base.replace("http://", "https://", 1)
+    redirect_uri = base + "/auth/google/callback"
     auth_url = get_google_auth_url(redirect_uri)
     return RedirectResponse(url=auth_url)
 
@@ -434,7 +438,11 @@ async def google_callback(request: Request, code: str = None, error: str = None)
         return RedirectResponse(url="/?error=no_code")
     
     try:
-        redirect_uri = str(request.base_url).rstrip("/") + "/auth/google/callback"
+        # Force HTTPS for production (Railway proxy reports http)
+        base = str(request.base_url).rstrip("/")
+        if base.startswith("http://") and "railway.app" in base:
+            base = base.replace("http://", "https://", 1)
+        redirect_uri = base + "/auth/google/callback"
         
         # Exchange code for tokens
         tokens = await exchange_code_for_tokens(code, redirect_uri)
@@ -686,11 +694,11 @@ async def generate_outfits(request: Request, file: UploadFile = File(...), sessi
         """Retrieve candidates for one (direction, slot) pair using precomputed embedding."""
         outfit_idx, direction, slot = task
         precomputed_emb = task_embeddings.get((outfit_idx, direction, slot))
-        try:
-            candidates = retrieve_for_slot(
-                base_item=base_item,
-                direction=direction,
-                slot=slot,
+            try:
+                candidates = retrieve_for_slot(
+                    base_item=base_item,
+                    direction=direction,
+                    slot=slot,
                 exclude_ids=[],  # No hard exclusions - taste vectors handle preferences
                 chosen_items={},
                 used_subtypes=set(),
@@ -700,7 +708,7 @@ async def generate_outfits(request: Request, file: UploadFile = File(...), sessi
             )
             logger.info(f"  [{direction}] {slot}: {len(candidates)} candidates")
             return (outfit_idx, direction, slot, candidates)
-        except Exception as e:
+            except Exception as e:
             logger.error(f"  [{direction}] {slot}: Retrieval error - {e}")
             return (outfit_idx, direction, slot, [])
     
