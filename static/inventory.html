@@ -905,6 +905,7 @@
             itemsGrid.innerHTML = filtered.map(item => `
                 <div class="item-card" data-id="${item.id}">
                     <div class="item-actions">
+                        <button class="item-btn" onclick="retagItem(${item.id})" title="Re-tag Item">🏷</button>
                         <button class="item-btn" onclick="removeBgSingle(${item.id})" title="Remove Background">✂</button>
                         <button class="item-btn" onclick="rotateItem(${item.id})" title="Rotate 90°">↻</button>
                         <button class="item-btn delete" onclick="deleteItem(${item.id})" title="Remove">×</button>
@@ -1018,6 +1019,44 @@
                 renderItems();
                 showToast(`Added ${completed} item${completed !== 1 ? 's' : ''} to closet`, 'success');
             }, 500);
+        }
+
+        async function retagItem(id) {
+            const item = allItems.find(i => i.id === id);
+            if (!item) return;
+            
+            const card = document.querySelector(`.item-card[data-id="${id}"]`);
+            if (card) card.style.opacity = '0.5';
+            
+            showToast('Re-analyzing item...', 'info');
+            
+            try {
+                const res = await fetch(`/v1/closet/items/${id}/retag`, {
+                    method: 'POST'
+                });
+                
+                if (!res.ok) throw new Error('Retag failed');
+                
+                const result = await res.json();
+                
+                // Update local data
+                item.name = result.new_name;
+                item.category = result.category;
+                item.primary_color = result.primary_color;
+                item.style_tags = result.style_tags;
+                item.occasion_tags = result.occasion_tags;
+                item.material = result.material;
+                
+                // Re-render
+                renderItems();
+                showToast(`Retagged: ${result.new_name} (${result.style_tags?.join(', ') || 'no style'})`, 'success');
+                
+            } catch (e) {
+                console.error('Retag error:', e);
+                showToast('Failed to retag item', 'error');
+            } finally {
+                if (card) card.style.opacity = '1';
+            }
         }
 
         async function rotateItem(id) {
