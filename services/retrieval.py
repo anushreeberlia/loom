@@ -145,28 +145,24 @@ def filter_by_occasion_semantic(candidates: list[dict], occasion: str, threshold
         threshold: Minimum occasion score to include (default -0.05 allows slight mismatches)
     
     Returns:
-        Filtered and sorted candidates (best fits first)
+        Sorted candidates (best fits first) - NEVER filters out all items
     """
     if occasion not in OCCASION_SEMANTIC_CONTEXTS:
         return candidates  # No filtering if unknown occasion
     
-    scored = []
+    if not candidates:
+        return candidates
+    
+    # Score all candidates
     for c in candidates:
         if not c.get("embedding"):
             c["_occasion_score"] = 0  # No embedding = neutral
-            scored.append(c)
-            continue
-        
-        score = compute_occasion_score(c["embedding"], occasion)
-        c["_occasion_score"] = score
-        
-        # Only include if above threshold (filters out clearly inappropriate items)
-        if score >= threshold:
-            scored.append(c)
+        else:
+            c["_occasion_score"] = compute_occasion_score(c["embedding"], occasion)
     
-    # Sort by occasion score (best fits first)
-    scored.sort(key=lambda x: x.get("_occasion_score", 0), reverse=True)
-    return scored
+    # Sort by occasion score (best fits first) - DON'T filter, just rank
+    candidates.sort(key=lambda x: x.get("_occasion_score", 0), reverse=True)
+    return candidates
 
 
 def infer_product_type(item_name: str, slot: str) -> dict:
