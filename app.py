@@ -1047,6 +1047,84 @@ async def rotate_closet_item(item_id: int, req: RotateRequest, user_id: str = "d
         conn.close()
 
 
+@app.post("/v1/closet/retag-all")
+async def retag_all_closet_items(user_id: str = "default"):
+    """Re-tag ALL items in closet with updated parser tags."""
+    import httpx
+    
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    results = {"success": 0, "failed": 0, "items": []}
+    
+    try:
+        # Get all items
+        cursor.execute(
+            "SELECT id, image_url, name FROM user_closet_items WHERE user_id = %s",
+            (user_id,)
+        )
+        rows = cursor.fetchall()
+        logger.info(f"Re-tagging {len(rows)} items...")
+        
+        for row in rows:
+            item_id, image_url, old_name = row
+            try:
+                # Download image
+                response = httpx.get(image_url, timeout=15)
+                if response.status_code != 200:
+                    results["failed"] += 1
+                    continue
+                
+                # Re-run vision + parser
+                description = describe_image(response.content)
+                parsed = parse_description(description)
+                
+                # Generate new name
+                name = f"{parsed.get('primary_color', '')} {parsed.get('category', 'item')}".strip().title()
+                
+                # Update database
+                cursor.execute(
+                    """UPDATE user_closet_items 
+                       SET name = %s, category = %s, primary_color = %s, secondary_colors = %s,
+                           style_tags = %s, season_tags = %s, occasion_tags = %s, material = %s, fit = %s
+                       WHERE id = %s AND user_id = %s""",
+                    (
+                        name,
+                        parsed.get("category", "top"),
+                        parsed.get("primary_color"),
+                        parsed.get("secondary_colors"),
+                        parsed.get("style_tags"),
+                        parsed.get("season_tags"),
+                        parsed.get("occasion_tags"),
+                        parsed.get("material"),
+                        parsed.get("fit"),
+                        item_id, user_id
+                    )
+                )
+                results["success"] += 1
+                results["items"].append({
+                    "id": item_id,
+                    "name": name,
+                    "style_tags": parsed.get("style_tags"),
+                    "occasion_tags": parsed.get("occasion_tags")
+                })
+                logger.info(f"  [{item_id}] {old_name} -> {name} | {parsed.get('style_tags')} | {parsed.get('occasion_tags')}")
+                
+            except Exception as e:
+                logger.error(f"  [{item_id}] Error: {e}")
+                results["failed"] += 1
+        
+        conn.commit()
+        logger.info(f"Re-tag complete: {results['success']} success, {results['failed']} failed")
+        return results
+        
+    except Exception as e:
+        logger.error(f"Re-tag all error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        cursor.close()
+        conn.close()
+
+
 @app.post("/v1/closet/items/{item_id}/reupload")
 async def reupload_closet_item(item_id: int, file: UploadFile = File(...), user_id: str = "default"):
     """Re-upload an item's image (after client-side background removal). Keeps transparency."""
