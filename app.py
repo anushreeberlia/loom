@@ -58,17 +58,12 @@ def interpret_mood_for_occasion(mood: str) -> dict:
 Mood: "{mood}"
 
 Return JSON with:
-- occasion: one word (work, casual, going-out, date, party, brunch, cozy, active, formal)
-- prefer_occasions: array of 3-5 occasion AND style tags to look for (e.g., casual, relaxed, elegant, romantic, chic, classic)
-- avoid_occasions: array of 3-5 occasion AND style tags to EXCLUDE - be specific! Include both occasion tags (gym, work, party) AND style tags (sporty, athletic, activewear) that don't fit the mood
-- note: a short emoji-decorated summary of the vibe (max 30 chars)
+- occasion: MUST be exactly one of: work, casual, going-out, smart-casual, workout
+- prefer_occasions: array of 3-5 tags to look for
+- avoid_occasions: array of 3-5 tags to exclude
+- note: short emoji summary (max 30 chars)
 
-Examples of avoid_occasions:
-- For work/professional mood: ["party", "gym", "sporty", "athletic", "activewear", "beach"]
-- For going out/date: ["work", "office", "sporty", "athletic", "activewear", "gym"]
-- For workout: ["formal", "elegant", "work", "office"]
-
-JSON only, no explanation."""
+JSON only."""
 
     try:
         response = httpx.post(
@@ -99,8 +94,21 @@ JSON only, no explanation."""
                 text = "\n".join(lines[1:-1])
             
             result = json.loads(text)
+            
+            # Normalize occasion to known values
+            KNOWN_OCCASIONS = {"work", "casual", "going-out", "smart-casual", "workout"}
+            OCCASION_ALIASES = {
+                "active": "workout", "gym": "workout", "fitness": "workout", "exercise": "workout",
+                "party": "going-out", "date": "going-out", "dinner": "going-out", "night-out": "going-out",
+                "formal": "smart-casual", "business": "work", "office": "work",
+                "brunch": "casual", "cozy": "casual", "relaxed": "casual"
+            }
+            raw_occasion = result.get("occasion", "casual").lower()
+            if raw_occasion not in KNOWN_OCCASIONS:
+                raw_occasion = OCCASION_ALIASES.get(raw_occasion, "casual")
+            
             return {
-                "occasion": result.get("occasion", "casual"),
+                "occasion": raw_occasion,
                 "prefer_occasions": result.get("prefer_occasions", ["casual", "everyday"]),
                 "avoid_occasions": result.get("avoid_occasions", []),
                 "note": result.get("note", mood)
