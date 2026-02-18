@@ -989,6 +989,25 @@
 
         let dailyOutfitsData = []; // Store outfit data for feedback
         
+        // Helper to build regenerate URL
+        function buildRegenerateUrl(idx, excludeIds) {
+            let url = `/v1/closet/daily/regenerate/${idx}`;
+            const params = new URLSearchParams();
+            if (userLat !== null && userLon !== null) {
+                params.append('lat', userLat);
+                params.append('lon', userLon);
+            }
+            if (excludeIds && excludeIds.length > 0) {
+                params.append('exclude_ids', excludeIds.join(','));
+            }
+            params.append('tz_offset', -new Date().getTimezoneOffset() / 60);
+            const moodInput = document.getElementById('mood-input');
+            if (moodInput && moodInput.value.trim()) {
+                params.append('mood_text', moodInput.value.trim());
+            }
+            return url + '?' + params.toString();
+        }
+        
         function displayDailyOutfits(outfits) {
             dailyOutfitsData = outfits; // Save for feedback
             dailyGrid.innerHTML = outfits.map((outfit, idx) => `
@@ -1308,13 +1327,31 @@
                 
                 // If disliked, regenerate just this outfit with different items
                 if (!liked) {
-                    console.log('Disliked - calling regenerateOutfit...');
-                    try {
-                        await regenerateOutfit(idx, itemIds);
-                        console.log('regenerateOutfit completed');
-                    } catch (regenErr) {
-                        console.error('regenerateOutfit threw error:', regenErr);
-                    }
+                    console.log('Disliked - triggering regeneration for outfit', idx);
+                    // Call regenerate endpoint directly
+                    const regenUrl = buildRegenerateUrl(idx, itemIds);
+                    console.log('Regenerate URL:', regenUrl);
+                    fetch(regenUrl)
+                        .then(res => {
+                            console.log('Regenerate response:', res.status);
+                            if (res.ok) return res.json();
+                            throw new Error('Regen failed: ' + res.status);
+                        })
+                        .then(newOutfit => {
+                            console.log('New outfit:', newOutfit);
+                            dailyOutfitsData[idx] = newOutfit;
+                            // Update UI
+                            const cards = document.querySelectorAll('#daily-grid .outfit-card');
+                            const card = cards[idx];
+                            if (card) {
+                                const img = card.querySelector('.outfit-collage');
+                                if (img && newOutfit.collage_url) {
+                                    img.src = newOutfit.collage_url + '?t=' + Date.now();
+                                }
+                                card.querySelectorAll('.feedback-btn').forEach(b => b.classList.remove('active'));
+                            }
+                        })
+                        .catch(err => console.error('Regenerate error:', err));
                 }
             } catch (e) { 
                 console.error('Feedback error:', e); 
