@@ -1309,8 +1309,12 @@
                 // If disliked, regenerate just this outfit with different items
                 if (!liked) {
                     console.log('Disliked - calling regenerateOutfit...');
-                    await regenerateOutfit(idx, itemIds);
-                    console.log('regenerateOutfit completed');
+                    try {
+                        await regenerateOutfit(idx, itemIds);
+                        console.log('regenerateOutfit completed');
+                    } catch (regenErr) {
+                        console.error('regenerateOutfit threw error:', regenErr);
+                    }
                 }
             } catch (e) { 
                 console.error('Feedback error:', e); 
@@ -1321,69 +1325,67 @@
         async function regenerateOutfit(idx, excludeIds) {
             console.log(`regenerateOutfit called: idx=${idx}, excludeIds=`, excludeIds);
             
-            const cards = document.querySelectorAll('#daily-grid .outfit-card');
-            console.log(`Found ${cards.length} outfit cards`);
-            
-            const card = cards[idx];
-            if (!card) {
-                console.error(`Card not found for idx ${idx}`);
-                return;
+            // Build URL first (don't depend on finding card)
+            let url = `/v1/closet/daily/regenerate/${idx}`;
+            const params = new URLSearchParams();
+            if (userLat !== null && userLon !== null) {
+                params.append('lat', userLat);
+                params.append('lon', userLon);
             }
+            if (excludeIds && excludeIds.length > 0) {
+                params.append('exclude_ids', excludeIds.join(','));
+            }
+            const tzOffset = -new Date().getTimezoneOffset() / 60;
+            params.append('tz_offset', tzOffset);
+            const moodInput = document.getElementById('mood-input');
+            if (moodInput && moodInput.value.trim()) {
+                params.append('mood_text', moodInput.value.trim());
+            }
+            url += `?${params.toString()}`;
+            
+            console.log(`Regenerate URL: ${url}`);
+            
+            // Find card for UI update (optional)
+            const cards = document.querySelectorAll('#daily-grid .outfit-card');
+            const card = cards[idx];
+            const img = card?.querySelector('.outfit-collage');
             
             // Show loading state
-            const img = card.querySelector('.outfit-collage');
             if (img) img.style.opacity = '0.5';
-            card.querySelector('.outfit-feedback')?.classList.add('loading');
+            if (card) card.querySelector('.outfit-feedback')?.classList.add('loading');
             
             try {
-                // Build URL with location, exclude IDs, timezone, and mood
-                let url = `/v1/closet/daily/regenerate/${idx}`;
-                const params = new URLSearchParams();
-                if (userLat !== null && userLon !== null) {
-                    params.append('lat', userLat);
-                    params.append('lon', userLon);
-                }
-                if (excludeIds && excludeIds.length > 0) {
-                    params.append('exclude_ids', excludeIds.join(','));
-                }
-                // Send timezone offset for occasion detection
-                const tzOffset = -new Date().getTimezoneOffset() / 60;
-                params.append('tz_offset', tzOffset);
-                // Send mood text if set
-                const moodInput = document.getElementById('mood-input');
-                if (moodInput && moodInput.value.trim()) {
-                    params.append('mood_text', moodInput.value.trim());
-                }
-                url += `?${params.toString()}`;
-                
-                console.log(`Fetching: ${url}`);
+                console.log(`Making fetch request to: ${url}`);
                 const res = await fetch(url);
-                console.log(`Response status: ${res.status}`);
+                console.log(`Regenerate response status: ${res.status}`);
                 
                 if (!res.ok) {
                     const errText = await res.text();
-                    throw new Error(`Regeneration failed: ${errText}`);
+                    throw new Error(`Regeneration failed: ${res.status} - ${errText}`);
                 }
                 
                 const newOutfit = await res.json();
                 console.log(`New outfit received:`, newOutfit);
                 
-                // Update the outfit data and UI
+                // Update the outfit data
                 dailyOutfitsData[idx] = newOutfit;
+                
+                // Update UI
                 if (img && newOutfit.collage_url) {
                     img.src = newOutfit.collage_url + '?t=' + Date.now();
                     img.style.opacity = '1';
                 }
-                
-                // Reset feedback buttons
-                card.querySelectorAll('.feedback-btn').forEach(b => b.classList.remove('active'));
+                if (card) {
+                    card.querySelectorAll('.feedback-btn').forEach(b => b.classList.remove('active'));
+                    card.querySelector('.outfit-feedback')?.classList.remove('loading');
+                }
                 
                 console.log(`Outfit ${idx + 1} regenerated successfully`);
             } catch (e) {
-                console.error('Regenerate error:', e);
+                console.error('Regenerate fetch error:', e);
                 if (img) img.style.opacity = '1';
+                if (card) card.querySelector('.outfit-feedback')?.classList.remove('loading');
             }
-            card.querySelector('.outfit-feedback')?.classList.remove('loading');
         }
 
         document.getElementById('try-again-btn').addEventListener('click', () => {
