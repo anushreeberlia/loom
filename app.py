@@ -1561,6 +1561,7 @@ async def get_daily_outfits(
     
     # Get occasion-appropriate items first
     appropriate_items = [i for i in all_items if is_occasion_appropriate(i)]
+    logger.info(f"Items: {len(all_items)} total, {len(appropriate_items)} occasion-appropriate")
     
     selected_bases = []
     used_ids = set()
@@ -1571,16 +1572,19 @@ async def get_daily_outfits(
     
     for pref_cat in base_categories:
         candidates = [i for i in appropriate_items if i["category"] == pref_cat and i["id"] not in used_ids]
+        logger.info(f"Category {pref_cat}: {len(candidates)} candidates")
         if candidates:
             # Score and sort candidates
             candidates.sort(key=item_score, reverse=True)
             # Get items with top score (same score = equally good)
             best_score = item_score(candidates[0])
             top_candidates = [c for c in candidates if item_score(c) == best_score]
+            logger.info(f"  Top scored ({best_score}): {len(top_candidates)} items")
             # Pick randomly among equally-scored top items
             selected = random.choice(top_candidates)
             selected_bases.append(selected)
             used_ids.add(selected["id"])
+            logger.info(f"  Selected: {selected['name']} (id={selected['id']})")
         if len(selected_bases) >= 3:
             break
     
