@@ -1774,29 +1774,33 @@ async def get_daily_outfits(
     if scored_tops:
         best_score = scored_tops[0][1] if scored_tops else 0
         
-        # Get tops within 3 points of best score
-        top_tier = [item for item, score in scored_tops if score >= best_score - 3]
-        logger.info(f"Top tier ({best_score:.1f} to {best_score-3:.1f}): {len(top_tier)} tops")
+        # Get tops within 5 points of best score (wider window for more variety)
+        top_tier = [item for item, score in scored_tops if score >= best_score - 5]
+        logger.info(f"Top tier ({best_score:.1f} to {best_score-5:.1f}): {len(top_tier)} tops")
         
-        # Shuffle and pick 3
-        random.shuffle(top_tier)
-        for item in top_tier:
+        # Add randomness to scoring to get different selections each time
+        # Each item gets a random boost of 0-3 points
+        randomized = [(item, item_score(item) + random.uniform(0, 3)) for item in top_tier]
+        randomized.sort(key=lambda x: x[1], reverse=True)
+        
+        for item, rand_score in randomized:
             if item["id"] not in used_ids:
-                item["score"] = item_score(item)
+                item["score"] = item_score(item)  # Store actual score
                 selected_bases.append(item)
                 used_ids.add(item["id"])
-                logger.info(f"  Selected: {item['name']} (score={item['score']})")
+                logger.info(f"  Selected: {item['name']} (score={item['score']:.1f}, rand={rand_score:.1f})")
             if len(selected_bases) >= 3:
                 break
         
         # Fill from remaining tops if needed
         if len(selected_bases) < 3:
-            for item, score in scored_tops:
-                if item["id"] not in used_ids:
-                    item["score"] = score
-                    selected_bases.append(item)
-                    used_ids.add(item["id"])
-                    logger.info(f"  Filled: {item['name']} (score={score})")
+            remaining = [(item, score) for item, score in scored_tops if item["id"] not in used_ids]
+            random.shuffle(remaining)
+            for item, score in remaining:
+                item["score"] = score
+                selected_bases.append(item)
+                used_ids.add(item["id"])
+                logger.info(f"  Filled: {item['name']} (score={score})")
                 if len(selected_bases) >= 3:
                     break
     

@@ -697,9 +697,16 @@ def retrieve_candidates(
                 c["distance"] = c["distance"] * 0.85  # 15% boost
             elif color and color in NEUTRALS:
                 c["distance"] = c["distance"] * 0.9   # 10% boost for neutrals
-        
-        # Re-sort by adjusted distance
-        candidates.sort(key=lambda x: x["distance"])
+    
+    # Add small random noise to distances (5%) so similarly-scored items shuffle
+    # This prevents the same items from always being selected
+    import random
+    for c in candidates:
+        noise = random.uniform(0.95, 1.05)  # +/- 5% noise
+        c["distance"] = c["distance"] * noise
+    
+    # Re-sort by adjusted distance (with noise)
+    candidates.sort(key=lambda x: x["distance"])
     
     return candidates[:k]
 
