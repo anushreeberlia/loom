@@ -66,8 +66,8 @@ DIRECTION_ACCESSORY_PREFS = {
 # Each occasion has a "vibe" description and an "anti-vibe" description
 OCCASION_SEMANTIC_CONTEXTS = {
     "work": {
-        "vibe": "professional office business conservative modest appropriate polished refined tailored structured classic elegant understated sophisticated",
-        "anti_vibe": "sexy revealing provocative clubbing nightlife party skin tight bodycon mini skirt thigh high boots crop top low cut plunging neckline backless sheer see through leopard print animal print"
+        "vibe": "professional office business conservative modest appropriate polished refined tailored structured classic understated sophisticated practical comfortable sensible",
+        "anti_vibe": "sexy revealing provocative clubbing nightlife glamorous flashy bold statement attention-grabbing mini skirt thigh high crop top low cut plunging neckline backless sheer see through animal print"
     },
     "casual": {
         "vibe": "relaxed comfortable everyday effortless laid-back weekend brunch daytime practical easy-going simple",
@@ -110,13 +110,14 @@ def get_occasion_embeddings(occasion: str) -> tuple[list[float], list[float]]:
     return embeddings[0], embeddings[1]
 
 
-def compute_occasion_score(item_embedding: list[float], occasion: str) -> float:
+def compute_occasion_score(item_embedding: list[float], occasion: str, item_tags: set = None) -> float:
     """
-    Compute how well an item fits an occasion using semantic similarity.
+    Compute how well an item fits an occasion using semantic similarity + tag logic.
     
     Returns a score where:
     - Higher = better fit for the occasion
     - Items similar to anti-vibe get penalized
+    - Items with mismatched occasion tags get penalized
     """
     import numpy as np
     
@@ -130,9 +131,30 @@ def compute_occasion_score(item_embedding: list[float], occasion: str) -> float:
     vibe_sim = np.dot(item_emb, vibe) / (np.linalg.norm(item_emb) * np.linalg.norm(vibe))
     anti_sim = np.dot(item_emb, anti_vibe) / (np.linalg.norm(item_emb) * np.linalg.norm(anti_vibe))
     
-    # Score = similarity to vibe - similarity to anti-vibe
-    # Items that match the vibe AND don't match anti-vibe score highest
-    return float(vibe_sim - anti_sim)
+    # Base score from embeddings
+    score = float(vibe_sim - anti_sim)
+    
+    # Tag-based adjustments (semantic backup)
+    if item_tags:
+        # Work occasion: penalize party/dinner/going-out items
+        if occasion == "work":
+            party_tags = {"party", "dinner", "date", "going-out", "night-out", "clubbing", "sexy", "glamorous", "statement"}
+            if item_tags & party_tags:
+                score -= 0.1  # Strong penalty
+        
+        # Going-out occasion: penalize work/office items
+        elif occasion == "going-out":
+            work_tags = {"work", "office", "business", "professional", "conservative"}
+            if item_tags & work_tags:
+                score -= 0.1
+        
+        # Workout occasion: only allow athletic items
+        elif occasion == "workout":
+            athletic_tags = {"sporty", "athletic", "activewear", "gym", "workout"}
+            if not (item_tags & athletic_tags):
+                score -= 0.15  # Very strong penalty for non-athletic
+    
+    return score
 
 
 def filter_by_occasion_semantic(candidates: list[dict], occasion: str, threshold: float = -0.02) -> list[dict]:
@@ -157,11 +179,14 @@ def filter_by_occasion_semantic(candidates: list[dict], occasion: str, threshold
     scored = []
     filtered_out = []
     for c in candidates:
+        # Gather all item tags for semantic + tag-based scoring
+        item_tags = set((c.get("occasion_tags") or []) + (c.get("style_tags") or []))
+        
         if not c.get("embedding"):
             c["_occasion_score"] = 0  # No embedding = neutral
             scored.append(c)
         else:
-            score = compute_occasion_score(c["embedding"], occasion)
+            score = compute_occasion_score(c["embedding"], occasion, item_tags)
             c["_occasion_score"] = score
             if score >= threshold:
                 scored.append(c)
