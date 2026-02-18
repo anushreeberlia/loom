@@ -319,15 +319,25 @@
             border-bottom-color: var(--text);
         }
 
+        .bulk-actions {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            padding: 1rem 0;
+            border-bottom: 1px solid var(--border);
+            margin-bottom: 1rem;
+        }
+
         .reprocess-btn {
-            padding: 0.5rem 1rem;
+            padding: 0.6rem 1.2rem;
             background: var(--bg-alt);
             border: 1px solid var(--border);
-            font-size: 0.7rem;
+            font-size: 0.75rem;
             letter-spacing: 0.05em;
-            color: var(--text-muted);
+            color: var(--text);
             cursor: pointer;
             transition: all 0.2s;
+            border-radius: 4px;
         }
 
         .reprocess-btn:hover {
@@ -339,6 +349,11 @@
         .reprocess-btn:disabled {
             opacity: 0.5;
             cursor: not-allowed;
+        }
+
+        .bulk-hint {
+            font-size: 0.7rem;
+            color: var(--text-muted);
         }
 
         .items-grid {
@@ -696,9 +711,13 @@
             <div class="progress-text" id="progress-text">Uploading...</div>
         </div>
 
+        <div class="bulk-actions">
+            <button class="reprocess-btn" id="reprocess-btn" onclick="reprocessAll()">🔄 Remove All Backgrounds</button>
+            <span class="bulk-hint" id="bulk-hint">Client-side AI processing</span>
+        </div>
+
         <div class="items-header">
             <span class="items-count" id="items-count">0 items</span>
-            <button class="reprocess-btn" id="reprocess-btn" onclick="reprocessAll()">🔄 Remove Backgrounds</button>
             <div class="filter-tabs">
                 <button class="filter-tab active" data-filter="all">All</button>
                 <button class="filter-tab" data-filter="top">Tops</button>
@@ -1060,39 +1079,50 @@
         }
 
         async function reprocessAll() {
-            if (!confirm('This will remove backgrounds from ALL items. This may take several minutes. Continue?')) {
+            const hint = document.getElementById('bulk-hint');
+            const btn = document.getElementById('reprocess-btn');
+            
+            // Check if bg removal module loaded
+            if (!window.imglyRemoveBackground) {
+                hint.textContent = '⚠️ BG removal module not loaded - check console';
+                hint.style.color = 'var(--accent)';
+                console.error('imglyRemoveBackground not available. Module may have failed to load.');
                 return;
             }
 
-            const btn = document.getElementById('reprocess-btn');
-            btn.disabled = true;
-            btn.textContent = '⏳ Processing...';
+            if (!confirm(`Remove backgrounds from ${allItems.length} items? This uses AI processing in your browser and may take a while.`)) {
+                return;
+            }
 
+            btn.disabled = true;
             let processed = 0;
             let errors = 0;
             const total = allItems.length;
 
             for (const item of allItems) {
                 try {
-                    btn.textContent = `⏳ ${processed + 1}/${total}...`;
+                    btn.textContent = `⏳ ${processed + 1}/${total}`;
+                    hint.textContent = `Processing: ${item.name || 'item'}...`;
                     
                     // Download original image
+                    console.log(`Downloading ${item.id}: ${item.image_url}`);
                     const response = await fetch(item.image_url);
+                    if (!response.ok) {
+                        throw new Error(`Failed to download: ${response.status}`);
+                    }
                     const blob = await response.blob();
                     const file = new File([blob], `item_${item.id}.jpg`, { type: blob.type });
+                    console.log(`Downloaded ${item.id}: ${blob.size} bytes`);
 
-                    // Remove background if module available
-                    let processedFile = file;
-                    if (window.imglyRemoveBackground) {
-                        try {
-                            const outputBlob = await window.imglyRemoveBackground(file);
-                            processedFile = new File([outputBlob], `item_${item.id}.png`, { type: 'image/png' });
-                        } catch (bgErr) {
-                            console.warn(`BG removal failed for ${item.id}:`, bgErr);
-                        }
-                    }
+                    // Remove background
+                    hint.textContent = `Removing background: ${item.name || 'item'}...`;
+                    console.log(`Removing background for ${item.id}...`);
+                    const outputBlob = await window.imglyRemoveBackground(file);
+                    const processedFile = new File([outputBlob], `item_${item.id}.png`, { type: 'image/png' });
+                    console.log(`BG removed for ${item.id}: ${outputBlob.size} bytes`);
 
                     // Re-upload
+                    hint.textContent = `Uploading: ${item.name || 'item'}...`;
                     const formData = new FormData();
                     formData.append('file', processedFile);
 
@@ -1103,9 +1133,12 @@
 
                     if (uploadRes.ok) {
                         const updated = await uploadRes.json();
-                        item.image_url = updated.image_url;
+                        item.image_url = updated.image_url + '?t=' + Date.now(); // Cache bust
                         processed++;
+                        console.log(`Uploaded ${item.id}: ${updated.image_url}`);
                     } else {
+                        const errText = await uploadRes.text();
+                        console.error(`Upload failed for ${item.id}: ${errText}`);
                         errors++;
                     }
                 } catch (e) {
@@ -1115,7 +1148,9 @@
             }
 
             btn.disabled = false;
-            btn.textContent = '🔄 Remove Backgrounds';
+            btn.textContent = '🔄 Remove All Backgrounds';
+            hint.textContent = `Done! ${processed} processed, ${errors} errors`;
+            hint.style.color = errors > 0 ? 'var(--accent)' : 'var(--text-muted)';
             renderItems();
             showToast(`Done! ${processed} processed, ${errors} errors`, processed > 0 ? 'success' : 'error');
         }
