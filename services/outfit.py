@@ -874,6 +874,9 @@ def assemble_outfit(
                 "image_url": item["image_url"],
                 "shop_url": item.get("product_url"),
                 "primary_color": item.get("primary_color"),
+                "occasion_tags": item.get("occasion_tags", []),
+                "style_tags": item.get("style_tags", []),
+                "score": item.get("score"),  # Item's match score
             })
     
     # Score outfit with enhanced scoring (Fixes 1-3)

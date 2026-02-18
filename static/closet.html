@@ -387,6 +387,24 @@
         }
 
         .item-row:last-child { border-bottom: none; }
+        
+        .item-score {
+            margin-left: auto;
+            font-size: 0.65rem;
+            background: var(--bg-alt);
+            padding: 0.1rem 0.3rem;
+            border-radius: 3px;
+            color: var(--text-muted);
+        }
+        
+        .item-tags {
+            font-size: 0.55rem;
+            color: var(--text-muted);
+            padding-left: 45px;
+            margin-top: -0.2rem;
+            margin-bottom: 0.3rem;
+            font-style: italic;
+        }
 
         .item-slot {
             font-size: 0.55rem;
@@ -1028,7 +1046,9 @@
                                 <span class="item-slot">${formatSlot(item.slot)}</span>
                                 <span class="item-name">${item.name || 'Item'}</span>
                                 <span class="item-color color-${item.primary_color || 'grey'}"></span>
+                                ${item.score !== undefined ? `<span class="item-score" title="Match score">${item.score}</span>` : ''}
                             </div>
+                            ${(item.style_tags?.length || item.occasion_tags?.length) ? `<div class="item-tags">${[...(item.style_tags || []), ...(item.occasion_tags || [])].slice(0,3).join(', ')}</div>` : ''}
                         `).join('')}
                     </div>
                     <div class="outfit-feedback">
@@ -1187,7 +1207,9 @@
                                 <span class="item-slot">${formatSlot(item.slot)}</span>
                                 <span class="item-name">${item.name || 'Item'}</span>
                                 <span class="item-color color-${item.primary_color || 'grey'}"></span>
+                                ${item.score !== undefined ? `<span class="item-score" title="Match score">${item.score}</span>` : ''}
                             </div>
+                            ${(item.style_tags?.length || item.occasion_tags?.length) ? `<div class="item-tags">${[...(item.style_tags || []), ...(item.occasion_tags || [])].slice(0,3).join(', ')}</div>` : ''}
                         `).join('')}
                         ${(outfit.items || []).length === 0 ? '<div style="color: #888; font-size: 0.8rem;">Need more items in closet for this style</div>' : ''}
                     </div>

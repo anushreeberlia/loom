@@ -1600,9 +1600,10 @@ async def get_daily_outfits(
         random.shuffle(top_tier)
         for item in top_tier:
             if item["id"] not in used_ids:
+                item["score"] = item_score(item)  # Add score to item
                 selected_bases.append(item)
                 used_ids.add(item["id"])
-                logger.info(f"  Selected: {item['name']} ({item['category']}, score={item_score(item)})")
+                logger.info(f"  Selected: {item['name']} ({item['category']}, score={item['score']}, tags={item.get('style_tags', [])})")
             if len(selected_bases) >= 3:
                 break
         
@@ -1610,9 +1611,10 @@ async def get_daily_outfits(
         if len(selected_bases) < 3:
             for item, score in scored_items:
                 if item["id"] not in used_ids:
+                    item["score"] = score  # Add score to item
                     selected_bases.append(item)
                     used_ids.add(item["id"])
-                    logger.info(f"  Filled: {item['name']} ({item['category']}, score={score})")
+                    logger.info(f"  Filled: {item['name']} ({item['category']}, score={score}, tags={item.get('style_tags', [])})")
                 if len(selected_bases) >= 3:
                     break
     
