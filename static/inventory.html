@@ -10,9 +10,10 @@
     <!-- Client-side background removal -->
     <script type="module">
         try {
-            const { removeBackground } = await import('https://cdn.jsdelivr.net/npm/@imgly/background-removal@1.4.5/+esm');
+            // Using esm.sh CDN which handles ESM dependencies better than jsdelivr
+            const { removeBackground } = await import('https://esm.sh/@imgly/background-removal@1.4.5');
             window.imglyRemoveBackground = removeBackground;
-            console.log('Background removal module loaded');
+            console.log('✅ Background removal module loaded successfully');
         } catch (e) {
             console.error('Failed to load bg removal:', e);
             window.imglyRemoveBackground = null;
