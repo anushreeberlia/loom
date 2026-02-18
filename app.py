@@ -599,8 +599,8 @@ async def get_current_user_info(auth_token: Optional[str] = Cookie(None)):
         conn.close()
 
 
-@app.post("/auth/logout")
-async def logout(response: Response):
+@app.get("/auth/logout")
+async def logout():
     """Log out user"""
     response = RedirectResponse(url="/", status_code=302)
     response.delete_cookie("auth_token")
