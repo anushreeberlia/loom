@@ -215,19 +215,22 @@ def get_material_weather_score(material: str, weather_adjustments: dict) -> int:
     
     if is_cold:
         if is_warm:
-            score += 3  # Warm materials great for cold
-        if is_light and "layer" in material_lower:
-            score -= 2  # Light layers bad for cold
+            score += 5  # Warm materials great for cold
+        if is_light:
+            score -= 4  # Light materials bad for cold
+        # Extra penalty for thin/lightweight
+        if "thin" in material_lower or "lightweight" in material_lower or "sheer" in material_lower:
+            score -= 5
     
     if is_hot:
         if is_light:
-            score += 2  # Light materials great for hot
+            score += 3  # Light materials great for hot
         if is_warm:
-            score -= 3  # Warm materials terrible for hot
+            score -= 4  # Warm materials bad for hot
     
     if is_rainy:
         if is_waterproof:
-            score += 2  # Waterproof materials great for rain
+            score += 3  # Waterproof materials great for rain
     
     return score
 

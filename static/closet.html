@@ -1365,9 +1365,9 @@
             // Build URL first (don't depend on finding card)
             let url = `/v1/closet/daily/regenerate/${idx}`;
             const params = new URLSearchParams();
-            if (userLocation && userLocation.lat && userLocation.lon) {
-                params.append('lat', userLocation.lat);
-                params.append('lon', userLocation.lon);
+            if (userLat !== null && userLon !== null) {
+                params.append('lat', userLat);
+                params.append('lon', userLon);
             }
             if (excludeIds && excludeIds.length > 0) {
                 params.append('exclude_ids', excludeIds.join(','));
