@@ -78,14 +78,106 @@
             width: 28px;
             height: 28px;
             border-radius: 50%;
-            overflow: hidden;
+            overflow: visible;
             cursor: pointer;
+            position: relative;
         }
 
-        .user-avatar img {
-            width: 100%;
-            height: 100%;
+        .user-avatar > img {
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
             object-fit: cover;
+        }
+
+        .user-menu {
+            display: none;
+            position: absolute;
+            top: 36px;
+            right: 0;
+            background: white;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 0.75rem 1rem;
+            min-width: 140px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            z-index: 1000;
+        }
+
+        .user-menu.show {
+            display: block;
+        }
+
+        .user-menu span {
+            display: block;
+            font-size: 0.85rem;
+            color: #666;
+            padding-bottom: 0.5rem;
+            margin-bottom: 0.5rem;
+            border-bottom: 1px solid #eee;
+            text-transform: none;
+            letter-spacing: normal;
+        }
+
+        .user-menu a {
+            display: block;
+            color: var(--text);
+            text-decoration: none;
+            font-size: 0.9rem;
+            text-transform: none;
+            letter-spacing: normal;
+        }
+
+        .user-menu a:hover {
+            color: #000;
+        }
+
+        /* Mobile header */
+        @media (max-width: 768px) {
+            header {
+                padding: 0.75rem 1rem;
+            }
+
+            .logo img {
+                height: 24px;
+            }
+
+            nav {
+                gap: 0.75rem;
+            }
+
+            nav a {
+                font-size: 0.6rem;
+            }
+
+            .user-avatar {
+                width: 24px;
+                height: 24px;
+            }
+
+            .user-avatar > img {
+                width: 24px;
+                height: 24px;
+            }
+
+            .user-menu {
+                right: -8px;
+            }
+        }
+
+        @media (max-width: 480px) {
+            header {
+                padding: 0.6rem 0.75rem;
+            }
+
+            nav {
+                gap: 0.5rem;
+            }
+
+            nav a {
+                font-size: 0.55rem;
+                letter-spacing: 0.04em;
+            }
         }
 
         /* Upload Section */
@@ -454,8 +546,12 @@
             <a href="/closet">Style</a>
             <a href="/demo" class="active">Demo</a>
             <a href="/login" id="login-link">Sign In</a>
-            <div class="user-avatar" id="user-avatar" style="display: none;">
+            <div class="user-avatar" id="user-avatar" style="display: none;" onclick="toggleUserMenu()">
                 <img src="" alt="" id="user-image">
+                <div class="user-menu" id="user-menu">
+                    <span id="user-name"></span>
+                    <a href="/auth/logout">Sign Out</a>
+                </div>
             </div>
         </nav>
     </header>
@@ -501,6 +597,21 @@
     </section>
 
     <script>
+        // Toggle user menu dropdown
+        function toggleUserMenu() {
+            const menu = document.getElementById('user-menu');
+            menu.classList.toggle('show');
+        }
+
+        // Close menu when clicking outside
+        document.addEventListener('click', (e) => {
+            const avatar = document.getElementById('user-avatar');
+            const menu = document.getElementById('user-menu');
+            if (avatar && !avatar.contains(e.target)) {
+                menu.classList.remove('show');
+            }
+        });
+
         // Check auth status
         async function checkAuth() {
             try {
@@ -515,6 +626,7 @@
                         img.alt = data.user.name || 'User';
                         avatar.style.display = 'block';
                     }
+                    document.getElementById('user-name').textContent = data.user.name || data.user.email;
                 }
             } catch (e) {
                 console.log('Auth check failed:', e);
