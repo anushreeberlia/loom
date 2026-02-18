@@ -1748,7 +1748,7 @@ async def get_daily_outfits(
                     base_item=base_item,
                     direction=direction,
                     slot=slot,
-                    exclude_ids=list(used_ids_global),
+                    exclude_ids=[],  # Allow re-using items - better than forcing inappropriate ones
                     chosen_items={},
                     k=10,
                     precomputed_embedding=query_embeddings[i],
