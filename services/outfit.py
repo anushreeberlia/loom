@@ -121,8 +121,9 @@ def is_layer_compatible(layer: dict, top: dict) -> bool:
     top_weight = get_semantic_material_weight(top)
     
     # Layer should be heavier than or close to top weight
-    # Allow layer to be slightly lighter (0.05 tolerance)
-    return layer_weight >= top_weight - 0.05
+    # Allow some tolerance (0.15) - semantic weights aren't perfectly calibrated
+    # A heavy coat should always pass over any top
+    return layer_weight >= top_weight - 0.15
 
 # What slots to fill based on input item category
 OUTFIT_SLOTS = {

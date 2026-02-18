@@ -3,9 +3,12 @@ Vector search and candidate retrieval logic.
 """
 
 import os
+import logging
 import psycopg2
 import httpx
 from dotenv import load_dotenv
+
+logger = logging.getLogger(__name__)
 
 from services.outfit import (
     STYLE_DIRECTIONS, 
