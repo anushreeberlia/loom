@@ -62,8 +62,9 @@ MATERIAL_WEIGHT_CONTEXTS = {
     "light": "thin light airy breathable summer sheer delicate flowy lightweight gauzy transparent see-through crisp cool"
 }
 
-# Cache for material weight embeddings
+# Cache for material weight embeddings and per-item weights
 _material_weight_cache = {}
+_item_weight_cache = {}  # Cache computed weights by item material+category
 
 
 def get_semantic_material_weight(item: dict) -> float:
@@ -74,16 +75,33 @@ def get_semantic_material_weight(item: dict) -> float:
     import numpy as np
     from services.retrieval import get_batch_embeddings
     
-    # Build text from item's material + name (captures "chunky knit", "puffer jacket" etc)
-    material = item.get("material") or ""
-    name = item.get("name") or ""
-    item_text = f"{material} {name}".strip()
+    global _material_weight_cache, _item_weight_cache
     
-    if not item_text:
+    # Build text SPECIFICALLY about material/weight (not full item)
+    material = item.get("material") or ""
+    category = item.get("category") or ""
+    name = item.get("name") or ""
+    
+    # Extract weight-relevant info
+    item_text = f"{material} {category}".strip()
+    
+    # Add weight hints from name
+    weight_words = ["chunky", "thin", "light", "heavy", "puffer", "quilted", "padded", 
+                    "fleece", "knit", "wool", "cotton", "silk", "sheer", "thick", "hoodie",
+                    "sweater", "cardigan", "jacket", "coat", "blazer", "t-shirt", "tee"]
+    for word in weight_words:
+        if word in name.lower():
+            item_text += f" {word}"
+    
+    if not item_text.strip():
         return 0  # Neutral if no info
     
+    # Check cache first
+    cache_key = item_text.lower().strip()
+    if cache_key in _item_weight_cache:
+        return _item_weight_cache[cache_key]
+    
     # Get or compute weight context embeddings
-    global _material_weight_cache
     if "heavy" not in _material_weight_cache:
         embeddings = get_batch_embeddings([
             MATERIAL_WEIGHT_CONTEXTS["heavy"],
@@ -92,11 +110,8 @@ def get_semantic_material_weight(item: dict) -> float:
         _material_weight_cache["heavy"] = np.array(embeddings[0])
         _material_weight_cache["light"] = np.array(embeddings[1])
     
-    # Get item embedding (use existing if available, otherwise compute)
-    if item.get("embedding"):
-        item_emb = np.array(item["embedding"])
-    else:
-        item_emb = np.array(get_batch_embeddings([item_text])[0])
+    # Compute fresh embedding from material text
+    item_emb = np.array(get_batch_embeddings([item_text])[0])
     
     heavy_emb = _material_weight_cache["heavy"]
     light_emb = _material_weight_cache["light"]
@@ -105,8 +120,10 @@ def get_semantic_material_weight(item: dict) -> float:
     heavy_sim = np.dot(item_emb, heavy_emb) / (np.linalg.norm(item_emb) * np.linalg.norm(heavy_emb))
     light_sim = np.dot(item_emb, light_emb) / (np.linalg.norm(item_emb) * np.linalg.norm(light_emb))
     
-    # Return difference: positive = heavy, negative = light
-    return float(heavy_sim - light_sim)
+    # Cache and return
+    weight = float(heavy_sim - light_sim)
+    _item_weight_cache[cache_key] = weight
+    return weight
 
 
 def is_layer_compatible(layer: dict, top: dict) -> bool:
