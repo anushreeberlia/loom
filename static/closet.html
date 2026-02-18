@@ -1361,50 +1361,64 @@
                 // If disliked, regenerate just this outfit with different items
                 if (!liked) {
                     console.log('Disliked - triggering regeneration for outfit', idx);
-                    // Call regenerate endpoint directly
                     const regenUrl = buildRegenerateUrl(idx, itemIds);
                     console.log('Regenerate URL:', regenUrl);
-                    fetch(regenUrl)
-                        .then(res => {
-                            console.log('Regenerate response:', res.status);
-                            if (res.ok) return res.json();
-                            throw new Error('Regen failed: ' + res.status);
-                        })
-                        .then(newOutfit => {
-                            console.log('New outfit:', newOutfit);
-                            dailyOutfitsData[idx] = newOutfit;
-                            // Update UI - rebuild entire card content
-                            const cards = document.querySelectorAll('#daily-grid .outfit-card');
-                            const card = cards[idx];
-                            if (card) {
-                                // Update collage
-                                const img = card.querySelector('.outfit-collage');
-                                if (img && newOutfit.collage_url) {
+                    
+                    // Show loading state
+                    const cards = document.querySelectorAll('#daily-grid .outfit-card');
+                    const card = cards[idx];
+                    if (card) {
+                        const img = card.querySelector('.outfit-collage');
+                        if (img) img.style.opacity = '0.5';
+                    }
+                    
+                    try {
+                        const res = await fetch(regenUrl);
+                        console.log('Regenerate response:', res.status);
+                        if (!res.ok) throw new Error('Regen failed: ' + res.status);
+                        
+                        const newOutfit = await res.json();
+                        console.log('New outfit:', newOutfit);
+                        dailyOutfitsData[idx] = newOutfit;
+                        
+                        if (card) {
+                            // Update collage
+                            const img = card.querySelector('.outfit-collage');
+                            if (img) {
+                                img.style.opacity = '1';
+                                if (newOutfit.collage_url) {
                                     img.src = newOutfit.collage_url + '?t=' + Date.now();
                                 }
-                                // Update description
-                                const desc = card.querySelector('.outfit-description');
-                                if (desc && newOutfit.description) {
-                                    desc.textContent = newOutfit.description;
-                                }
-                                // Update items list
-                                const itemsContainer = card.querySelector('.outfit-items');
-                                if (itemsContainer && newOutfit.items) {
-                                    itemsContainer.innerHTML = newOutfit.items.map(item => `
-                                        <div class="item-row" data-item-id="${item.id}">
-                                            <span class="item-slot">${(item.slot || '').toUpperCase().slice(0,5)}</span>
-                                            <div class="item-info">
-                                                <span class="item-name">${item.name || 'Item'}</span>
-                                                ${(item.style_tags?.length || item.occasion_tags?.length) ? `<div class="item-tags">${[...(item.style_tags || []), ...(item.occasion_tags || [])].slice(0,3).join(', ')}</div>` : ''}
-                                            </div>
-                                            <span class="item-color" style="background: ${item.primary_color || '#ccc'}"></span>
-                                        </div>
-                                    `).join('');
-                                }
-                                card.querySelectorAll('.feedback-btn').forEach(b => b.classList.remove('active'));
                             }
-                        })
-                        .catch(err => console.error('Regenerate error:', err));
+                            // Update explanation
+                            const explanation = card.querySelector('.outfit-explanation');
+                            if (explanation && newOutfit.explanation) {
+                                explanation.textContent = newOutfit.explanation;
+                            }
+                            // Update items list (match original structure)
+                            const itemsContainer = card.querySelector('.outfit-items');
+                            if (itemsContainer && newOutfit.items) {
+                                itemsContainer.innerHTML = `
+                                    <div class="outfit-items-title">Pieces from your closet</div>
+                                    ${(newOutfit.items || []).filter(item => item && item.slot).map(item => `
+                                        <div class="item-row">
+                                            <span class="item-slot">${formatSlot(item.slot)}</span>
+                                            <span class="item-name">${item.name || 'Item'}</span>
+                                            <span class="item-color color-${item.primary_color || 'grey'}"></span>
+                                        </div>
+                                        ${(item.style_tags?.length || item.occasion_tags?.length) ? `<div class="item-tags">${[...(item.style_tags || []), ...(item.occasion_tags || [])].slice(0,3).join(', ')}</div>` : ''}
+                                    `).join('')}
+                                `;
+                            }
+                            card.querySelectorAll('.feedback-btn').forEach(b => b.classList.remove('active'));
+                        }
+                    } catch (err) {
+                        console.error('Regenerate error:', err);
+                        if (card) {
+                            const img = card.querySelector('.outfit-collage');
+                            if (img) img.style.opacity = '1';
+                        }
+                    }
                 }
             } catch (e) { 
                 console.error('Feedback error:', e); 
