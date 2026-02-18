@@ -1573,83 +1573,45 @@ async def get_daily_outfits(
         
         return score
     
-    # Pick 3 different base items (prefer tops/layers for weather)
-    base_categories = ["top", "layer", "bottom"]
-    if weather_adjustments and weather_adjustments.get("force_layer"):
-        base_categories = ["layer", "top", "bottom"]  # Prioritize layers in cold
-    elif weather_adjustments and weather_adjustments.get("skip_layer"):
-        base_categories = ["top", "bottom", "dress"]  # Skip layers in hot
+    # Pick top 3 items by score - regardless of category
+    # This handles skewed inventory ratios better than category-based selection
+    import random
     
-    # Filter items to only those appropriate for the current occasion
-    def is_occasion_appropriate(item):
-        """Check if item matches current occasion (use prefer/avoid lists)."""
-        item_occasions = item.get("occasion_tags") or []
-        item_styles = item.get("style_tags") or []
-        all_tags = set(item_occasions + item_styles)
-        
-        # If item has no tags, it's considered versatile
-        if not all_tags:
-            return True
-        
-        # Check if item has any avoided tags (works for both occasion and style tags)
-        for avoid_tag in avoid_occasions:
-            if avoid_tag in all_tags:
-                return False
-        
-        # Prefer items that match the occasion, but don't exclude neutral items
-        has_preferred = any(tag in all_tags for tag in prefer_occasions)
-        has_versatile = any(tag in all_tags for tag in ["everyday", "versatile"])
-        
-        return has_preferred or has_versatile or len(all_tags) == 0
+    # Score all items with embeddings
+    scored_items = [(item, item_score(item)) for item in all_items if item.get("embedding")]
+    scored_items.sort(key=lambda x: x[1], reverse=True)
     
-    # Get occasion-appropriate items first
-    appropriate_items = [i for i in all_items if is_occasion_appropriate(i)]
-    logger.info(f"Items: {len(all_items)} total, {len(appropriate_items)} occasion-appropriate")
+    logger.info(f"Scored {len(scored_items)} items")
     
     selected_bases = []
     used_ids = set()
     
-    # First try to pick from occasion-appropriate items
-    # Score-based selection with randomization among top-scored items
-    import random
-    
-    for pref_cat in base_categories:
-        candidates = [i for i in appropriate_items if i["category"] == pref_cat and i["id"] not in used_ids]
-        logger.info(f"Category {pref_cat}: {len(candidates)} candidates")
-        if candidates:
-            # Score and sort candidates
-            candidates.sort(key=item_score, reverse=True)
-            # Get items with top score (same score = equally good)
-            best_score = item_score(candidates[0])
-            top_candidates = [c for c in candidates if item_score(c) == best_score]
-            logger.info(f"  Top scored ({best_score}): {len(top_candidates)} items")
-            # Pick randomly among equally-scored top items
-            selected = random.choice(top_candidates)
-            selected_bases.append(selected)
-            used_ids.add(selected["id"])
-            logger.info(f"  Selected: {selected['name']} (id={selected['id']})")
-        if len(selected_bases) >= 3:
-            break
-    
-    # Fill remaining from appropriate items
-    if len(selected_bases) < 3:
-        remaining = [i for i in appropriate_items if i["id"] not in used_ids]
-        remaining.sort(key=item_score, reverse=True)
-        for item in remaining:
-            selected_bases.append(item)
-            used_ids.add(item["id"])
+    if scored_items:
+        best_score = scored_items[0][1]
+        
+        # Get all items within 2 points of best score (top tier)
+        top_tier = [item for item, score in scored_items if score >= best_score - 2]
+        logger.info(f"Top tier ({best_score} to {best_score-2}): {len(top_tier)} items")
+        
+        # Shuffle top tier and pick 3
+        random.shuffle(top_tier)
+        for item in top_tier:
+            if item["id"] not in used_ids:
+                selected_bases.append(item)
+                used_ids.add(item["id"])
+                logger.info(f"  Selected: {item['name']} ({item['category']}, score={item_score(item)})")
             if len(selected_bases) >= 3:
                 break
-    
-    # Fallback to all items if closet is limited
-    if len(selected_bases) < 3:
-        remaining = [i for i in all_items if i["id"] not in used_ids]
-        remaining.sort(key=item_score, reverse=True)
-        for item in remaining:
-            selected_bases.append(item)
-            used_ids.add(item["id"])
-            if len(selected_bases) >= 3:
-                break
+        
+        # Fill from remaining if needed
+        if len(selected_bases) < 3:
+            for item, score in scored_items:
+                if item["id"] not in used_ids:
+                    selected_bases.append(item)
+                    used_ids.add(item["id"])
+                    logger.info(f"  Filled: {item['name']} ({item['category']}, score={score})")
+                if len(selected_bases) >= 3:
+                    break
     
     if len(selected_bases) < 1:
         return {
