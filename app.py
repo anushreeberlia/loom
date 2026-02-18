@@ -848,8 +848,7 @@ async def list_closet_items(user_id: str = "default"):
     try:
         cursor.execute(
             """SELECT id, name, category, image_url, primary_color, secondary_colors,
-                      style_tags, season_tags, occasion_tags, material, fit, created_at,
-                      COALESCE(bg_removed, FALSE) as bg_removed
+                      style_tags, season_tags, occasion_tags, material, fit, created_at
                FROM user_closet_items 
                WHERE user_id = %s
                ORDER BY created_at DESC""",
@@ -871,8 +870,7 @@ async def list_closet_items(user_id: str = "default"):
                 "occasion_tags": row[8],
                 "material": row[9],
                 "fit": row[10],
-                "created_at": row[11].isoformat() if row[11] else None,
-                "bg_removed": row[12]
+                "created_at": row[11].isoformat() if row[11] else None
             })
         
         return {"items": items, "count": len(items)}
@@ -1051,17 +1049,18 @@ async def rotate_closet_item(item_id: int, req: RotateRequest, user_id: str = "d
 
 @app.post("/v1/closet/items/{item_id}/reupload")
 async def reupload_closet_item(item_id: int, file: UploadFile = File(...), user_id: str = "default"):
-    """Re-upload an item's image (after client-side background removal)."""
+    """Re-upload an item's image (after client-side background removal). Keeps transparency."""
     try:
-        # Process image
+        # Read image bytes directly - no processing to preserve transparency
         image_bytes = await file.read()
-        processed_bytes = process_clothing_image(image_bytes)
+        logger.info(f"Re-uploading item {item_id}: {len(image_bytes)} bytes")
         
-        # Upload to Cloudinary
+        # Upload to Cloudinary directly (keep PNG transparency)
         result = cloudinary.uploader.upload(
-            processed_bytes,
+            image_bytes,
             folder="closet",
-            resource_type="image"
+            resource_type="image",
+            format="png"  # Keep as PNG with transparency
         )
         new_url = result["secure_url"]
         logger.info(f"Re-uploaded item {item_id}: {new_url}")
@@ -1071,7 +1070,7 @@ async def reupload_closet_item(item_id: int, file: UploadFile = File(...), user_
         cursor = conn.cursor()
         try:
             cursor.execute(
-                "UPDATE user_closet_items SET image_url = %s, bg_removed = TRUE WHERE id = %s AND user_id = %s RETURNING id",
+                "UPDATE user_closet_items SET image_url = %s WHERE id = %s AND user_id = %s RETURNING id",
                 (new_url, item_id, user_id)
             )
             updated = cursor.fetchone()
@@ -1079,7 +1078,7 @@ async def reupload_closet_item(item_id: int, file: UploadFile = File(...), user_
                 raise HTTPException(status_code=404, detail="Item not found")
             
             conn.commit()
-            return {"id": item_id, "image_url": new_url, "bg_removed": True}
+            return {"id": item_id, "image_url": new_url}
         finally:
             cursor.close()
             conn.close()
