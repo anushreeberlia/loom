@@ -1508,7 +1508,7 @@ async def get_daily_outfits(
     request: Request,
     lat: float = None,
     lon: float = None,
-    nocache: bool = False,
+    nocache: bool = True,  # Always regenerate daily outfits
     user_id: str = "default",
     tz_offset: float = None,  # Timezone offset from UTC in hours (e.g., -8 for PST)
     occasion: str = None,  # Manual occasion override (work, casual, going-out, etc.)

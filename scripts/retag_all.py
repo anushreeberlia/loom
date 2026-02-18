@@ -64,17 +64,12 @@ def main():
             # Generate new name
             name = f"{parsed.get('primary_color', '')} {parsed.get('category', 'item')}".strip().title()
             
-            # Regenerate embedding with new tags
-            print(f"  Generating embedding...", flush=True)
-            embedding = embed_base_item(parsed)
-            
-            # Update database with tags AND new embedding
+            # Update database
             print(f"  Updating DB...", flush=True)
             cursor.execute(
                 """UPDATE user_closet_items 
                    SET name = %s, category = %s, primary_color = %s, secondary_colors = %s,
-                       style_tags = %s, season_tags = %s, occasion_tags = %s, material = %s, fit = %s,
-                       embedding = %s
+                       style_tags = %s, season_tags = %s, occasion_tags = %s, material = %s, fit = %s
                    WHERE id = %s""",
                 (
                     name,
@@ -86,7 +81,6 @@ def main():
                     parsed.get("occasion_tags"),
                     parsed.get("material"),
                     parsed.get("fit"),
-                    embedding,
                     item_id
                 )
             )
