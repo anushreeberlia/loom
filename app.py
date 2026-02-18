@@ -1737,13 +1737,15 @@ async def regenerate_single_outfit(
     lat: float = None,
     lon: float = None,
     exclude_ids: str = None,
+    tz_offset: float = None,
+    mood_text: str = None,
     user_id: str = "default"
 ):
     """
     Regenerate a single outfit (after dislike).
     Excludes items from the disliked outfit to get something different.
     """
-    logger.info(f"Regenerating outfit {idx} (exclude: {exclude_ids})")
+    logger.info(f"Regenerating outfit {idx} (exclude: {exclude_ids}, tz_offset: {tz_offset}, mood: {mood_text})")
     base_url = str(request.base_url).rstrip("/")
     
     # Parse exclude IDs
@@ -1761,6 +1763,16 @@ async def regenerate_single_outfit(
         weather_data = await fetch_weather(lat, lon)
         if weather_data:
             weather_adjustments = get_weather_outfit_adjustments(weather_data)
+    
+    # Determine occasion (from mood or auto-detect)
+    occasion_info = None
+    if mood_text:
+        occasion_info = await interpret_mood(mood_text)
+    else:
+        occasion_info = get_occasion_from_time(tz_offset)
+    
+    prefer_occasions = occasion_info.get("prefer_occasions", []) if occasion_info else []
+    avoid_occasions = occasion_info.get("avoid_occasions", []) if occasion_info else []
     
     # Get all closet items
     conn = get_db_connection()
@@ -1798,19 +1810,33 @@ async def regenerate_single_outfit(
         }
         all_items.append(item)
     
-    # Pick a base item NOT in excluded set
+    # Pick a base item NOT in excluded set, filtered by occasion
+    def is_occasion_appropriate(item):
+        item_occasions = item.get("occasion_tags") or []
+        item_styles = item.get("style_tags") or []
+        all_tags = set(item_occasions + item_styles)
+        if not all_tags:
+            return True
+        for avoid_tag in avoid_occasions:
+            if avoid_tag in all_tags:
+                return False
+        return True
+    
     base_categories = ["top", "layer", "bottom", "dress"]
     if weather_adjustments and weather_adjustments.get("force_layer"):
         base_categories = ["layer", "top", "bottom"]
     
     base_item = None
     for pref_cat in base_categories:
-        candidates = [i for i in all_items if i["category"] == pref_cat and i["id"] not in excluded]
+        candidates = [i for i in all_items 
+                     if i["category"] == pref_cat 
+                     and i["id"] not in excluded 
+                     and is_occasion_appropriate(i)]
         if candidates:
             base_item = candidates[0]  # Already randomized
             break
     
-    # Fallback to any non-excluded item
+    # Fallback to any non-excluded item (skip occasion filter)
     if not base_item:
         for item in all_items:
             if item["id"] not in excluded:

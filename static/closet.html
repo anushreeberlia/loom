@@ -1318,7 +1318,7 @@
             card.querySelector('.outfit-feedback')?.classList.add('loading');
             
             try {
-                // Build URL with location and exclude IDs
+                // Build URL with location, exclude IDs, timezone, and mood
                 let url = `/v1/closet/daily/regenerate/${idx}`;
                 const params = new URLSearchParams();
                 if (userLat !== null && userLon !== null) {
@@ -1327,6 +1327,14 @@
                 }
                 if (excludeIds.length > 0) {
                     params.append('exclude_ids', excludeIds.join(','));
+                }
+                // Send timezone offset for occasion detection
+                const tzOffset = -new Date().getTimezoneOffset() / 60;
+                params.append('tz_offset', tzOffset);
+                // Send mood text if set
+                const moodInput = document.getElementById('mood-input');
+                if (moodInput && moodInput.value.trim()) {
+                    params.append('mood_text', moodInput.value.trim());
                 }
                 if (params.toString()) url += `?${params.toString()}`;
                 
