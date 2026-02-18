@@ -821,9 +821,14 @@ def retrieve_for_slot(
     if slot == "layer" and not use_closet:
         candidates = filter_layer_items(candidates)
     
-    # For layers: filter by material weight compatibility with chosen top
-    if slot == "layer" and chosen_items:
-        top = chosen_items.get("top")
+    # For layers: filter by material weight compatibility with the top underneath
+    # The top could be in chosen_items OR be the base_item itself (daily outfit flow)
+    if slot == "layer":
+        top = None
+        if chosen_items:
+            top = chosen_items.get("top")
+        if not top and base_item.get("category") == "top":
+            top = base_item  # base_item IS the top in daily outfit flow
         if top:
             compatible = []
             for c in candidates:
@@ -831,6 +836,7 @@ def retrieve_for_slot(
                     compatible.append(c)
             if compatible:  # Only filter if we have options left
                 candidates = compatible
+                logger.info(f"Layer compatibility: {len(candidates)} layers compatible with top")
     
     # For tops when base is a layer: top should be lighter than the layer
     # (you don't wear a chunky sweater under a light cardigan)
