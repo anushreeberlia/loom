@@ -1091,7 +1091,7 @@
                 return;
             }
 
-            if (!confirm(`Remove backgrounds from ${allItems.length} items? This uses AI processing in your browser and may take a while.`)) {
+            if (!confirm(`Remove backgrounds from ${allItems.length} items? This uses AI processing in your browser.`)) {
                 return;
             }
 
@@ -1099,34 +1099,28 @@
             let processed = 0;
             let errors = 0;
             const total = allItems.length;
+            const CONCURRENCY = 5; // Process 5 items at a time
 
-            for (const item of allItems) {
+            // Process a single item
+            async function processItem(item) {
                 try {
-                    btn.textContent = `⏳ ${processed + 1}/${total}`;
-                    hint.textContent = `Processing: ${item.name || 'item'}...`;
+                    console.log(`[${item.id}] Starting...`);
                     
                     // Download original image
-                    console.log(`Downloading ${item.id}: ${item.image_url}`);
                     const response = await fetch(item.image_url);
-                    if (!response.ok) {
-                        throw new Error(`Failed to download: ${response.status}`);
-                    }
+                    if (!response.ok) throw new Error(`Download failed: ${response.status}`);
                     const blob = await response.blob();
                     const file = new File([blob], `item_${item.id}.jpg`, { type: blob.type });
-                    console.log(`Downloaded ${item.id}: ${blob.size} bytes`);
+                    console.log(`[${item.id}] Downloaded ${blob.size} bytes`);
 
                     // Remove background
-                    hint.textContent = `Removing background: ${item.name || 'item'}...`;
-                    console.log(`Removing background for ${item.id}...`);
                     const outputBlob = await window.imglyRemoveBackground(file);
                     const processedFile = new File([outputBlob], `item_${item.id}.png`, { type: 'image/png' });
-                    console.log(`BG removed for ${item.id}: ${outputBlob.size} bytes`);
+                    console.log(`[${item.id}] BG removed: ${outputBlob.size} bytes`);
 
                     // Re-upload
-                    hint.textContent = `Uploading: ${item.name || 'item'}...`;
                     const formData = new FormData();
                     formData.append('file', processedFile);
-
                     const uploadRes = await fetch(`/v1/closet/items/${item.id}/reupload`, {
                         method: 'POST',
                         body: formData
@@ -1134,18 +1128,30 @@
 
                     if (uploadRes.ok) {
                         const updated = await uploadRes.json();
-                        item.image_url = updated.image_url + '?t=' + Date.now(); // Cache bust
-                        processed++;
-                        console.log(`Uploaded ${item.id}: ${updated.image_url}`);
+                        item.image_url = updated.image_url + '?t=' + Date.now();
+                        console.log(`[${item.id}] ✅ Done`);
+                        return { success: true };
                     } else {
-                        const errText = await uploadRes.text();
-                        console.error(`Upload failed for ${item.id}: ${errText}`);
-                        errors++;
+                        console.error(`[${item.id}] Upload failed: ${await uploadRes.text()}`);
+                        return { success: false };
                     }
                 } catch (e) {
-                    console.error(`Error processing item ${item.id}:`, e);
-                    errors++;
+                    console.error(`[${item.id}] Error:`, e);
+                    return { success: false };
                 }
+            }
+
+            // Process in parallel batches
+            hint.textContent = `Processing ${total} items (${CONCURRENCY} at a time)...`;
+            console.log(`Starting parallel processing: ${total} items, ${CONCURRENCY} concurrent`);
+
+            for (let i = 0; i < allItems.length; i += CONCURRENCY) {
+                const batch = allItems.slice(i, i + CONCURRENCY);
+                const results = await Promise.all(batch.map(processItem));
+                
+                results.forEach(r => r.success ? processed++ : errors++);
+                btn.textContent = `⏳ ${processed + errors}/${total}`;
+                hint.textContent = `Processing... ${processed} done, ${errors} errors`;
             }
 
             btn.disabled = false;
