@@ -1537,7 +1537,7 @@ async def get_daily_outfits(
             "work": {
                 "occasion": "work",
                 "prefer_occasions": ["work", "office", "business-casual", "professional", "elegant", "classic"],
-                "avoid_occasions": ["party", "clubbing", "beach", "gym", "workout", "sporty", "athletic", "activewear"],
+                "avoid_occasions": [],  # Semantic filtering handles this now
                 "note": "Work / Office 💼"
             },
             "casual": {
@@ -1738,7 +1738,8 @@ async def get_daily_outfits(
         # Get embeddings
         query_embeddings = get_batch_embeddings(query_texts)
         
-        # Retrieve candidates from closet - with occasion filtering
+        # Retrieve candidates from closet - with SEMANTIC occasion filtering
+        occasion_name = occasion_info.get("occasion", "casual")
         candidates_by_slot = {}
         for i, slot in enumerate(slots):
             try:
@@ -1752,8 +1753,7 @@ async def get_daily_outfits(
                     precomputed_embedding=query_embeddings[i],
                     use_closet=True,
                     user_id=user_id,
-                    prefer_occasions=prefer_occasions,
-                    avoid_occasions=avoid_occasions
+                    occasion=occasion_name  # Semantic filtering - no hardcoded keywords!
                 )
                 candidates_by_slot[slot] = candidates
             except Exception as e:

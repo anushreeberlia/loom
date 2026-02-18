@@ -31,18 +31,24 @@ def parse_description(description: str) -> dict:
 
 Return ONLY valid JSON with these keys:
 - category: one of [top, bottom, dress, layer, shoes, accessory]
-  * top = blouses, t-shirts, shirts, tanks, crop tops, sweaters, hoodies, knit tops, pullovers (worn as main upper body piece, NOT outerwear)
-  * layer = jackets, coats, blazers, cardigans, vests, shrugs, parkas, windbreakers, denim jackets, leather jackets (outerwear worn OVER tops)
-  * bottom = pants, jeans, skirts, shorts, trousers
-  * dress = one-piece dresses, jumpsuits, rompers
-  * shoes = any footwear
+  * dress = ANY one-piece garment (mini dress, midi dress, bodycon dress, maxi, jumpsuit, romper)
+  * top = SEPARATE upper body pieces only (blouses, t-shirts, sweaters, tanks, crop tops)
+  * layer = outerwear worn OVER other clothes (jackets, coats, blazers, cardigans)
+  * bottom = SEPARATE lower body pieces (pants, jeans, skirts, shorts)
+  * shoes = footwear
   * accessory = bags, jewelry, scarves, hats, belts
 - primary_color: one of [black, white, gray, beige, brown, blue, navy, green, yellow, orange, red, pink, purple, metallic, multi, unknown]
 - secondary_colors: array from same palette (can be empty)
-- material: REQUIRED string - the fabric type, e.g.: cotton, linen, silk, wool, cashmere, fleece, denim, leather, suede, polyester, nylon, knit, jersey, chiffon, velvet, corduroy, tweed, quilted, puffer, mesh, canvas, satin. If unclear, make best guess based on appearance.
-- fit: one of [fitted, slim, straight, relaxed, oversized, wide, cropped, loose, unknown]
+- material: REQUIRED string - the fabric type (cotton, silk, knit, jersey, velvet, satin, leather, denim, etc.)
+- fit: one of [fitted, bodycon, slim, straight, relaxed, oversized, wide, cropped, loose, unknown]
 - style_tags: array (from: minimalist, classic, edgy, romantic, sporty, athletic, activewear, bohemian, streetwear, preppy, elegant, casual, chic, vintage, statement, workwear, sexy, glamorous, trendy)
+  * sexy = revealing, low-cut, bodycon, mini length, backless, cutouts, tight-fitting
+  * athletic/activewear = sports bras, leggings, workout gear, gym clothes
+  * elegant = dressy, refined, sophisticated
 - occasion_tags: array (from: everyday, casual, work, dinner, party, formal, vacation, lounge, wedding_guest, going-out, clubbing, gym, workout, date, night-out, brunch)
+  * IMPORTANT: If item is sexy/revealing/mini/bodycon -> use going-out, clubbing, date, party, night-out (NOT work, NOT casual)
+  * If item is sporty/athletic -> use gym, workout (NOT work)
+  * work = conservative, professional pieces only
 - season_tags: array - use EITHER all_season OR subset of [spring, summer, fall, winter], NEVER both
 
 Description:

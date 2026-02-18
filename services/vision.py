@@ -74,23 +74,21 @@ def describe_image(image_bytes: bytes) -> str:
                         {
                             "type": "text",
                             "text": """Describe the main clothing item visible in this image. Focus on:
-- category: use these definitions:
-  * top = blouses, t-shirts, shirts, tanks, crop tops, sweaters, hoodies, knit tops, pullovers (main upper body piece)
-  * layer = cardigans, jackets, coats, blazers, vests (worn OPEN over other tops)
-  * bottom = pants, jeans, skirts, shorts, trousers
-  * dress = one-piece dresses, jumpsuits, rompers
+- category: use these definitions CAREFULLY:
+  * dress = ANY one-piece garment covering torso AND extending down (mini dress, midi dress, maxi dress, bodycon dress, jumpsuits, rompers). If it's a single piece that covers upper body and has a skirt/bottom portion = DRESS
+  * top = blouses, t-shirts, shirts, tanks, crop tops, sweaters, hoodies, knit tops (ONLY if it's a separate piece that ends at waist/hips)
+  * layer = cardigans, jackets, coats, blazers, vests (worn OPEN over other clothes)
+  * bottom = pants, jeans, skirts, shorts (SEPARATE pieces)
   * shoes = any footwear
   * accessory = bags, jewelry, scarves, hats, belts
-- MATERIAL/FABRIC (REQUIRED): identify the fabric type, e.g.:
-  * cotton, linen, silk, wool, cashmere, fleece, denim, leather, suede
-  * polyester, nylon, knit, jersey, chiffon, velvet, corduroy, tweed
-  * quilted, puffer/down, mesh, technical fabric
+- MATERIAL/FABRIC (REQUIRED): identify the fabric type
 - colors (primary and any secondary)
-- fit (fitted, relaxed, oversized, etc.)
-- style (casual, formal, sporty, elegant, etc.)
-- any notable details (patterns, textures, features)
+- fit (fitted, bodycon, relaxed, oversized, etc.)
+- LENGTH for dresses/skirts/shorts: mini, midi, maxi, knee-length, thigh-length
+- VIBE/OCCASION: is this sexy/revealing, casual/everyday, formal/work, athletic/sporty, going-out/party, elegant/dressy?
+- any notable details (low cut, backless, cutouts, slit, patterns, textures)
 
-Do not guess brand. Do not add opinions. Be factual and concise."""
+Be accurate about the category - don't mistake dresses for tops!"""
                         },
                         {
                             "type": "image_url",

@@ -61,6 +61,112 @@ DIRECTION_ACCESSORY_PREFS = {
     "Bold": {"clutch", "jewelry", "necklace", "earring", "bracelet", "statement"},
 }
 
+# Semantic occasion contexts for intelligent filtering
+# Each occasion has a "vibe" description and an "anti-vibe" description
+OCCASION_SEMANTIC_CONTEXTS = {
+    "work": {
+        "vibe": "professional office business conservative modest appropriate polished refined tailored structured classic elegant understated sophisticated",
+        "anti_vibe": "sexy revealing provocative clubbing nightlife party skin tight bodycon mini skirt thigh high boots crop top low cut plunging neckline backless sheer see through leopard print animal print"
+    },
+    "casual": {
+        "vibe": "relaxed comfortable everyday effortless laid-back weekend brunch daytime practical easy-going simple",
+        "anti_vibe": "formal black-tie gala ballgown evening gown tuxedo ultra dressy"
+    },
+    "going-out": {
+        "vibe": "glamorous sexy elegant party date night dinner chic statement bold eye-catching dressy stylish trendy",
+        "anti_vibe": "athletic sporty gym workout sweatpants hoodie casual basic plain conservative modest office"
+    },
+    "smart-casual": {
+        "vibe": "polished put-together elevated casual refined dinner date chic sophisticated understated elegant",
+        "anti_vibe": "gym workout athletic sporty sweatpants loungewear pajamas ultra casual sloppy"
+    },
+    "workout": {
+        "vibe": "athletic sporty gym fitness activewear performance breathable stretchy comfortable movement exercise training",
+        "anti_vibe": "formal dressy elegant heels business office work professional evening gown party"
+    }
+}
+
+# Cache for occasion embeddings (computed once per session)
+_occasion_embedding_cache = {}
+
+
+def get_occasion_embeddings(occasion: str) -> tuple[list[float], list[float]]:
+    """
+    Get or compute embeddings for an occasion's vibe and anti-vibe.
+    Returns: (vibe_embedding, anti_vibe_embedding)
+    """
+    if occasion not in OCCASION_SEMANTIC_CONTEXTS:
+        occasion = "casual"  # Default fallback
+    
+    cache_key = occasion
+    if cache_key in _occasion_embedding_cache:
+        return _occasion_embedding_cache[cache_key]
+    
+    context = OCCASION_SEMANTIC_CONTEXTS[occasion]
+    embeddings = get_batch_embeddings([context["vibe"], context["anti_vibe"]])
+    
+    _occasion_embedding_cache[cache_key] = (embeddings[0], embeddings[1])
+    return embeddings[0], embeddings[1]
+
+
+def compute_occasion_score(item_embedding: list[float], occasion: str) -> float:
+    """
+    Compute how well an item fits an occasion using semantic similarity.
+    
+    Returns a score where:
+    - Higher = better fit for the occasion
+    - Items similar to anti-vibe get penalized
+    """
+    import numpy as np
+    
+    vibe_emb, anti_vibe_emb = get_occasion_embeddings(occasion)
+    
+    item_emb = np.array(item_embedding)
+    vibe = np.array(vibe_emb)
+    anti_vibe = np.array(anti_vibe_emb)
+    
+    # Cosine similarities
+    vibe_sim = np.dot(item_emb, vibe) / (np.linalg.norm(item_emb) * np.linalg.norm(vibe))
+    anti_sim = np.dot(item_emb, anti_vibe) / (np.linalg.norm(item_emb) * np.linalg.norm(anti_vibe))
+    
+    # Score = similarity to vibe - similarity to anti-vibe
+    # Items that match the vibe AND don't match anti-vibe score highest
+    return float(vibe_sim - anti_sim)
+
+
+def filter_by_occasion_semantic(candidates: list[dict], occasion: str, threshold: float = -0.05) -> list[dict]:
+    """
+    Filter and rank candidates by semantic occasion fit.
+    
+    Args:
+        candidates: List of items with embeddings
+        occasion: The target occasion (work, casual, going-out, etc.)
+        threshold: Minimum occasion score to include (default -0.05 allows slight mismatches)
+    
+    Returns:
+        Filtered and sorted candidates (best fits first)
+    """
+    if occasion not in OCCASION_SEMANTIC_CONTEXTS:
+        return candidates  # No filtering if unknown occasion
+    
+    scored = []
+    for c in candidates:
+        if not c.get("embedding"):
+            c["_occasion_score"] = 0  # No embedding = neutral
+            scored.append(c)
+            continue
+        
+        score = compute_occasion_score(c["embedding"], occasion)
+        c["_occasion_score"] = score
+        
+        # Only include if above threshold (filters out clearly inappropriate items)
+        if score >= threshold:
+            scored.append(c)
+    
+    # Sort by occasion score (best fits first)
+    scored.sort(key=lambda x: x.get("_occasion_score", 0), reverse=True)
+    return scored
+
 
 def infer_product_type(item_name: str, slot: str) -> dict:
     """
@@ -590,8 +696,9 @@ def retrieve_for_slot(
     precomputed_embedding: list[float] = None,
     use_closet: bool = False,
     user_id: str = "default",
-    prefer_occasions: list[str] = None,
-    avoid_occasions: list[str] = None
+    occasion: str = None,  # Semantic occasion filtering (work, casual, going-out, etc.)
+    prefer_occasions: list[str] = None,  # Legacy - kept for compatibility
+    avoid_occasions: list[str] = None  # Legacy - kept for compatibility
 ) -> list[dict]:
     """
     Retrieve candidate items for a specific slot and direction.
@@ -656,21 +763,21 @@ def retrieve_for_slot(
             if c.get("primary_color") in avoid_colors_soft:
                 c["_color_penalty"] = True  # Mark for soft scoring penalty
     
-    # Apply occasion filtering - penalize items that don't match the occasion
-    if avoid_occasions or prefer_occasions:
+    # Apply SEMANTIC occasion filtering (intelligent, not keyword-based)
+    if occasion and occasion in OCCASION_SEMANTIC_CONTEXTS:
+        candidates = filter_by_occasion_semantic(candidates, occasion, threshold=-0.03)
+    # Legacy keyword filtering (fallback if occasion not provided but prefer/avoid are)
+    elif avoid_occasions or prefer_occasions:
         avoid_set = set(avoid_occasions or [])
         prefer_set = set(prefer_occasions or [])
         filtered = []
         for c in candidates:
             item_tags = set((c.get("occasion_tags") or []) + (c.get("style_tags") or []))
-            # Hard filter: exclude items with explicitly avoided tags
             if avoid_set and item_tags & avoid_set:
-                continue  # Skip items with avoided tags
-            # Soft boost: mark preferred items
-            if prefer_set and (item_tags & prefer_set or "everyday" in item_tags or "versatile" in item_tags):
+                continue
+            if prefer_set and (item_tags & prefer_set or "everyday" in item_tags):
                 c["_occasion_boost"] = True
             filtered.append(c)
-        # Sort to prioritize occasion-boosted items
         candidates = sorted(filtered, key=lambda x: (1 if x.get("_occasion_boost") else 0), reverse=True)
     
     # For layer slot in catalog mode, filter to only include layer-like items

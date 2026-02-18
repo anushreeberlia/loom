@@ -282,7 +282,7 @@ def get_occasion_from_time(timezone_offset_hours: float = None) -> dict:
             return {
                 "occasion": "work",
                 "prefer_occasions": ["work", "office", "business-casual", "professional", "classic", "elegant"],
-                "avoid_occasions": ["party", "clubbing", "beach", "sporty", "athletic", "activewear", "gym", "workout"],
+                "avoid_occasions": [],  # Semantic filtering handles this now
                 "note": "Workday - office appropriate 💼"
             }
         elif hour < 20:  # 5-8 PM - transitional
