@@ -55,6 +55,75 @@ SLOT_COLOR_PREFS = {
     "layer": {"black", "white", "gray", "beige", "navy", "brown"},
 }
 
+# Semantic weight contexts for materials
+# Used to compute material "heaviness" via embeddings
+MATERIAL_WEIGHT_CONTEXTS = {
+    "heavy": "thick heavy warm winter chunky bulky insulated padded puffy quilted down wool cashmere fleece shearling fur lined cozy substantial weighty dense",
+    "light": "thin light airy breathable summer sheer delicate flowy lightweight gauzy transparent see-through crisp cool"
+}
+
+# Cache for material weight embeddings
+_material_weight_cache = {}
+
+
+def get_semantic_material_weight(item: dict) -> float:
+    """
+    Compute material weight semantically using embeddings.
+    Returns a score from -1 (very light) to +1 (very heavy).
+    """
+    import numpy as np
+    from services.retrieval import get_batch_embeddings
+    
+    # Build text from item's material + name (captures "chunky knit", "puffer jacket" etc)
+    material = item.get("material") or ""
+    name = item.get("name") or ""
+    item_text = f"{material} {name}".strip()
+    
+    if not item_text:
+        return 0  # Neutral if no info
+    
+    # Get or compute weight context embeddings
+    global _material_weight_cache
+    if "heavy" not in _material_weight_cache:
+        embeddings = get_batch_embeddings([
+            MATERIAL_WEIGHT_CONTEXTS["heavy"],
+            MATERIAL_WEIGHT_CONTEXTS["light"]
+        ])
+        _material_weight_cache["heavy"] = np.array(embeddings[0])
+        _material_weight_cache["light"] = np.array(embeddings[1])
+    
+    # Get item embedding (use existing if available, otherwise compute)
+    if item.get("embedding"):
+        item_emb = np.array(item["embedding"])
+    else:
+        item_emb = np.array(get_batch_embeddings([item_text])[0])
+    
+    heavy_emb = _material_weight_cache["heavy"]
+    light_emb = _material_weight_cache["light"]
+    
+    # Compute similarities
+    heavy_sim = np.dot(item_emb, heavy_emb) / (np.linalg.norm(item_emb) * np.linalg.norm(heavy_emb))
+    light_sim = np.dot(item_emb, light_emb) / (np.linalg.norm(item_emb) * np.linalg.norm(light_emb))
+    
+    # Return difference: positive = heavy, negative = light
+    return float(heavy_sim - light_sim)
+
+
+def is_layer_compatible(layer: dict, top: dict) -> bool:
+    """
+    Check if a layer can go over a top using semantic material weight.
+    Layer should be heavier or roughly equal to what's underneath.
+    """
+    if not layer or not top:
+        return True
+    
+    layer_weight = get_semantic_material_weight(layer)
+    top_weight = get_semantic_material_weight(top)
+    
+    # Layer should be heavier than or close to top weight
+    # Allow layer to be slightly lighter (0.05 tolerance)
+    return layer_weight >= top_weight - 0.05
+
 # What slots to fill based on input item category
 OUTFIT_SLOTS = {
     "top": ["bottom", "shoes", "accessory"],

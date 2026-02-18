@@ -12,7 +12,8 @@ from services.outfit import (
     NEUTRALS,
     build_base_item_text,
     get_preferred_colors,
-    get_avoid_colors
+    get_avoid_colors,
+    is_layer_compatible
 )
 
 load_dotenv()
@@ -784,6 +785,17 @@ def retrieve_for_slot(
     # (closet items are already properly categorized by user)
     if slot == "layer" and not use_closet:
         candidates = filter_layer_items(candidates)
+    
+    # For layers: filter by material weight compatibility with chosen top
+    if slot == "layer" and chosen_items:
+        top = chosen_items.get("top")
+        if top:
+            compatible = []
+            for c in candidates:
+                if is_layer_compatible(c, top):
+                    compatible.append(c)
+            if compatible:  # Only filter if we have options left
+                candidates = compatible
     
     # Apply sanity gate (slot-aware)
     candidates = filter_candidates(candidates, slot)
