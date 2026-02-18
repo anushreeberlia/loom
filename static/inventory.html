@@ -81,6 +81,21 @@
             color: var(--text);
         }
 
+        .user-avatar {
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            overflow: hidden;
+            cursor: pointer;
+            margin-left: 0.5rem;
+        }
+
+        .user-avatar img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
         .container {
             max-width: 1200px;
             margin: 0 auto;
@@ -671,6 +686,10 @@
             <a href="/inventory" class="active">Inventory</a>
             <a href="/closet">Style</a>
             <a href="/demo">Demo</a>
+            <a href="/login" id="login-link">Sign In</a>
+            <div class="user-avatar" id="user-avatar" style="display: none;">
+                <img src="" alt="" id="user-image">
+            </div>
         </nav>
     </header>
 
@@ -774,7 +793,28 @@
         let currentFilter = 'all';
         let bulkFiles = []; // Files queued in bulk capture mode
 
+        // Check auth status
+        async function checkAuth() {
+            try {
+                const res = await fetch('/auth/me');
+                const data = await res.json();
+                if (data.authenticated && data.user) {
+                    document.getElementById('login-link').style.display = 'none';
+                    const avatar = document.getElementById('user-avatar');
+                    const img = document.getElementById('user-image');
+                    if (data.user.profile_image) {
+                        img.src = data.user.profile_image;
+                        img.alt = data.user.name || 'User';
+                        avatar.style.display = 'block';
+                    }
+                }
+            } catch (e) {
+                console.log('Auth check failed:', e);
+            }
+        }
+
         // Load items on page load
+        checkAuth();
         loadItems();
 
         // File upload zone events (label handles click, just need drag)

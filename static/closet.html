@@ -69,36 +69,13 @@
             color: var(--text);
         }
 
-        .user-menu {
-            margin-left: 1rem;
-            display: flex;
-            align-items: center;
-        }
-
-        .login-link {
-            font-size: 0.75rem;
-            letter-spacing: 0.08em;
-            text-transform: uppercase;
-            text-decoration: none;
-            color: var(--text-muted);
-            padding: 0.4rem 0.8rem;
-            border: 1px solid var(--border);
-            border-radius: 4px;
-            transition: all 0.2s;
-        }
-
-        .login-link:hover {
-            color: var(--text);
-            border-color: var(--text);
-        }
-
         .user-avatar {
-            width: 32px;
-            height: 32px;
+            width: 28px;
+            height: 28px;
             border-radius: 50%;
             overflow: hidden;
-            border: 2px solid var(--border);
             cursor: pointer;
+            margin-left: 0.5rem;
         }
 
         .user-avatar img {
@@ -797,11 +774,9 @@
             <a href="/inventory">Inventory</a>
             <a href="/closet" class="active">Style</a>
             <a href="/demo">Demo</a>
-            <div class="user-menu" id="user-menu">
-                <a href="/login" class="login-link" id="login-link">Sign In</a>
-                <div class="user-avatar" id="user-avatar" style="display: none;">
-                    <img src="" alt="" id="user-image">
-                </div>
+            <a href="/login" id="login-link">Sign In</a>
+            <div class="user-avatar" id="user-avatar" style="display: none;">
+                <img src="" alt="" id="user-image">
             </div>
         </nav>
     </header>
