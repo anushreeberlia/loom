@@ -448,6 +448,49 @@ def require_auth(auth_token: Optional[str]) -> int:
     return str(user_id)
 
 
+def migrate_default_data_to_user(user_id: int):
+    """Migrate closet items and taste vectors from 'default' to a new user."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        # Check if this user already has items (to prevent re-migration)
+        cursor.execute("SELECT COUNT(*) FROM user_closet_items WHERE user_id = %s", (str(user_id),))
+        if cursor.fetchone()[0] > 0:
+            logger.info(f"User {user_id} already has closet items, skipping migration")
+            return
+        
+        # Check if there are default items to migrate
+        cursor.execute("SELECT COUNT(*) FROM user_closet_items WHERE user_id = 'default'")
+        default_count = cursor.fetchone()[0]
+        if default_count == 0:
+            logger.info("No default items to migrate")
+            return
+        
+        # Migrate closet items from 'default' to user
+        cursor.execute(
+            "UPDATE user_closet_items SET user_id = %s WHERE user_id = 'default'",
+            (str(user_id),)
+        )
+        migrated_items = cursor.rowcount
+        logger.info(f"Migrated {migrated_items} closet items from 'default' to user {user_id}")
+        
+        # Migrate taste vectors
+        cursor.execute(
+            "UPDATE taste_vectors SET session_id = %s WHERE session_id = 'default'",
+            (str(user_id),)
+        )
+        migrated_taste = cursor.rowcount
+        logger.info(f"Migrated {migrated_taste} taste vectors from 'default' to user {user_id}")
+        
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"Error migrating default data to user {user_id}: {e}")
+    finally:
+        cursor.close()
+        conn.close()
+
+
 @app.get("/auth/google")
 async def google_login(request: Request):
     """Redirect to Google OAuth"""
@@ -494,6 +537,9 @@ async def google_callback(request: Request, code: str = None, error: str = None)
             google_id=google_user.get("id"),
             profile_image=google_user.get("picture")
         )
+        
+        # Migrate default closet data to this user (first login)
+        migrate_default_data_to_user(user["id"])
         
         # Create JWT token
         jwt_token = create_jwt_token(user["id"], user["email"])
