@@ -993,9 +993,9 @@
         function buildRegenerateUrl(idx, excludeIds) {
             let url = `/v1/closet/daily/regenerate/${idx}`;
             const params = new URLSearchParams();
-            if (userLat !== null && userLon !== null) {
-                params.append('lat', userLat);
-                params.append('lon', userLon);
+            if (userLocation && userLocation.lat && userLocation.lon) {
+                params.append('lat', userLocation.lat);
+                params.append('lon', userLocation.lon);
             }
             if (excludeIds && excludeIds.length > 0) {
                 params.append('exclude_ids', excludeIds.join(','));
@@ -1248,8 +1248,8 @@
                 
                 // Use the single-outfit regenerate endpoint
                 let url = `/v1/closet/daily/regenerate/${idx}?exclude_ids=${excludeIds.join(',')}`;
-                if (userLat !== null && userLon !== null) {
-                    url += `&lat=${userLat}&lon=${userLon}`;
+                if (userLocation && userLocation.lat && userLocation.lon) {
+                    url += `&lat=${userLocation.lat}&lon=${userLocation.lon}`;
                 }
                 
                 const res = await fetch(url);
@@ -1365,9 +1365,9 @@
             // Build URL first (don't depend on finding card)
             let url = `/v1/closet/daily/regenerate/${idx}`;
             const params = new URLSearchParams();
-            if (userLat !== null && userLon !== null) {
-                params.append('lat', userLat);
-                params.append('lon', userLon);
+            if (userLocation && userLocation.lat && userLocation.lon) {
+                params.append('lat', userLocation.lat);
+                params.append('lon', userLocation.lon);
             }
             if (excludeIds && excludeIds.length > 0) {
                 params.append('exclude_ids', excludeIds.join(','));
