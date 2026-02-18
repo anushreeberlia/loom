@@ -594,21 +594,23 @@
 
         .mood-btn {
             padding: 0.75rem 1.5rem;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: #2a2a2a;
             color: white;
             border: none;
             border-radius: 4px;
-            font-size: 0.9rem;
+            font-size: 0.8rem;
             font-weight: 500;
+            letter-spacing: 0.05em;
             cursor: pointer;
             white-space: nowrap;
+            transition: background 0.2s ease;
             -webkit-appearance: none;
             -moz-appearance: none;
             appearance: none;
         }
 
         .mood-btn:hover {
-            opacity: 0.9;
+            background: #3a3a3a;
         }
 
         .mood-btn:disabled {
@@ -762,7 +764,7 @@
         <!-- Mood Input -->
         <div class="mood-input-container" id="mood-container">
             <input type="text" id="mood-input" placeholder="How are you feeling? (e.g., cozy day at home, fancy dinner, casual brunch...)" />
-            <button id="mood-btn" class="mood-btn">Style me ✨</button>
+            <button id="mood-btn" class="mood-btn">Style Me</button>
         </div>
 
         <!-- Daily Outfits (shown first) -->
