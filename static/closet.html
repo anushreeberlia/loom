@@ -944,19 +944,9 @@
             }
         });
 
-        // Helper to handle 401 and redirect to login
-        function handleAuthError(res) {
-            if (res.status === 401) {
-                window.location.href = '/login';
-                return true;
-            }
-            return false;
-        }
-
         async function loadCloset() {
             try {
                 const res = await fetch('/v1/closet/items');
-                if (handleAuthError(res)) return;
                 const data = await res.json();
                 closetItems = data.items || [];
                 renderCloset();
@@ -1019,7 +1009,6 @@
                 }
                 
                 const res = await fetch(url);
-                if (handleAuthError(res)) return;
                 if (!res.ok) throw new Error('Failed to load');
                 
                 const data = await res.json();
