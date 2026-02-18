@@ -1660,7 +1660,7 @@ async def get_daily_outfits(
         # Get embeddings
         query_embeddings = get_batch_embeddings(query_texts)
         
-        # Retrieve candidates from closet
+        # Retrieve candidates from closet - with occasion filtering
         candidates_by_slot = {}
         for i, slot in enumerate(slots):
             try:
@@ -1673,7 +1673,9 @@ async def get_daily_outfits(
                     k=10,
                     precomputed_embedding=query_embeddings[i],
                     use_closet=True,
-                    user_id=user_id
+                    user_id=user_id,
+                    prefer_occasions=prefer_occasions,
+                    avoid_occasions=avoid_occasions
                 )
                 candidates_by_slot[slot] = candidates
             except Exception as e:

@@ -589,7 +589,9 @@ def retrieve_for_slot(
     source: str = None,
     precomputed_embedding: list[float] = None,
     use_closet: bool = False,
-    user_id: str = "default"
+    user_id: str = "default",
+    prefer_occasions: list[str] = None,
+    avoid_occasions: list[str] = None
 ) -> list[dict]:
     """
     Retrieve candidate items for a specific slot and direction.
@@ -653,6 +655,23 @@ def retrieve_for_slot(
         for c in candidates:
             if c.get("primary_color") in avoid_colors_soft:
                 c["_color_penalty"] = True  # Mark for soft scoring penalty
+    
+    # Apply occasion filtering - penalize items that don't match the occasion
+    if avoid_occasions or prefer_occasions:
+        avoid_set = set(avoid_occasions or [])
+        prefer_set = set(prefer_occasions or [])
+        filtered = []
+        for c in candidates:
+            item_tags = set((c.get("occasion_tags") or []) + (c.get("style_tags") or []))
+            # Hard filter: exclude items with explicitly avoided tags
+            if avoid_set and item_tags & avoid_set:
+                continue  # Skip items with avoided tags
+            # Soft boost: mark preferred items
+            if prefer_set and (item_tags & prefer_set or "everyday" in item_tags or "versatile" in item_tags):
+                c["_occasion_boost"] = True
+            filtered.append(c)
+        # Sort to prioritize occasion-boosted items
+        candidates = sorted(filtered, key=lambda x: (1 if x.get("_occasion_boost") else 0), reverse=True)
     
     # For layer slot in catalog mode, filter to only include layer-like items
     # (closet items are already properly categorized by user)
