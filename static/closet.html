@@ -1265,10 +1265,15 @@
 
         // Feedback for taste learning - uses item embeddings from closet
         async function sendFeedback(idx, liked, btn) {
+            console.log(`sendFeedback called: idx=${idx}, liked=${liked}`);
             try {
                 // Get item IDs from the outfit
                 const outfit = dailyOutfitsData[idx];
-                if (!outfit) return;
+                console.log(`Outfit data:`, outfit);
+                if (!outfit) {
+                    console.error('No outfit data found');
+                    return;
+                }
                 
                 const itemIds = (outfit.items || [])
                     .filter(item => item && item.id)
@@ -1279,13 +1284,15 @@
                     itemIds.push(outfit.base_item.id);
                 }
                 
+                console.log(`Item IDs for feedback:`, itemIds);
+                
                 if (itemIds.length === 0) {
                     console.warn('No item IDs found for feedback');
                     return;
                 }
                 
                 // Record feedback for taste learning
-                await fetch('/v1/closet/feedback', {
+                const feedbackRes = await fetch('/v1/closet/feedback', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ 
@@ -1293,6 +1300,7 @@
                         liked
                     })
                 });
+                console.log(`Feedback response: ${feedbackRes.status}`);
                 
                 btn.parentElement.querySelectorAll('.feedback-btn').forEach(b => b.classList.remove('active'));
                 btn.classList.add('active');
@@ -1300,7 +1308,9 @@
                 
                 // If disliked, regenerate just this outfit with different items
                 if (!liked) {
+                    console.log('Disliked - calling regenerateOutfit...');
                     await regenerateOutfit(idx, itemIds);
+                    console.log('regenerateOutfit completed');
                 }
             } catch (e) { 
                 console.error('Feedback error:', e); 
@@ -1309,8 +1319,16 @@
         
         // Regenerate a single outfit, excluding the disliked items
         async function regenerateOutfit(idx, excludeIds) {
-            const card = document.querySelectorAll('#daily-grid .outfit-card')[idx];
-            if (!card) return;
+            console.log(`regenerateOutfit called: idx=${idx}, excludeIds=`, excludeIds);
+            
+            const cards = document.querySelectorAll('#daily-grid .outfit-card');
+            console.log(`Found ${cards.length} outfit cards`);
+            
+            const card = cards[idx];
+            if (!card) {
+                console.error(`Card not found for idx ${idx}`);
+                return;
+            }
             
             // Show loading state
             const img = card.querySelector('.outfit-collage');
@@ -1325,7 +1343,7 @@
                     params.append('lat', userLat);
                     params.append('lon', userLon);
                 }
-                if (excludeIds.length > 0) {
+                if (excludeIds && excludeIds.length > 0) {
                     params.append('exclude_ids', excludeIds.join(','));
                 }
                 // Send timezone offset for occasion detection
@@ -1336,16 +1354,23 @@
                 if (moodInput && moodInput.value.trim()) {
                     params.append('mood_text', moodInput.value.trim());
                 }
-                if (params.toString()) url += `?${params.toString()}`;
+                url += `?${params.toString()}`;
                 
+                console.log(`Fetching: ${url}`);
                 const res = await fetch(url);
-                if (!res.ok) throw new Error('Regeneration failed');
+                console.log(`Response status: ${res.status}`);
+                
+                if (!res.ok) {
+                    const errText = await res.text();
+                    throw new Error(`Regeneration failed: ${errText}`);
+                }
                 
                 const newOutfit = await res.json();
+                console.log(`New outfit received:`, newOutfit);
                 
                 // Update the outfit data and UI
                 dailyOutfitsData[idx] = newOutfit;
-                if (img) {
+                if (img && newOutfit.collage_url) {
                     img.src = newOutfit.collage_url + '?t=' + Date.now();
                     img.style.opacity = '1';
                 }
@@ -1353,7 +1378,7 @@
                 // Reset feedback buttons
                 card.querySelectorAll('.feedback-btn').forEach(b => b.classList.remove('active'));
                 
-                console.log(`Outfit ${idx + 1} regenerated`);
+                console.log(`Outfit ${idx + 1} regenerated successfully`);
             } catch (e) {
                 console.error('Regenerate error:', e);
                 if (img) img.style.opacity = '1';

@@ -1566,11 +1566,21 @@ async def get_daily_outfits(
     used_ids = set()
     
     # First try to pick from occasion-appropriate items
+    # Add randomization: pick randomly from top-scored items for variety
+    import random
+    
     for pref_cat in base_categories:
         candidates = [i for i in appropriate_items if i["category"] == pref_cat and i["id"] not in used_ids]
         if candidates:
-            candidates.sort(key=item_score, reverse=True)
-            selected = candidates[0]
+            # Score all candidates
+            scored = [(i, item_score(i)) for i in candidates]
+            # Sort by score
+            scored.sort(key=lambda x: x[1], reverse=True)
+            # Get top candidates (within 2 points of best score)
+            best_score = scored[0][1]
+            top_candidates = [i for i, s in scored if s >= best_score - 2]
+            # Pick randomly from top candidates
+            selected = random.choice(top_candidates)
             selected_bases.append(selected)
             used_ids.add(selected["id"])
         if len(selected_bases) >= 3:
@@ -1579,22 +1589,25 @@ async def get_daily_outfits(
     # Fill remaining from appropriate items
     if len(selected_bases) < 3:
         remaining = [i for i in appropriate_items if i["id"] not in used_ids]
-        remaining.sort(key=item_score, reverse=True)
-        for item in remaining:
-            selected_bases.append(item)
-            used_ids.add(item["id"])
-            if len(selected_bases) >= 3:
-                break
+        if remaining:
+            # Shuffle for variety
+            random.shuffle(remaining)
+            for item in remaining:
+                selected_bases.append(item)
+                used_ids.add(item["id"])
+                if len(selected_bases) >= 3:
+                    break
     
     # Fallback to all items if closet is limited
     if len(selected_bases) < 3:
         remaining = [i for i in all_items if i["id"] not in used_ids]
-        remaining.sort(key=item_score, reverse=True)
-        for item in remaining:
-            selected_bases.append(item)
-            used_ids.add(item["id"])
-            if len(selected_bases) >= 3:
-                break
+        if remaining:
+            random.shuffle(remaining)
+            for item in remaining:
+                selected_bases.append(item)
+                used_ids.add(item["id"])
+                if len(selected_bases) >= 3:
+                    break
     
     if len(selected_bases) < 1:
         return {
