@@ -47,7 +47,14 @@ def load_and_resize_image(image_path: str, size: tuple[int, int]) -> Image.Image
                 return None
             img = Image.open(image_path)
         
-        img = img.convert("RGB")  # Ensure RGB mode
+        # Handle transparency - composite onto white background before converting
+        if img.mode in ('RGBA', 'LA') or (img.mode == 'P' and 'transparency' in img.info):
+            # Create white background and composite
+            img = img.convert('RGBA')
+            white_bg = Image.new('RGBA', img.size, (255, 255, 255, 255))
+            img = Image.alpha_composite(white_bg, img)
+        
+        img = img.convert("RGB")  # Now convert to RGB
         
         # Resize maintaining aspect ratio
         img.thumbnail(size, Image.Resampling.LANCZOS)

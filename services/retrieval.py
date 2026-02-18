@@ -628,8 +628,8 @@ def retrieve_for_slot(
     if precomputed_embedding:
         query_embedding = precomputed_embedding
     else:
-        query_text = build_query_text(base_item, direction, slot, chosen_items)
-        query_embedding = get_query_embedding(query_text)
+    query_text = build_query_text(base_item, direction, slot, chosen_items)
+    query_embedding = get_query_embedding(query_text)
     
     # Map slot to category if needed (e.g., "layer" -> "top")
     # For closet, use exact category (user categorized their items)
