@@ -694,11 +694,11 @@ async def generate_outfits(request: Request, file: UploadFile = File(...), sessi
         """Retrieve candidates for one (direction, slot) pair using precomputed embedding."""
         outfit_idx, direction, slot = task
         precomputed_emb = task_embeddings.get((outfit_idx, direction, slot))
-            try:
-                candidates = retrieve_for_slot(
-                    base_item=base_item,
-                    direction=direction,
-                    slot=slot,
+        try:
+            candidates = retrieve_for_slot(
+                base_item=base_item,
+                direction=direction,
+                slot=slot,
                 exclude_ids=[],  # No hard exclusions - taste vectors handle preferences
                 chosen_items={},
                 used_subtypes=set(),
@@ -708,7 +708,7 @@ async def generate_outfits(request: Request, file: UploadFile = File(...), sessi
             )
             logger.info(f"  [{direction}] {slot}: {len(candidates)} candidates")
             return (outfit_idx, direction, slot, candidates)
-            except Exception as e:
+        except Exception as e:
             logger.error(f"  [{direction}] {slot}: Retrieval error - {e}")
             return (outfit_idx, direction, slot, [])
     
@@ -776,7 +776,7 @@ async def generate_outfits(request: Request, file: UploadFile = File(...), sessi
             if item:
                 logger.info(f"    [{direction}] {slot}: #{item['id']} - {item['name'][:35]}")
                 used_ids_global.add(item["id"])
-        
+                
         # Assemble final outfit (with enhanced scoring)
         outfit = assemble_outfit(
             direction, base_item, best_items, embedding,
