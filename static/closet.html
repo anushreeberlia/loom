@@ -593,14 +593,18 @@
         }
 
         .mood-btn {
-            padding: 0.75rem 1.25rem;
+            padding: 0.75rem 1.5rem;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
             border: none;
-            border-radius: 6px;
+            border-radius: 4px;
             font-size: 0.9rem;
+            font-weight: 500;
             cursor: pointer;
             white-space: nowrap;
+            -webkit-appearance: none;
+            -moz-appearance: none;
+            appearance: none;
         }
 
         .mood-btn:hover {
@@ -618,6 +622,8 @@
             }
             .mood-btn {
                 width: 100%;
+                border-radius: 4px;
+                padding: 0.85rem 1.5rem;
             }
         }
 
@@ -1367,13 +1373,33 @@
                         .then(newOutfit => {
                             console.log('New outfit:', newOutfit);
                             dailyOutfitsData[idx] = newOutfit;
-                            // Update UI
+                            // Update UI - rebuild entire card content
                             const cards = document.querySelectorAll('#daily-grid .outfit-card');
                             const card = cards[idx];
                             if (card) {
+                                // Update collage
                                 const img = card.querySelector('.outfit-collage');
                                 if (img && newOutfit.collage_url) {
                                     img.src = newOutfit.collage_url + '?t=' + Date.now();
+                                }
+                                // Update description
+                                const desc = card.querySelector('.outfit-description');
+                                if (desc && newOutfit.description) {
+                                    desc.textContent = newOutfit.description;
+                                }
+                                // Update items list
+                                const itemsContainer = card.querySelector('.outfit-items');
+                                if (itemsContainer && newOutfit.items) {
+                                    itemsContainer.innerHTML = newOutfit.items.map(item => `
+                                        <div class="item-row" data-item-id="${item.id}">
+                                            <span class="item-slot">${(item.slot || '').toUpperCase().slice(0,5)}</span>
+                                            <div class="item-info">
+                                                <span class="item-name">${item.name || 'Item'}</span>
+                                                ${(item.style_tags?.length || item.occasion_tags?.length) ? `<div class="item-tags">${[...(item.style_tags || []), ...(item.occasion_tags || [])].slice(0,3).join(', ')}</div>` : ''}
+                                            </div>
+                                            <span class="item-color" style="background: ${item.primary_color || '#ccc'}"></span>
+                                        </div>
+                                    `).join('');
                                 }
                                 card.querySelectorAll('.feedback-btn').forEach(b => b.classList.remove('active'));
                             }
