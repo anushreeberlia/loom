@@ -1047,7 +1047,7 @@ async def rotate_closet_item(item_id: int, req: RotateRequest, user_id: str = "d
         conn.close()
 
 
-@app.post("/v1/closet/retag-all")
+@app.api_route("/v1/closet/retag-all", methods=["GET", "POST"])
 async def retag_all_closet_items(user_id: str = "default"):
     """Re-tag ALL items in closet with updated parser tags."""
     import httpx
