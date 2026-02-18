@@ -65,8 +65,46 @@
             transition: color 0.2s;
         }
 
-        nav a:hover, nav a.active {
+        nav a:hover,         nav a.active {
             color: var(--text);
+        }
+
+        .user-menu {
+            margin-left: 1rem;
+            display: flex;
+            align-items: center;
+        }
+
+        .login-link {
+            font-size: 0.75rem;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            text-decoration: none;
+            color: var(--text-muted);
+            padding: 0.4rem 0.8rem;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            transition: all 0.2s;
+        }
+
+        .login-link:hover {
+            color: var(--text);
+            border-color: var(--text);
+        }
+
+        .user-avatar {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            overflow: hidden;
+            border: 2px solid var(--border);
+            cursor: pointer;
+        }
+
+        .user-avatar img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
         }
 
         .container {
@@ -759,6 +797,12 @@
             <a href="/inventory">Inventory</a>
             <a href="/closet" class="active">Style</a>
             <a href="/demo">Demo</a>
+            <div class="user-menu" id="user-menu">
+                <a href="/login" class="login-link" id="login-link">Sign In</a>
+                <div class="user-avatar" id="user-avatar" style="display: none;">
+                    <img src="" alt="" id="user-image">
+                </div>
+            </div>
         </nav>
     </header>
 
@@ -882,7 +926,28 @@
         const moodInput = document.getElementById('mood-input');
         const moodBtn = document.getElementById('mood-btn');
 
+        // Check auth status
+        async function checkAuth() {
+            try {
+                const res = await fetch('/auth/me');
+                const data = await res.json();
+                if (data.authenticated && data.user) {
+                    document.getElementById('login-link').style.display = 'none';
+                    const avatar = document.getElementById('user-avatar');
+                    const img = document.getElementById('user-image');
+                    if (data.user.profile_image) {
+                        img.src = data.user.profile_image;
+                        img.alt = data.user.name || 'User';
+                        avatar.style.display = 'block';
+                    }
+                }
+            } catch (e) {
+                console.log('Auth check failed:', e);
+            }
+        }
+
         // Load closet items and weather/daily outfits
+        checkAuth();
         loadCloset();
         initDaily();
 

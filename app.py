@@ -1,7 +1,8 @@
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request, Cookie, Response
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from pydantic import BaseModel
+from typing import Optional
 import uuid
 import random
 import logging
@@ -25,6 +26,14 @@ from services.retrieval import retrieve_for_slot, build_query_text, get_batch_em
 from services.collage import generate_outfit_collage
 from services.weather import fetch_weather, get_weather_outfit_adjustments, get_occasion_from_time, get_material_weather_score, WeatherData
 from services.image_processor import process_clothing_image
+from services.auth import (
+    get_google_auth_url,
+    exchange_code_for_tokens,
+    get_google_user_info,
+    create_jwt_token,
+    verify_jwt_token,
+    get_user_id_from_token
+)
 
 import os
 import httpx
@@ -357,6 +366,167 @@ def update_taste_vector(session_id: str, item_embeddings: list[list], liked: boo
         cursor.close()
         conn.close()
 
+
+# ============== AUTH ENDPOINTS ==============
+
+def get_current_user(auth_token: Optional[str] = Cookie(None)) -> Optional[dict]:
+    """Get current user from auth cookie"""
+    if not auth_token:
+        return None
+    payload = verify_jwt_token(auth_token)
+    if not payload:
+        return None
+    return payload
+
+
+def get_or_create_user(email: str, name: str, google_id: str, profile_image: str = None) -> dict:
+    """Get existing user or create new one"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        # Check if user exists
+        cursor.execute("SELECT id, email, name, profile_image FROM users WHERE google_id = %s", (google_id,))
+        row = cursor.fetchone()
+        
+        if row:
+            # Update last login
+            cursor.execute("UPDATE users SET last_login = NOW() WHERE id = %s", (row[0],))
+            conn.commit()
+            return {"id": row[0], "email": row[1], "name": row[2], "profile_image": row[3]}
+        
+        # Create new user
+        cursor.execute(
+            """INSERT INTO users (email, name, google_id, profile_image) 
+               VALUES (%s, %s, %s, %s) 
+               RETURNING id""",
+            (email, name, google_id, profile_image)
+        )
+        user_id = cursor.fetchone()[0]
+        conn.commit()
+        
+        logger.info(f"Created new user: {email} (id={user_id})")
+        return {"id": user_id, "email": email, "name": name, "profile_image": profile_image}
+    except Exception as e:
+        logger.error(f"User creation error: {e}")
+        conn.rollback()
+        raise
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@app.get("/auth/google")
+async def google_login(request: Request):
+    """Redirect to Google OAuth"""
+    redirect_uri = str(request.base_url).rstrip("/") + "/auth/google/callback"
+    auth_url = get_google_auth_url(redirect_uri)
+    return RedirectResponse(url=auth_url)
+
+
+@app.get("/auth/google/callback")
+async def google_callback(request: Request, code: str = None, error: str = None):
+    """Handle Google OAuth callback"""
+    if error:
+        logger.error(f"Google OAuth error: {error}")
+        return RedirectResponse(url="/?error=auth_failed")
+    
+    if not code:
+        return RedirectResponse(url="/?error=no_code")
+    
+    try:
+        redirect_uri = str(request.base_url).rstrip("/") + "/auth/google/callback"
+        
+        # Exchange code for tokens
+        tokens = await exchange_code_for_tokens(code, redirect_uri)
+        access_token = tokens.get("access_token")
+        
+        if not access_token:
+            raise Exception("No access token received")
+        
+        # Get user info from Google
+        google_user = await get_google_user_info(access_token)
+        
+        # Create or get user in our DB
+        user = get_or_create_user(
+            email=google_user.get("email"),
+            name=google_user.get("name"),
+            google_id=google_user.get("id"),
+            profile_image=google_user.get("picture")
+        )
+        
+        # Create JWT token
+        jwt_token = create_jwt_token(user["id"], user["email"])
+        
+        # Set cookie and redirect to closet
+        response = RedirectResponse(url="/closet")
+        response.set_cookie(
+            key="auth_token",
+            value=jwt_token,
+            httponly=True,
+            secure=True,
+            samesite="lax",
+            max_age=60 * 60 * 24 * 7  # 1 week
+        )
+        return response
+        
+    except Exception as e:
+        logger.error(f"Google callback error: {e}")
+        return RedirectResponse(url="/?error=auth_failed")
+
+
+@app.get("/auth/me")
+async def get_current_user_info(auth_token: Optional[str] = Cookie(None)):
+    """Get current authenticated user info"""
+    if not auth_token:
+        return {"authenticated": False}
+    
+    payload = verify_jwt_token(auth_token)
+    if not payload:
+        return {"authenticated": False}
+    
+    user_id = int(payload.get("sub"))
+    
+    # Get user from DB
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            "SELECT id, email, name, profile_image FROM users WHERE id = %s",
+            (user_id,)
+        )
+        row = cursor.fetchone()
+        if not row:
+            return {"authenticated": False}
+        
+        return {
+            "authenticated": True,
+            "user": {
+                "id": row[0],
+                "email": row[1],
+                "name": row[2],
+                "profile_image": row[3]
+            }
+        }
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@app.post("/auth/logout")
+async def logout(response: Response):
+    """Log out user"""
+    response = RedirectResponse(url="/", status_code=302)
+    response.delete_cookie("auth_token")
+    return response
+
+
+@app.get("/login")
+async def serve_login():
+    """Serve login page"""
+    return FileResponse("static/login.html")
+
+
+# ============== PAGE ROUTES ==============
 
 @app.get("/")
 async def serve_landing():

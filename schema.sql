@@ -1,6 +1,21 @@
 -- Enable pgvector extension
 CREATE EXTENSION IF NOT EXISTS vector;
 
+-- Users table for authentication
+CREATE TABLE IF NOT EXISTS users (
+    id SERIAL PRIMARY KEY,
+    email VARCHAR(255) UNIQUE NOT NULL,
+    name VARCHAR(255),
+    profile_image TEXT,
+    google_id VARCHAR(255) UNIQUE,
+    created_at TIMESTAMP DEFAULT NOW(),
+    last_login TIMESTAMP DEFAULT NOW()
+);
+
+-- Index for fast email lookup
+CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+CREATE INDEX IF NOT EXISTS idx_users_google_id ON users(google_id);
+
 -- catalog_items: Your clothing inventory (300-800 items)
 CREATE TABLE catalog_items (
     id SERIAL PRIMARY KEY,
