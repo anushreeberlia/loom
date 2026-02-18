@@ -100,6 +100,9 @@ CREATE TABLE user_closet_items (
     -- Vector embedding for retrieval
     embedding vector(1536),
     
+    -- Background removal tracking
+    bg_removed BOOLEAN DEFAULT FALSE,
+    
     created_at TIMESTAMP DEFAULT NOW()
 );
 

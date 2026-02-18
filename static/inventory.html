@@ -904,6 +904,7 @@
             itemsGrid.innerHTML = filtered.map(item => `
                 <div class="item-card" data-id="${item.id}">
                     <div class="item-actions">
+                        <button class="item-btn" onclick="removeBgSingle(${item.id})" title="Remove Background">✂</button>
                         <button class="item-btn" onclick="rotateItem(${item.id})" title="Rotate 90°">↻</button>
                         <button class="item-btn delete" onclick="deleteItem(${item.id})" title="Remove">×</button>
                     </div>
@@ -1079,6 +1080,87 @@
             }
         }
 
+        // Check if image has transparency (already bg-removed)
+        async function hasTransparency(imageUrl) {
+            return new Promise((resolve) => {
+                const img = new Image();
+                img.crossOrigin = 'anonymous';
+                img.onload = () => {
+                    const canvas = document.createElement('canvas');
+                    const size = 50; // Sample size
+                    canvas.width = size;
+                    canvas.height = size;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0, size, size);
+                    const data = ctx.getImageData(0, 0, size, size).data;
+                    // Check corners for transparency
+                    const corners = [3, size*4-1, (size-1)*size*4+3, size*size*4-1]; // alpha indices
+                    for (const idx of corners) {
+                        if (data[idx] < 250) { // Has transparency
+                            resolve(true);
+                            return;
+                        }
+                    }
+                    resolve(false);
+                };
+                img.onerror = () => resolve(false);
+                img.src = imageUrl;
+            });
+        }
+
+        // Single item background removal
+        async function removeBgSingle(id) {
+            const item = allItems.find(i => i.id === id);
+            if (!item) return;
+            
+            if (!window.imglyRemoveBackground) {
+                showToast('⚠️ BG removal module not loaded', 'error');
+                return;
+            }
+            
+            // Check if already has transparent bg
+            const transparent = await hasTransparency(item.image_url);
+            if (transparent) {
+                showToast('Already has transparent background!', 'success');
+                return;
+            }
+            
+            const card = document.querySelector(`.item-card[data-id="${id}"]`);
+            const btn = card?.querySelector('.item-btn');
+            if (btn) btn.textContent = '⏳';
+            
+            try {
+                const response = await fetch(item.image_url);
+                const blob = await response.blob();
+                const file = new File([blob], `item_${id}.jpg`, { type: blob.type });
+                
+                const outputBlob = await window.imglyRemoveBackground(file);
+                const processedFile = new File([outputBlob], `item_${id}.png`, { type: 'image/png' });
+                
+                const formData = new FormData();
+                formData.append('file', processedFile);
+                
+                const uploadRes = await fetch(`/v1/closet/items/${id}/reupload`, {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (uploadRes.ok) {
+                    const updated = await uploadRes.json();
+                    item.image_url = updated.image_url + '?t=' + Date.now();
+                    renderItems();
+                    showToast('✓ Background removed!', 'success');
+                } else {
+                    throw new Error('Upload failed');
+                }
+            } catch (e) {
+                console.error('BG removal error:', e);
+                showToast('Failed to remove background', 'error');
+            }
+            
+            if (btn) btn.textContent = '✂';
+        }
+
         async function reprocessAll() {
             const hint = document.getElementById('bulk-hint');
             const btn = document.getElementById('reprocess-btn');
@@ -1091,14 +1173,33 @@
                 return;
             }
 
-            if (!confirm(`Remove backgrounds from ${allItems.length} items? This uses AI processing in your browser.`)) {
+            btn.disabled = true;
+            hint.textContent = 'Detecting which items need processing...';
+            
+            // Auto-detect which items need bg removal
+            const needsProcessing = [];
+            for (const item of allItems) {
+                const transparent = await hasTransparency(item.image_url);
+                if (!transparent) needsProcessing.push(item);
+            }
+            
+            if (needsProcessing.length === 0) {
+                hint.textContent = '✓ All items already have transparent backgrounds!';
+                hint.style.color = 'var(--success)';
+                btn.disabled = false;
+                return;
+            }
+
+            btn.disabled = false;
+            if (!confirm(`Found ${needsProcessing.length} items needing background removal. (${allItems.length - needsProcessing.length} already done) Continue?`)) {
+                hint.textContent = '';
                 return;
             }
 
             btn.disabled = true;
             let processed = 0;
             let errors = 0;
-            const total = allItems.length;
+            const total = needsProcessing.length;
             const CONCURRENCY = 5; // Process 5 items at a time
 
             // Process a single item
@@ -1145,8 +1246,8 @@
             hint.textContent = `Processing ${total} items (${CONCURRENCY} at a time)...`;
             console.log(`Starting parallel processing: ${total} items, ${CONCURRENCY} concurrent`);
 
-            for (let i = 0; i < allItems.length; i += CONCURRENCY) {
-                const batch = allItems.slice(i, i + CONCURRENCY);
+            for (let i = 0; i < needsProcessing.length; i += CONCURRENCY) {
+                const batch = needsProcessing.slice(i, i + CONCURRENCY);
                 const results = await Promise.all(batch.map(processItem));
                 
                 results.forEach(r => r.success ? processed++ : errors++);

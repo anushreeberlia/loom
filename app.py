@@ -848,7 +848,8 @@ async def list_closet_items(user_id: str = "default"):
     try:
         cursor.execute(
             """SELECT id, name, category, image_url, primary_color, secondary_colors,
-                      style_tags, season_tags, occasion_tags, material, fit, created_at
+                      style_tags, season_tags, occasion_tags, material, fit, created_at,
+                      COALESCE(bg_removed, FALSE) as bg_removed
                FROM user_closet_items 
                WHERE user_id = %s
                ORDER BY created_at DESC""",
@@ -870,7 +871,8 @@ async def list_closet_items(user_id: str = "default"):
                 "occasion_tags": row[8],
                 "material": row[9],
                 "fit": row[10],
-                "created_at": row[11].isoformat() if row[11] else None
+                "created_at": row[11].isoformat() if row[11] else None,
+                "bg_removed": row[12]
             })
         
         return {"items": items, "count": len(items)}
@@ -1069,7 +1071,7 @@ async def reupload_closet_item(item_id: int, file: UploadFile = File(...), user_
         cursor = conn.cursor()
         try:
             cursor.execute(
-                "UPDATE user_closet_items SET image_url = %s WHERE id = %s AND user_id = %s RETURNING id",
+                "UPDATE user_closet_items SET image_url = %s, bg_removed = TRUE WHERE id = %s AND user_id = %s RETURNING id",
                 (new_url, item_id, user_id)
             )
             updated = cursor.fetchone()
@@ -1077,7 +1079,7 @@ async def reupload_closet_item(item_id: int, file: UploadFile = File(...), user_
                 raise HTTPException(status_code=404, detail="Item not found")
             
             conn.commit()
-            return {"id": item_id, "image_url": new_url}
+            return {"id": item_id, "image_url": new_url, "bg_removed": True}
         finally:
             cursor.close()
             conn.close()
