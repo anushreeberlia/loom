@@ -1541,7 +1541,7 @@ async def get_daily_outfits(
     avoid_occasions = occasion_info.get("avoid_occasions", [])
     
     def item_score(item):
-        """Score item by season, occasion, and material appropriateness."""
+        """Score item by season, occasion, style, and material appropriateness."""
         score = 0
         
         # Season scoring
@@ -1553,14 +1553,17 @@ async def get_daily_outfits(
             if s in season_tags:
                 score -= 2
         
-        # Occasion scoring (stronger weight)
+        # Occasion AND style scoring - check both tag types
         occasion_tags = item.get("occasion_tags") or []
+        style_tags = item.get("style_tags") or []
+        all_item_tags = set(occasion_tags + style_tags)
+        
         for o in prefer_occasions:
-            if o in occasion_tags or "everyday" in occasion_tags or "versatile" in occasion_tags:
-                score += 2
+            if o in all_item_tags or "everyday" in all_item_tags or "versatile" in all_item_tags:
+                score += 3  # Strong boost for matching tags
         for o in avoid_occasions:
-            if o in occasion_tags:
-                score -= 3
+            if o in all_item_tags:
+                score -= 5  # Strong penalty for avoided tags
         
         # Material scoring for weather (especially important for layers)
         if weather_adjustments:
