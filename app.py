@@ -183,7 +183,7 @@ def make_absolute_url(base_url: str, relative_path: str) -> str:
 
 
 def get_db_connection():
-    return psycopg2.connect(DATABASE_URL)
+    return psycopg2.connect(DATABASE_URL, connect_timeout=10)
 
 
 def get_cached_image_analysis(image_hash: str) -> dict | None:
@@ -1045,6 +1045,48 @@ async def rotate_closet_item(item_id: int, req: RotateRequest, user_id: str = "d
     finally:
         cursor.close()
         conn.close()
+
+
+@app.post("/v1/closet/items/{item_id}/reupload")
+async def reupload_closet_item(item_id: int, file: UploadFile = File(...), user_id: str = "default"):
+    """Re-upload an item's image (after client-side background removal)."""
+    try:
+        # Process image
+        image_bytes = await file.read()
+        processed_bytes = process_clothing_image(image_bytes)
+        
+        # Upload to Cloudinary
+        result = cloudinary.uploader.upload(
+            processed_bytes,
+            folder="closet",
+            resource_type="image"
+        )
+        new_url = result["secure_url"]
+        logger.info(f"Re-uploaded item {item_id}: {new_url}")
+        
+        # Update database
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                "UPDATE user_closet_items SET image_url = %s WHERE id = %s AND user_id = %s RETURNING id",
+                (new_url, item_id, user_id)
+            )
+            updated = cursor.fetchone()
+            if not updated:
+                raise HTTPException(status_code=404, detail="Item not found")
+            
+            conn.commit()
+            return {"id": item_id, "image_url": new_url}
+        finally:
+            cursor.close()
+            conn.close()
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Re-upload error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/v1/closet/items/{item_id}")

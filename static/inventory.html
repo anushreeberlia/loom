@@ -319,6 +319,28 @@
             border-bottom-color: var(--text);
         }
 
+        .reprocess-btn {
+            padding: 0.5rem 1rem;
+            background: var(--bg-alt);
+            border: 1px solid var(--border);
+            font-size: 0.7rem;
+            letter-spacing: 0.05em;
+            color: var(--text-muted);
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .reprocess-btn:hover {
+            background: var(--accent);
+            color: white;
+            border-color: var(--accent);
+        }
+
+        .reprocess-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
         .items-grid {
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
@@ -676,6 +698,7 @@
 
         <div class="items-header">
             <span class="items-count" id="items-count">0 items</span>
+            <button class="reprocess-btn" id="reprocess-btn" onclick="reprocessAll()">🔄 Remove Backgrounds</button>
             <div class="filter-tabs">
                 <button class="filter-tab active" data-filter="all">All</button>
                 <button class="filter-tab" data-filter="top">Tops</button>
@@ -1034,6 +1057,67 @@
             } catch (e) {
                 showToast('Failed to remove item', 'error');
             }
+        }
+
+        async function reprocessAll() {
+            if (!confirm('This will remove backgrounds from ALL items. This may take several minutes. Continue?')) {
+                return;
+            }
+
+            const btn = document.getElementById('reprocess-btn');
+            btn.disabled = true;
+            btn.textContent = '⏳ Processing...';
+
+            let processed = 0;
+            let errors = 0;
+            const total = allItems.length;
+
+            for (const item of allItems) {
+                try {
+                    btn.textContent = `⏳ ${processed + 1}/${total}...`;
+                    
+                    // Download original image
+                    const response = await fetch(item.image_url);
+                    const blob = await response.blob();
+                    const file = new File([blob], `item_${item.id}.jpg`, { type: blob.type });
+
+                    // Remove background if module available
+                    let processedFile = file;
+                    if (window.imglyRemoveBackground) {
+                        try {
+                            const outputBlob = await window.imglyRemoveBackground(file);
+                            processedFile = new File([outputBlob], `item_${item.id}.png`, { type: 'image/png' });
+                        } catch (bgErr) {
+                            console.warn(`BG removal failed for ${item.id}:`, bgErr);
+                        }
+                    }
+
+                    // Re-upload
+                    const formData = new FormData();
+                    formData.append('file', processedFile);
+
+                    const uploadRes = await fetch(`/v1/closet/items/${item.id}/reupload`, {
+                        method: 'POST',
+                        body: formData
+                    });
+
+                    if (uploadRes.ok) {
+                        const updated = await uploadRes.json();
+                        item.image_url = updated.image_url;
+                        processed++;
+                    } else {
+                        errors++;
+                    }
+                } catch (e) {
+                    console.error(`Error processing item ${item.id}:`, e);
+                    errors++;
+                }
+            }
+
+            btn.disabled = false;
+            btn.textContent = '🔄 Remove Backgrounds';
+            renderItems();
+            showToast(`Done! ${processed} processed, ${errors} errors`, processed > 0 ? 'success' : 'error');
         }
 
         function showToast(message, type = '') {
