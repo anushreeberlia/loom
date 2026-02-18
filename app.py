@@ -1629,7 +1629,7 @@ async def get_daily_outfits(
                 "occasion": "work",
                 "prefer_occasions": ["work", "office", "business-casual", "professional", "elegant", "classic"],
                 "avoid_occasions": [],  # Semantic filtering handles this now
-                "note": "Work / Office 💼"
+                "note": "Work / Office"
             },
             "casual": {
                 "occasion": "casual",
@@ -1641,7 +1641,7 @@ async def get_daily_outfits(
                 "occasion": "going-out",
                 "prefer_occasions": ["going-out", "dinner", "date", "night-out", "party", "elegant", "chic"],
                 "avoid_occasions": ["work", "office", "gym", "workout", "sporty", "athletic", "activewear"],
-                "note": "Going Out ✨"
+                "note": "Going Out"
             },
         }
         occasion_info = OCCASION_CONFIGS.get(occasion, OCCASION_CONFIGS["casual"])

@@ -267,7 +267,7 @@ def get_occasion_from_time(timezone_offset_hours: float = None) -> dict:
                 "occasion": "going-out",
                 "prefer_occasions": ["going-out", "date", "party", "dinner", "elegant", "chic"],
                 "avoid_occasions": ["work", "office", "formal", "sporty", "athletic", "activewear"],
-                "note": "Weekend evening - going out vibes 🎉"
+                "note": "Weekend evening - going out vibes"
             }
         else:  # Daytime weekend
             return {
@@ -283,7 +283,7 @@ def get_occasion_from_time(timezone_offset_hours: float = None) -> dict:
                 "occasion": "work",
                 "prefer_occasions": ["work", "office", "business-casual", "professional", "classic", "elegant"],
                 "avoid_occasions": [],  # Semantic filtering handles this now
-                "note": "Workday - office appropriate 💼"
+                "note": "Workday - office appropriate"
             }
         elif hour < 20:  # 5-8 PM - transitional
             return {
@@ -297,6 +297,6 @@ def get_occasion_from_time(timezone_offset_hours: float = None) -> dict:
                 "occasion": "going-out",
                 "prefer_occasions": ["going-out", "dinner", "date", "night-out", "elegant", "chic"],
                 "avoid_occasions": ["work", "office", "gym", "sporty", "athletic", "activewear"],
-                "note": "Night out - dress to impress ✨"
+                "note": "Night out - dress to impress"
             }
 
