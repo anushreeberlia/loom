@@ -16,6 +16,7 @@ load_dotenv()
 
 from services.vision import describe_image
 from services.parser import parse_description
+from services.embedding import embed_base_item
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 print(f"DATABASE_URL: {DATABASE_URL[:30]}..." if DATABASE_URL else "DATABASE_URL: None", flush=True)
@@ -63,12 +64,17 @@ def main():
             # Generate new name
             name = f"{parsed.get('primary_color', '')} {parsed.get('category', 'item')}".strip().title()
             
-            # Update database
+            # Regenerate embedding with new tags
+            print(f"  Generating embedding...", flush=True)
+            embedding = embed_base_item(parsed)
+            
+            # Update database with tags AND new embedding
             print(f"  Updating DB...", flush=True)
             cursor.execute(
                 """UPDATE user_closet_items 
                    SET name = %s, category = %s, primary_color = %s, secondary_colors = %s,
-                       style_tags = %s, season_tags = %s, occasion_tags = %s, material = %s, fit = %s
+                       style_tags = %s, season_tags = %s, occasion_tags = %s, material = %s, fit = %s,
+                       embedding = %s
                    WHERE id = %s""",
                 (
                     name,
@@ -80,6 +86,7 @@ def main():
                     parsed.get("occasion_tags"),
                     parsed.get("material"),
                     parsed.get("fit"),
+                    embedding,
                     item_id
                 )
             )
