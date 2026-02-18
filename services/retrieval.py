@@ -793,6 +793,17 @@ def retrieve_for_slot(
             if compatible:  # Only filter if we have options left
                 candidates = compatible
     
+    # For tops when base is a layer: top should be lighter than the layer
+    # (you don't wear a chunky sweater under a light cardigan)
+    if slot == "top" and base_item.get("category") == "layer":
+        compatible = []
+        for c in candidates:
+            # Reverse check: layer (base) should be heavier than top (candidate)
+            if is_layer_compatible(base_item, c):
+                compatible.append(c)
+        if compatible:
+            candidates = compatible
+    
     # Apply sanity gate (slot-aware)
     candidates = filter_candidates(candidates, slot)
     

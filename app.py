@@ -1654,45 +1654,46 @@ async def get_daily_outfits(
         
         return score
     
-    # Pick top 3 items by score - regardless of category
-    # This handles skewed inventory ratios better than category-based selection
+    # Pick top 3 TOPS as base items - simple and fast
+    # Tops are the core of outfits, layers go on top
     import random
     
-    # Score all items with embeddings
-    scored_items = [(item, item_score(item)) for item in all_items if item.get("embedding")]
-    scored_items.sort(key=lambda x: x[1], reverse=True)
+    # Filter to just tops, score them
+    tops_only = [item for item in all_items if item.get("category") == "top" and item.get("embedding")]
+    scored_tops = [(item, item_score(item)) for item in tops_only]
+    scored_tops.sort(key=lambda x: x[1], reverse=True)
     
-    logger.info(f"Scored {len(scored_items)} items")
+    logger.info(f"Scored {len(scored_tops)} tops")
     
     selected_bases = []
     used_ids = set()
     
-    if scored_items:
-        best_score = scored_items[0][1]
+    if scored_tops:
+        best_score = scored_tops[0][1] if scored_tops else 0
         
-        # Get all items within 2 points of best score (top tier)
-        top_tier = [item for item, score in scored_items if score >= best_score - 2]
-        logger.info(f"Top tier ({best_score} to {best_score-2}): {len(top_tier)} items")
+        # Get tops within 3 points of best score
+        top_tier = [item for item, score in scored_tops if score >= best_score - 3]
+        logger.info(f"Top tier ({best_score} to {best_score-3}): {len(top_tier)} tops")
         
-        # Shuffle top tier and pick 3
+        # Shuffle and pick 3
         random.shuffle(top_tier)
         for item in top_tier:
             if item["id"] not in used_ids:
-                item["score"] = item_score(item)  # Add score to item
+                item["score"] = item_score(item)
                 selected_bases.append(item)
                 used_ids.add(item["id"])
-                logger.info(f"  Selected: {item['name']} ({item['category']}, score={item['score']}, tags={item.get('style_tags', [])})")
+                logger.info(f"  Selected: {item['name']} (score={item['score']})")
             if len(selected_bases) >= 3:
                 break
         
-        # Fill from remaining if needed
+        # Fill from remaining tops if needed
         if len(selected_bases) < 3:
-            for item, score in scored_items:
+            for item, score in scored_tops:
                 if item["id"] not in used_ids:
-                    item["score"] = score  # Add score to item
+                    item["score"] = score
                     selected_bases.append(item)
                     used_ids.add(item["id"])
-                    logger.info(f"  Filled: {item['name']} ({item['category']}, score={score}, tags={item.get('style_tags', [])})")
+                    logger.info(f"  Filled: {item['name']} (score={score})")
                 if len(selected_bases) >= 3:
                     break
     
