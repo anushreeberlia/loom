@@ -37,10 +37,21 @@ from services.auth import (
 
 import os
 import httpx
+import bcrypt
 from dotenv import load_dotenv
 load_dotenv()
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+
+
+# Password hashing helpers
+def hash_password(password: str) -> str:
+    """Hash a password using bcrypt."""
+    return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+
+def verify_password(password: str, hashed: str) -> bool:
+    """Verify a password against its hash."""
+    return bcrypt.checkpw(password.encode('utf-8'), hashed.encode('utf-8'))
 
 
 def interpret_mood_for_occasion(mood: str) -> dict:
@@ -160,6 +171,15 @@ class ClosetFeedbackRequest(BaseModel):
     item_ids: list[int]  # IDs of items in the outfit
     liked: bool
     user_id: str = "default"
+
+class RegisterRequest(BaseModel):
+    email: str
+    password: str
+    name: str = None
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
 
 app = FastAPI(title="AI Outfit Styler")
 
@@ -621,6 +641,118 @@ async def logout():
     response = RedirectResponse(url="/", status_code=302)
     response.delete_cookie("auth_token")
     return response
+
+
+@app.post("/auth/register")
+async def register(request: RegisterRequest):
+    """Register a new user with email and password."""
+    # Validate email format
+    if "@" not in request.email or "." not in request.email:
+        raise HTTPException(status_code=400, detail="Invalid email format")
+    
+    # Validate password strength
+    if len(request.password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+    
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        # Check if email already exists
+        cursor.execute("SELECT id FROM users WHERE email = %s", (request.email.lower(),))
+        if cursor.fetchone():
+            raise HTTPException(status_code=400, detail="Email already registered")
+        
+        # Hash password and create user
+        password_hash = hash_password(request.password)
+        name = request.name or request.email.split("@")[0]
+        
+        cursor.execute(
+            """INSERT INTO users (email, name, password_hash) 
+               VALUES (%s, %s, %s) 
+               RETURNING id""",
+            (request.email.lower(), name, password_hash)
+        )
+        user_id = cursor.fetchone()[0]
+        
+        # Migrate "default" closet data to this new user
+        cursor.execute(
+            """UPDATE user_closet_items SET user_id = %s WHERE user_id = 'default'""",
+            (str(user_id),)
+        )
+        cursor.execute(
+            """UPDATE taste_vectors SET session_id = %s WHERE session_id = 'default'""",
+            (str(user_id),)
+        )
+        
+        conn.commit()
+        logger.info(f"Registered new user: {request.email} (id={user_id})")
+        
+        # Create JWT token and set cookie
+        token = create_jwt_token(str(user_id), request.email.lower())
+        
+        return {"success": True, "user_id": user_id, "token": token}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Registration error: {e}")
+        conn.rollback()
+        raise HTTPException(status_code=500, detail="Registration failed")
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@app.post("/auth/login")
+async def login(request: LoginRequest):
+    """Login with email and password."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            "SELECT id, email, name, password_hash, profile_image FROM users WHERE email = %s",
+            (request.email.lower(),)
+        )
+        row = cursor.fetchone()
+        
+        if not row:
+            raise HTTPException(status_code=401, detail="Invalid email or password")
+        
+        user_id, email, name, password_hash, profile_image = row
+        
+        # Check if user has a password (could be OAuth-only user)
+        if not password_hash:
+            raise HTTPException(status_code=401, detail="This account uses Google Sign-In. Please sign in with Google.")
+        
+        # Verify password
+        if not verify_password(request.password, password_hash):
+            raise HTTPException(status_code=401, detail="Invalid email or password")
+        
+        # Update last login
+        cursor.execute("UPDATE users SET last_login = NOW() WHERE id = %s", (user_id,))
+        conn.commit()
+        
+        # Create JWT token
+        token = create_jwt_token(str(user_id), email)
+        
+        logger.info(f"User logged in: {email} (id={user_id})")
+        return {
+            "success": True,
+            "token": token,
+            "user": {
+                "id": user_id,
+                "email": email,
+                "name": name,
+                "profile_image": profile_image
+            }
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Login error: {e}")
+        raise HTTPException(status_code=500, detail="Login failed")
+    finally:
+        cursor.close()
+        conn.close()
 
 
 @app.get("/login")

@@ -11,3 +11,4 @@ numpy
 authlib
 itsdangerous
 python-jose[cryptography]
+bcrypt

@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS users (
     id SERIAL PRIMARY KEY,
     email VARCHAR(255) UNIQUE NOT NULL,
     name VARCHAR(255),
+    password_hash TEXT,                    -- bcrypt hash for email/password auth (null for OAuth-only users)
     profile_image TEXT,
     google_id VARCHAR(255) UNIQUE,
     created_at TIMESTAMP DEFAULT NOW(),
