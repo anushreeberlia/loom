@@ -14,10 +14,14 @@
             // Using esm.sh CDN which handles ESM dependencies better than jsdelivr
             const { removeBackground } = await import('https://esm.sh/@imgly/background-removal@1.4.5');
             window.imglyRemoveBackground = removeBackground;
+            window.bgRemovalReady = true;
             console.log('✅ Background removal module loaded successfully');
+            window.dispatchEvent(new Event('bgRemovalReady'));
         } catch (e) {
             console.error('Failed to load bg removal:', e);
             window.imglyRemoveBackground = null;
+            window.bgRemovalReady = false;
+            window.dispatchEvent(new Event('bgRemovalReady'));
         }
     </script>
     <style>
@@ -202,6 +206,36 @@
         .upload-zone-hint {
             font-size: 0.7rem;
             color: var(--text-muted);
+        }
+
+        .bg-status {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            margin-top: 0.75rem;
+            justify-content: center;
+        }
+        .bg-status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--text-muted);
+        }
+        .bg-status-dot.loading {
+            background: #f0ad4e;
+            animation: pulse 1s infinite;
+        }
+        .bg-status-dot.ready {
+            background: var(--success);
+        }
+        .bg-status-dot.failed {
+            background: var(--accent);
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
         }
 
         #bulk-camera-input {
@@ -832,6 +866,10 @@
                 <input type="file" id="camera-input" accept="image/*" capture="environment" style="position:absolute;opacity:0;width:100%;height:100%;top:0;left:0;cursor:pointer;">
             </label>
         </div>
+        <div class="bg-status" id="bg-status">
+            <span class="bg-status-dot loading"></span>
+            <span class="bg-status-text">Loading background removal...</span>
+        </div>
         
         <!-- Bulk capture mode -->
         <div class="bulk-capture" id="bulk-capture" style="display: none;">
@@ -911,6 +949,28 @@
         let allItems = [];
         let currentFilter = 'all';
         let bulkFiles = []; // Files queued in bulk capture mode
+
+        // Background removal status
+        const bgStatus = document.getElementById('bg-status');
+        const bgStatusDot = bgStatus.querySelector('.bg-status-dot');
+        const bgStatusText = bgStatus.querySelector('.bg-status-text');
+        
+        function updateBgStatus() {
+            if (window.bgRemovalReady === true) {
+                bgStatusDot.className = 'bg-status-dot ready';
+                bgStatusText.textContent = 'Auto background removal ready';
+            } else if (window.bgRemovalReady === false) {
+                bgStatusDot.className = 'bg-status-dot failed';
+                bgStatusText.textContent = 'Background removal unavailable';
+            }
+        }
+        
+        // Check if already loaded
+        if (window.bgRemovalReady !== undefined) {
+            updateBgStatus();
+        }
+        // Listen for load event
+        window.addEventListener('bgRemovalReady', updateBgStatus);
 
         // Toggle user menu dropdown
         function toggleUserMenu() {
@@ -1107,10 +1167,41 @@
             `).join('');
         }
 
+        // Resize image to max dimension
+        async function resizeImage(file, maxSize) {
+            return new Promise((resolve) => {
+                const img = new Image();
+                img.onload = () => {
+                    let { width, height } = img;
+                    if (width <= maxSize && height <= maxSize) {
+                        resolve(file);
+                        return;
+                    }
+                    
+                    const ratio = Math.min(maxSize / width, maxSize / height);
+                    width = Math.round(width * ratio);
+                    height = Math.round(height * ratio);
+                    
+                    const canvas = document.createElement('canvas');
+                    canvas.width = width;
+                    canvas.height = height;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0, width, height);
+                    
+                    canvas.toBlob((blob) => {
+                        resolve(new File([blob], file.name, { type: 'image/jpeg' }));
+                    }, 'image/jpeg', 0.9);
+                };
+                img.onerror = () => resolve(file);
+                img.src = URL.createObjectURL(file);
+            });
+        }
+
         // Client-side background removal
         async function removeBackground(file) {
-            // Wait for module to load (max 5s)
+            // Wait for module to load (max 8s)
             if (!window.imglyRemoveBackground) {
+                progressText.textContent = 'Waiting for background removal to load...';
                 console.log('Waiting for bg removal module...');
                 const loaded = await new Promise(resolve => {
                     let elapsed = 0;
@@ -1119,7 +1210,7 @@
                         if (window.imglyRemoveBackground) {
                             clearInterval(check);
                             resolve(true);
-                        } else if (elapsed > 5000) {
+                        } else if (window.bgRemovalReady === false || elapsed > 8000) {
                             clearInterval(check);
                             resolve(false);
                         }
@@ -1128,6 +1219,7 @@
                 
                 if (!loaded) {
                     console.warn('BG removal module not available, uploading original');
+                    showToast('Uploading without background removal', 'error');
                     return file;
                 }
             }
@@ -1139,20 +1231,26 @@
             }
             
             try {
-                progressText.textContent = 'Removing background (downloads model on first use)...';
-                const imageBlob = await window.imglyRemoveBackground(file, {
-                    progress: (key, current, total) => {
-                        if (key === 'compute:inference') {
-                            progressText.textContent = `Removing background (${Math.round(current/total*100)}%)...`;
-                        }
-                    }
-                });
-                // Convert to File object
-                return new File([imageBlob], file.name.replace(/\.[^/.]+$/, '.png'), { type: 'image/png' });
+                // Resize large images first to avoid memory issues
+                let processFile = file;
+                if (file.size > 4 * 1024 * 1024) { // > 4MB
+                    progressText.textContent = 'Resizing large image...';
+                    processFile = await resizeImage(file, 1600);
+                    console.log(`Resized from ${file.size} to ${processFile.size} bytes`);
+                }
+                
+                progressText.textContent = 'Removing background...';
+                console.log(`Starting bg removal for ${processFile.name} (${processFile.size} bytes)`);
+                
+                // Simple call without progress callback (matches working reprocess flow)
+                const outputBlob = await window.imglyRemoveBackground(processFile);
+                console.log(`BG removed: ${outputBlob.size} bytes`);
+                
+                return new File([outputBlob], file.name.replace(/\.[^/.]+$/, '.png'), { type: 'image/png' });
             } catch (e) {
-                console.error('Background removal failed:', e);
-                showToast('Background removal failed, uploading original', 'error');
-                return file; // Return original if bg removal fails
+                console.error('Background removal failed:', e.message, e);
+                // Upload original without error toast
+                return file;
             }
         }
 

@@ -51,7 +51,7 @@ def interpret_mood_for_occasion(mood: str) -> dict:
         mood: Free-form text like "cozy day at home", "fancy dinner date", etc.
         
     Returns:
-        Dict with occasion, prefer_occasions, avoid_occasions, note
+        Dict with occasion, prefer_occasions, avoid_occasions, note, needs_layer
     """
     if not OPENAI_API_KEY:
         # Fallback to casual if no API key
@@ -59,7 +59,8 @@ def interpret_mood_for_occasion(mood: str) -> dict:
             "occasion": "casual",
             "prefer_occasions": ["casual", "everyday"],
             "avoid_occasions": [],
-            "note": mood
+            "note": mood,
+            "needs_layer": None  # Let weather decide
         }
     
     prompt = f"""Based on this mood/feeling description, determine the appropriate outfit occasion.
@@ -70,7 +71,15 @@ Return JSON with:
 - occasion: MUST be exactly one of: work, casual, going-out, smart-casual, workout
 - prefer_occasions: array of 3-5 tags to look for
 - avoid_occasions: array of 3-5 tags to exclude
-- note: short emoji summary (max 30 chars)
+- note: short summary (max 30 chars, no emoji)
+- needs_layer: boolean - true if going outside/commuting/needs jacket, false if staying indoors/at home/gym, null if unclear
+
+Examples:
+- "cozy day at home" → needs_layer: false (indoor, no jacket needed)
+- "office today" → needs_layer: true (going outside, commuting)
+- "dinner date" → needs_layer: true (going out)
+- "working from home" → needs_layer: false (indoor)
+- "gym session" → needs_layer: false (indoor workout)
 
 JSON only."""
 
@@ -116,11 +125,17 @@ JSON only."""
             if raw_occasion not in KNOWN_OCCASIONS:
                 raw_occasion = OCCASION_ALIASES.get(raw_occasion, "casual")
             
+            # Parse needs_layer - can be true, false, or null
+            needs_layer = result.get("needs_layer")
+            if needs_layer is not None:
+                needs_layer = bool(needs_layer)
+            
             return {
                 "occasion": raw_occasion,
                 "prefer_occasions": result.get("prefer_occasions", ["casual", "everyday"]),
                 "avoid_occasions": result.get("avoid_occasions", []),
-                "note": result.get("note", mood)
+                "note": result.get("note", mood),
+                "needs_layer": needs_layer
             }
     except Exception as e:
         logger.error(f"Mood interpretation error: {e}")
@@ -130,7 +145,8 @@ JSON only."""
         "occasion": "casual",
         "prefer_occasions": ["casual", "everyday"],
         "avoid_occasions": [],
-        "note": mood
+        "note": mood,
+        "needs_layer": None  # Let weather decide
     }
 
 
