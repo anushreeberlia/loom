@@ -2266,7 +2266,7 @@ async def regenerate_single_outfit(
     # Determine occasion (from mood or auto-detect)
     occasion_info = None
     if mood_text:
-        occasion_info = await interpret_mood(mood_text)
+        occasion_info = interpret_mood_for_occasion(mood_text)
     else:
         occasion_info = get_occasion_from_time(tz_offset)
     
