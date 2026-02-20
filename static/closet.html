@@ -1194,17 +1194,13 @@
         // Style based on mood description
         moodBtn.addEventListener('click', () => {
             const mood = moodInput.value.trim();
-            console.log('Style Me clicked, mood:', mood, 'userLocation:', userLocation);
             if (userLocation) {
                 dailyLoading.style.display = 'block';
                 dailyGrid.style.display = 'none';
                 dailyActions.style.display = 'none';
                 // Force refresh when mood is specified to get fresh outfits
                 const shouldRefresh = mood ? true : false;
-                console.log('Calling loadDailyOutfits with refresh:', shouldRefresh);
                 loadDailyOutfits(userLocation.lat, userLocation.lon, shouldRefresh, mood || null);
-            } else {
-                console.log('No userLocation, cannot load outfits');
             }
         });
 
@@ -1259,14 +1255,12 @@
         async function loadDailyOutfits(lat, lon, refresh = false, mood = null) {
             // Debounce - prevent multiple concurrent calls with same params
             const paramsKey = `${lat}-${lon}-${refresh}-${mood}`;
-            console.log('loadDailyOutfits called:', { paramsKey, dailyLoadInProgress, lastDailyLoadParams, refresh, mood });
             if (dailyLoadInProgress && lastDailyLoadParams === paramsKey) {
                 console.log('Skipping duplicate daily load request');
                 return;
             }
             dailyLoadInProgress = true;
             lastDailyLoadParams = paramsKey;
-            console.log('Making daily outfits request...');
             
             try {
                 let url = '/v1/closet/daily';
@@ -1317,6 +1311,7 @@
                 dailyLoading.style.display = 'none';
                 
                 if (data.outfits && data.outfits.length > 0) {
+                    console.log('Received outfits:', data.outfits.map(o => o.base_item?.name || 'unknown'));
                     displayDailyOutfits(data.outfits);
                     dailyGrid.style.display = 'grid';
                     dailyActions.style.display = 'block';
