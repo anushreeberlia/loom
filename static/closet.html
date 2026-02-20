@@ -1095,7 +1095,6 @@
 
             <div class="generate-section">
                 <div class="selection-preview" id="selection-preview"></div>
-                <input type="text" id="single-mood-input" class="mood-input" placeholder="Occasion? (e.g., work, date night, casual...)" style="width: 100%; margin-bottom: 0.5rem; padding: 0.75rem; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-alt); color: var(--text); font-size: 0.95rem;">
                 <button class="generate-btn" id="generate-btn" disabled>Generate Outfits</button>
             </div>
         </section>
@@ -1250,7 +1249,19 @@
             );
         }
 
+        let dailyLoadInProgress = false;
+        let lastDailyLoadParams = null;
+        
         async function loadDailyOutfits(lat, lon, refresh = false, mood = null) {
+            // Debounce - prevent multiple concurrent calls with same params
+            const paramsKey = `${lat}-${lon}-${refresh}-${mood}`;
+            if (dailyLoadInProgress && lastDailyLoadParams === paramsKey) {
+                console.log('Skipping duplicate daily load request');
+                return;
+            }
+            dailyLoadInProgress = true;
+            lastDailyLoadParams = paramsKey;
+            
             try {
                 let url = '/v1/closet/daily';
                 const params = [];
@@ -1314,6 +1325,8 @@
                 dailySubtitle.textContent = 'Could not load outfits. Try picking an item below.';
                 dailyActions.style.display = 'block';
                 document.getElementById('refresh-daily-btn').style.display = 'none';
+            } finally {
+                dailyLoadInProgress = false;
             }
         }
 
@@ -1508,9 +1521,8 @@
                 formData.append('lon', userLocation.lon);
             }
             
-            // Add mood/occasion if specified - use the single-item mood input
-            const singleMoodEl = document.getElementById('single-mood-input');
-            const mood = singleMoodEl?.value?.trim();
+            // Add mood/occasion if specified - use the main mood input bar
+            const mood = moodInput?.value?.trim();
             if (mood) {
                 formData.append('mood_text', mood);
             }
