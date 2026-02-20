@@ -2270,21 +2270,49 @@ async def get_daily_outfits(
                 cached_outfits = cached[0]
                 cached_weather = cached[1]
                 
-                # Update collage URLs to be absolute
-                for outfit in cached_outfits:
+                # Verify collage files exist - if not, regenerate them
+                import os
+                collages_valid = True
+                for idx, outfit in enumerate(cached_outfits):
+                    collage_url = outfit.get("collage_url", "")
+                    # Extract file path from URL (handle both relative and absolute)
+                    if collage_url and not collage_url.startswith("http"):
+                        file_path = collage_url.lstrip("/")
+                        if not os.path.exists(file_path):
+                            logger.info(f"Collage missing: {file_path}, regenerating...")
+                            # Regenerate this collage
+                            try:
+                                items_for_collage = outfit.get("items", [])
+                                base_item = outfit.get("base_item", {})
+                                collage_path = generate_outfit_collage(
+                                    generation_id=f"daily_{idx}",
+                                    direction=f"outfit_{idx + 1}",
+                                    items=items_for_collage,
+                                    base_item={"image_url": base_item.get("image_url"), "category": base_item.get("category", "top")},
+                                    force=True
+                                )
+                                outfit["collage_url"] = collage_path
+                            except Exception as e:
+                                logger.error(f"Failed to regenerate collage: {e}")
+                                collages_valid = False
+                    
+                    # Update collage URLs to be absolute
                     if outfit.get("collage_url") and not outfit["collage_url"].startswith("http"):
                         outfit["collage_url"] = make_absolute_url(base_url, outfit["collage_url"])
                 
-                response = {
-                    "outfits": cached_outfits,
-                    "source": "closet_daily",
-                    "occasion": occasion_name,
-                    "occasion_note": occasion_info["note"],
-                    "cached": True
-                }
-                if cached_weather:
-                    response["weather"] = cached_weather
-                return response
+                if collages_valid:
+                    response = {
+                        "outfits": cached_outfits,
+                        "source": "closet_daily",
+                        "occasion": occasion_name,
+                        "occasion_note": occasion_info["note"],
+                        "cached": True
+                    }
+                    if cached_weather:
+                        response["weather"] = cached_weather
+                    return response
+                else:
+                    logger.info("Collages invalid, regenerating all outfits")
         except Exception as e:
             logger.warning(f"Cache lookup failed: {e}")
         finally:
