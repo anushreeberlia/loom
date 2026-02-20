@@ -1194,15 +1194,27 @@ async def save_outfit(req: SaveOutfitRequest, auth_token: Optional[str] = Cookie
     # If collage_url is a local/generated path, upload to Cloudinary
     if req.collage_url and ('/static/generated/' in req.collage_url or req.collage_url.startswith('collages/')):
         try:
-            # Extract local path from URL
+            # Extract local path from URL (e.g., daily_0/outfit_1.jpg)
             local_path = req.collage_url
             if '/static/generated/' in local_path:
                 local_path = local_path.split('/static/generated/')[-1]
+            # Remove any query params (like ?t=timestamp)
+            if '?' in local_path:
+                local_path = local_path.split('?')[0]
             
-            # Full path to local file
-            full_path = os.path.join("static", "generated", local_path)
+            # Try multiple possible paths (static mount vs actual location)
+            possible_paths = [
+                os.path.join("static", "generated", local_path),
+                os.path.join("collages", local_path),
+            ]
             
-            if os.path.exists(full_path):
+            full_path = None
+            for path in possible_paths:
+                if os.path.exists(path):
+                    full_path = path
+                    break
+            
+            if full_path:
                 logger.info(f"Uploading collage to Cloudinary: {full_path}")
                 upload_result = cloudinary.uploader.upload(
                     full_path,
@@ -1212,7 +1224,7 @@ async def save_outfit(req: SaveOutfitRequest, auth_token: Optional[str] = Cookie
                 permanent_collage_url = upload_result["secure_url"]
                 logger.info(f"Collage uploaded to Cloudinary: {permanent_collage_url}")
             else:
-                logger.warning(f"Local collage not found: {full_path}")
+                logger.warning(f"Local collage not found at any path: {possible_paths}")
         except Exception as e:
             logger.error(f"Failed to upload collage to Cloudinary: {e}")
             # Keep original URL as fallback
