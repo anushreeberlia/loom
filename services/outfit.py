@@ -329,7 +329,7 @@ def generate_explanation(direction: str, base_item: dict, items_by_slot: dict[st
     elif direction == "Trendy":
         if accessory:
             acc_name = accessory.get("name", "").split()[0:2]
-            return f"On-trend styling with modern proportions and a {' '.join(acc_name).lower()} to complete the look."
+            return f"On-trend styling with a {' '.join(acc_name).lower()} to complete the look."
         return "Contemporary mix with fresh proportions and current-season appeal."
     
     elif direction == "Bold":
