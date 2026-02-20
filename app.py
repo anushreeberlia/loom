@@ -781,6 +781,12 @@ async def serve_closet():
     return FileResponse("static/closet.html")
 
 
+@app.get("/saved")
+async def serve_saved():
+    """Serve the saved outfits page."""
+    return FileResponse("static/saved.html")
+
+
 @app.get("/inventory")
 async def serve_inventory():
     """Serve the inventory page for managing closet items."""
@@ -1171,6 +1177,189 @@ async def submit_closet_feedback(req: ClosetFeedbackRequest, auth_token: Optiona
         return {"status": "recorded", "items_processed": len(item_embeddings)}
     except Exception as e:
         logger.error(f"Closet feedback error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        cursor.close()
+        conn.close()
+
+
+class SaveOutfitRequest(BaseModel):
+    outfit_data: dict  # Full outfit items with IDs, names, image_urls
+    collage_url: Optional[str] = None
+    occasion: Optional[str] = None
+    base_item_id: Optional[int] = None
+
+
+@app.post("/v1/closet/outfits/save")
+async def save_outfit(req: SaveOutfitRequest, auth_token: Optional[str] = Cookie(None)):
+    """Save an outfit for later. Requires authentication."""
+    user_id = require_auth(auth_token)
+    
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        import json
+        cursor.execute(
+            """INSERT INTO saved_outfits (user_id, outfit_data, collage_url, occasion, base_item_id, status)
+               VALUES (%s, %s, %s, %s, %s, 'saved')
+               RETURNING id""",
+            (user_id, json.dumps(req.outfit_data), req.collage_url, req.occasion, req.base_item_id)
+        )
+        outfit_id = cursor.fetchone()[0]
+        conn.commit()
+        logger.info(f"Outfit saved: id={outfit_id}, user={user_id}")
+        return {"status": "saved", "outfit_id": outfit_id}
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"Save outfit error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@app.post("/v1/closet/outfits/{outfit_id}/worn")
+async def mark_outfit_worn(outfit_id: int, auth_token: Optional[str] = Cookie(None)):
+    """Mark a saved outfit as worn. Moves the base top to back of FIFO queue."""
+    user_id = require_auth(auth_token)
+    
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        # Get the outfit and verify ownership
+        cursor.execute(
+            """SELECT outfit_data, occasion, base_item_id FROM saved_outfits 
+               WHERE id = %s AND user_id = %s""",
+            (outfit_id, user_id)
+        )
+        row = cursor.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Outfit not found")
+        
+        outfit_data, occasion, base_item_id = row
+        
+        # Mark as worn
+        cursor.execute(
+            """UPDATE saved_outfits SET status = 'worn', worn_at = NOW()
+               WHERE id = %s""",
+            (outfit_id,)
+        )
+        
+        # Update FIFO queue - move this top to back of queue for this occasion
+        if base_item_id and occasion:
+            cursor.execute(
+                """INSERT INTO top_suggestions (user_id, item_id, occasion, last_suggested_at, suggestion_count)
+                   VALUES (%s, %s, %s, NOW(), 1)
+                   ON CONFLICT (user_id, item_id, occasion) 
+                   DO UPDATE SET last_suggested_at = NOW(), suggestion_count = top_suggestions.suggestion_count + 1""",
+                (user_id, base_item_id, occasion)
+            )
+        
+        conn.commit()
+        logger.info(f"Outfit marked as worn: id={outfit_id}, user={user_id}")
+        return {"status": "worn", "outfit_id": outfit_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"Mark worn error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@app.get("/v1/closet/outfits/saved")
+async def list_saved_outfits(auth_token: Optional[str] = Cookie(None)):
+    """List all saved outfits (not yet worn)."""
+    user_id = require_auth(auth_token)
+    
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            """SELECT id, outfit_data, collage_url, occasion, saved_at
+               FROM saved_outfits 
+               WHERE user_id = %s AND status = 'saved'
+               ORDER BY saved_at DESC""",
+            (user_id,)
+        )
+        rows = cursor.fetchall()
+        
+        outfits = []
+        for row in rows:
+            outfits.append({
+                "id": row[0],
+                "outfit_data": row[1],
+                "collage_url": row[2],
+                "occasion": row[3],
+                "saved_at": row[4].isoformat() if row[4] else None
+            })
+        
+        return {"outfits": outfits, "count": len(outfits)}
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@app.get("/v1/closet/outfits/worn")
+async def list_worn_outfits(auth_token: Optional[str] = Cookie(None)):
+    """List outfit history (previously worn)."""
+    user_id = require_auth(auth_token)
+    
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            """SELECT id, outfit_data, collage_url, occasion, worn_at
+               FROM saved_outfits 
+               WHERE user_id = %s AND status = 'worn'
+               ORDER BY worn_at DESC
+               LIMIT 50""",
+            (user_id,)
+        )
+        rows = cursor.fetchall()
+        
+        outfits = []
+        for row in rows:
+            outfits.append({
+                "id": row[0],
+                "outfit_data": row[1],
+                "collage_url": row[2],
+                "occasion": row[3],
+                "worn_at": row[4].isoformat() if row[4] else None
+            })
+        
+        return {"outfits": outfits, "count": len(outfits)}
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@app.delete("/v1/closet/outfits/{outfit_id}")
+async def delete_saved_outfit(outfit_id: int, auth_token: Optional[str] = Cookie(None)):
+    """Delete a saved outfit."""
+    user_id = require_auth(auth_token)
+    
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            """DELETE FROM saved_outfits WHERE id = %s AND user_id = %s RETURNING id""",
+            (outfit_id, user_id)
+        )
+        deleted = cursor.fetchone()
+        conn.commit()
+        
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Outfit not found")
+        
+        return {"status": "deleted", "outfit_id": outfit_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"Delete outfit error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         cursor.close()
@@ -2175,19 +2364,64 @@ async def get_daily_outfits(
         
         return score
     
-    # Pick top 3 TOPS as base items - simple and fast
-    # Tops are the core of outfits, layers go on top
+    # Pick top 3 TOPS as base items with FIFO rotation
+    # Tops suggested recently are penalized to ensure variety across days
     import random
+    from datetime import datetime, timedelta
     
-    # Filter to just tops, score them
+    # Get recent top suggestions for this user+occasion (FIFO queue)
+    recent_suggestions = {}
+    try:
+        conn_suggest = get_db_connection()
+        cursor_suggest = conn_suggest.cursor()
+        cursor_suggest.execute(
+            """SELECT item_id, last_suggested_at 
+               FROM top_suggestions 
+               WHERE user_id = %s AND occasion = %s""",
+            (user_id, occasion_name)
+        )
+        for row in cursor_suggest.fetchall():
+            recent_suggestions[row[0]] = row[1]
+        cursor_suggest.close()
+        conn_suggest.close()
+    except Exception as e:
+        logger.warning(f"Could not fetch recent suggestions: {e}")
+    
+    # Filter to just tops, score them with recency penalty
     tops_only = [item for item in all_items if item.get("category") == "top" and item.get("embedding")]
-    scored_tops = [(item, item_score(item)) for item in tops_only]
+    
+    def score_with_recency(item):
+        """Score item, penalizing recently suggested tops."""
+        base_score = item_score(item)
+        item_id = item["id"]
+        
+        if item_id in recent_suggestions:
+            last_suggested = recent_suggestions[item_id]
+            if last_suggested:
+                days_ago = (datetime.now() - last_suggested).days
+                # Heavy penalty for recently suggested (within 3 days)
+                # Gradually decreases over time
+                if days_ago < 1:
+                    base_score -= 20  # Very recent - strong penalty
+                elif days_ago < 3:
+                    base_score -= 10  # Recent - moderate penalty
+                elif days_ago < 7:
+                    base_score -= 5   # Within a week - small penalty
+                # After 7 days, no penalty - back in rotation
+        
+        return base_score
+    
+    scored_tops = [(item, score_with_recency(item)) for item in tops_only]
     scored_tops.sort(key=lambda x: x[1], reverse=True)
     
     logger.info(f"Scored {len(scored_tops)} tops for occasion: {occasion_name}")
     # Log top 5 for debugging
     for item, score in scored_tops[:5]:
-        logger.info(f"  Top candidate: {item['name']} score={score:.1f} tags={item.get('style_tags', [])}")
+        recency_note = ""
+        if item["id"] in recent_suggestions:
+            days = (datetime.now() - recent_suggestions[item["id"]]).days if recent_suggestions[item["id"]] else 0
+            recency_note = f" (last: {days}d ago)"
+        logger.info(f"  Top candidate: {item['name']} score={score:.1f}{recency_note}")
     
     selected_bases = []
     used_ids = set()
@@ -2201,12 +2435,12 @@ async def get_daily_outfits(
         
         # Add randomness to scoring to get different selections each time
         # Each item gets a random boost of 0-3 points
-        randomized = [(item, item_score(item) + random.uniform(0, 3)) for item in top_tier]
+        randomized = [(item, score_with_recency(item) + random.uniform(0, 3)) for item in top_tier]
         randomized.sort(key=lambda x: x[1], reverse=True)
         
         for item, rand_score in randomized:
             if item["id"] not in used_ids:
-                item["score"] = item_score(item)  # Store actual score
+                item["score"] = item_score(item)  # Store actual score (without recency penalty)
                 selected_bases.append(item)
                 used_ids.add(item["id"])
                 logger.info(f"  Selected: {item['name']} (score={item['score']:.1f}, rand={rand_score:.1f})")
@@ -2361,6 +2595,25 @@ async def get_daily_outfits(
             outfit["collage_url"] = None
         
         outfits.append(outfit)
+    
+    # Record suggested tops to FIFO queue (so they're deprioritized next time)
+    try:
+        conn_record = get_db_connection()
+        cursor_record = conn_record.cursor()
+        for base_item in selected_bases:
+            cursor_record.execute(
+                """INSERT INTO top_suggestions (user_id, item_id, occasion, last_suggested_at, suggestion_count)
+                   VALUES (%s, %s, %s, NOW(), 1)
+                   ON CONFLICT (user_id, item_id, occasion) 
+                   DO UPDATE SET last_suggested_at = NOW(), suggestion_count = top_suggestions.suggestion_count + 1""",
+                (user_id, base_item["id"], occasion_name)
+            )
+        conn_record.commit()
+        cursor_record.close()
+        conn_record.close()
+        logger.info(f"Recorded {len(selected_bases)} top suggestions for user {user_id}, occasion {occasion_name}")
+    except Exception as e:
+        logger.warning(f"Could not record top suggestions: {e}")
     
     response = {
         "outfits": outfits,

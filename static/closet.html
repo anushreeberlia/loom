@@ -528,6 +528,44 @@
             border-color: var(--text);
         }
 
+        /* Outfit action buttons (save/worn) */
+        .outfit-actions {
+            padding: 0.5rem 1rem 0.75rem;
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .action-btn {
+            flex: 1;
+            padding: 0.5rem 0.75rem;
+            background: transparent;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            font-size: 0.7rem;
+            cursor: pointer;
+            transition: all 0.15s;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .action-btn:hover {
+            border-color: var(--text);
+            color: var(--text);
+        }
+
+        .action-btn.saved {
+            background: var(--success);
+            color: white;
+            border-color: var(--success);
+        }
+
+        .action-btn.worn {
+            background: var(--text);
+            color: white;
+            border-color: var(--text);
+        }
+
         .try-again {
             text-align: center;
             padding-top: 2rem;
@@ -972,7 +1010,7 @@
         <nav>
             <a href="/inventory">Inventory</a>
             <a href="/closet" class="active">Style</a>
-            <a href="/demo">Demo</a>
+            <a href="/saved">Saved</a>
             <a href="/login" id="login-link">Sign In</a>
             <div class="user-avatar" id="user-avatar" style="display: none;" onclick="toggleUserMenu()">
                 <img src="" alt="" id="user-image">
@@ -1315,7 +1353,7 @@
         function displayDailyOutfits(outfits) {
             dailyOutfitsData = outfits; // Save for feedback
             dailyGrid.innerHTML = outfits.map((outfit, idx) => `
-                <div class="outfit-card">
+                <div class="outfit-card" data-outfit-idx="${idx}">
                     <div class="outfit-header">
                         <span class="outfit-direction">${outfit.direction || `Outfit ${idx + 1}`}</span>
                         ${outfit.base_item ? `<span class="base-item-badge">starts with ${outfit.base_item.category}</span>` : ''}
@@ -1338,6 +1376,10 @@
                     <div class="outfit-feedback">
                         <button class="feedback-btn" onclick="sendFeedback(${idx}, true, this)">👍 Like</button>
                         <button class="feedback-btn" onclick="sendFeedback(${idx}, false, this)">👎 Dislike</button>
+                    </div>
+                    <div class="outfit-actions">
+                        <button class="action-btn" onclick="saveOutfit(${idx}, 'daily', this)">Save for later</button>
+                        <button class="action-btn" onclick="markWorn(${idx}, 'daily', this)">Wearing this</button>
                     </div>
                 </div>
             `).join('');
@@ -1500,6 +1542,10 @@
                         <button class="feedback-btn" onclick="sendGeneratedFeedback(${idx}, true, this)">👍 Like</button>
                         <button class="feedback-btn" onclick="sendGeneratedFeedback(${idx}, false, this)">👎 Dislike</button>
                     </div>
+                    <div class="outfit-actions">
+                        <button class="action-btn" onclick="saveOutfit(${idx}, 'generated', this)">Save for later</button>
+                        <button class="action-btn" onclick="markWorn(${idx}, 'generated', this)">Wearing this</button>
+                    </div>
                 </div>
             `).join('');
         }
@@ -1575,6 +1621,169 @@
                 console.error('Regenerate error:', e);
             }
             if (img) img.style.opacity = '1';
+        }
+
+        // Get current occasion for saving
+        function getCurrentOccasion() {
+            const weatherBar = document.getElementById('weather-bar');
+            if (weatherBar && weatherBar.textContent) {
+                // Extract occasion from weather bar text
+                const text = weatherBar.textContent.toLowerCase();
+                if (text.includes('work')) return 'work';
+                if (text.includes('casual')) return 'casual';
+                if (text.includes('going-out') || text.includes('going out')) return 'going-out';
+                if (text.includes('smart-casual') || text.includes('smart casual')) return 'smart-casual';
+                if (text.includes('workout') || text.includes('active')) return 'workout';
+            }
+            return null;
+        }
+
+        // Save outfit for later
+        async function saveOutfit(idx, source, btn) {
+            try {
+                const outfit = source === 'daily' 
+                    ? dailyOutfitsData[idx] 
+                    : window.generatedOutfitsData?.[idx];
+                
+                if (!outfit) {
+                    console.error('Outfit not found');
+                    return;
+                }
+
+                btn.disabled = true;
+                btn.textContent = 'Saving...';
+
+                const baseItemId = outfit.base_item?.id || null;
+                const occasion = getCurrentOccasion();
+
+                const res = await fetch('/v1/closet/outfits/save', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        outfit_data: {
+                            items: outfit.items || [],
+                            base_item: outfit.base_item,
+                            explanation: outfit.explanation,
+                            direction: outfit.direction
+                        },
+                        collage_url: outfit.collage_url,
+                        occasion: occasion,
+                        base_item_id: baseItemId
+                    })
+                });
+
+                if (!res.ok) {
+                    if (res.status === 401) {
+                        window.location.href = '/login';
+                        return;
+                    }
+                    throw new Error('Save failed');
+                }
+
+                const data = await res.json();
+                btn.textContent = '✓ Saved';
+                btn.classList.add('saved');
+                btn.disabled = true;
+                
+                // Store the outfit ID on the button for mark worn
+                btn.dataset.outfitId = data.outfit_id;
+                
+                // Enable the "Wearing this" button with the outfit ID
+                const wornBtn = btn.nextElementSibling;
+                if (wornBtn && wornBtn.classList.contains('action-btn')) {
+                    wornBtn.dataset.savedOutfitId = data.outfit_id;
+                }
+
+                console.log(`Outfit saved with ID: ${data.outfit_id}`);
+            } catch (e) {
+                console.error('Save error:', e);
+                btn.textContent = 'Save failed';
+                btn.disabled = false;
+            }
+        }
+
+        // Mark outfit as worn
+        async function markWorn(idx, source, btn) {
+            try {
+                const outfit = source === 'daily' 
+                    ? dailyOutfitsData[idx] 
+                    : window.generatedOutfitsData?.[idx];
+                
+                if (!outfit) {
+                    console.error('Outfit not found');
+                    return;
+                }
+
+                btn.disabled = true;
+                btn.textContent = 'Recording...';
+
+                // Check if already saved - if so use that ID
+                let outfitId = btn.dataset.savedOutfitId;
+                
+                // If not saved yet, save first then mark as worn
+                if (!outfitId) {
+                    const baseItemId = outfit.base_item?.id || null;
+                    const occasion = getCurrentOccasion();
+
+                    const saveRes = await fetch('/v1/closet/outfits/save', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            outfit_data: {
+                                items: outfit.items || [],
+                                base_item: outfit.base_item,
+                                explanation: outfit.explanation,
+                                direction: outfit.direction
+                            },
+                            collage_url: outfit.collage_url,
+                            occasion: occasion,
+                            base_item_id: baseItemId
+                        })
+                    });
+
+                    if (!saveRes.ok) {
+                        if (saveRes.status === 401) {
+                            window.location.href = '/login';
+                            return;
+                        }
+                        throw new Error('Save failed');
+                    }
+
+                    const saveData = await saveRes.json();
+                    outfitId = saveData.outfit_id;
+                }
+
+                // Now mark as worn
+                const res = await fetch(`/v1/closet/outfits/${outfitId}/worn`, {
+                    method: 'POST'
+                });
+
+                if (!res.ok) {
+                    if (res.status === 401) {
+                        window.location.href = '/login';
+                        return;
+                    }
+                    throw new Error('Mark worn failed');
+                }
+
+                btn.textContent = '✓ Worn';
+                btn.classList.add('worn');
+                btn.disabled = true;
+                
+                // Also disable save button
+                const saveBtn = btn.previousElementSibling;
+                if (saveBtn && saveBtn.classList.contains('action-btn')) {
+                    saveBtn.textContent = '✓ Saved';
+                    saveBtn.classList.add('saved');
+                    saveBtn.disabled = true;
+                }
+
+                console.log(`Outfit ${outfitId} marked as worn`);
+            } catch (e) {
+                console.error('Mark worn error:', e);
+                btn.textContent = 'Failed';
+                btn.disabled = false;
+            }
         }
 
         function formatSlot(slot) {

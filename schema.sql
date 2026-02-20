@@ -125,3 +125,34 @@ CREATE INDEX idx_closet_embedding ON user_closet_items
     
 -- Index for filtering by user
 CREATE INDEX idx_closet_user ON user_closet_items(user_id);
+
+-- top_suggestions: FIFO queue for top rotation (don't show same tops every day)
+CREATE TABLE IF NOT EXISTS top_suggestions (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    item_id INTEGER REFERENCES user_closet_items(id) ON DELETE CASCADE,
+    occasion VARCHAR(50) NOT NULL,          -- work, casual, going-out, etc.
+    last_suggested_at TIMESTAMP DEFAULT NOW(),
+    suggestion_count INTEGER DEFAULT 1,      -- how many times this top has been suggested
+    UNIQUE(user_id, item_id, occasion)
+);
+
+-- Index for fast lookup
+CREATE INDEX IF NOT EXISTS idx_top_suggestions_user_occasion 
+    ON top_suggestions(user_id, occasion, last_suggested_at);
+
+-- saved_outfits: Bookmarked and worn outfits
+CREATE TABLE IF NOT EXISTS saved_outfits (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    outfit_data JSONB NOT NULL,              -- full outfit items with IDs, names, image_urls
+    collage_url TEXT,                        -- generated collage image
+    occasion VARCHAR(50),                    -- work, casual, going-out
+    base_item_id INTEGER REFERENCES user_closet_items(id) ON DELETE SET NULL,
+    saved_at TIMESTAMP DEFAULT NOW(),
+    worn_at TIMESTAMP,                       -- NULL if not worn yet
+    status VARCHAR(20) DEFAULT 'saved'       -- 'saved', 'worn'
+);
+
+-- Index for listing user's saved outfits
+CREATE INDEX IF NOT EXISTS idx_saved_outfits_user ON saved_outfits(user_id, saved_at DESC);
