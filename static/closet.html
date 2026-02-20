@@ -497,73 +497,77 @@
             border: 1px solid var(--border);
         }
 
-        /* Feedback buttons */
-        .outfit-feedback {
-            padding: 0.6rem 1rem;
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 0.5rem;
+        /* Card footer with all actions */
+        .outfit-footer {
+            display: flex;
             border-top: 1px solid var(--border);
         }
 
-        .feedback-btn {
-            padding: 0.45rem;
-            background: transparent;
-            border: 1px solid var(--border);
-            border-radius: 4px;
-            font-size: 0.75rem;
-            cursor: pointer;
-            transition: all 0.15s;
-            color: var(--text-muted);
-        }
-
-        .feedback-btn:hover {
-            border-color: var(--text);
-            color: var(--text);
-        }
-
-        .feedback-btn.active {
-            background: var(--text);
-            color: white;
-            border-color: var(--text);
-        }
-
-        /* Outfit action buttons (save/worn) */
-        .outfit-actions {
-            padding: 0.5rem 1rem 0.75rem;
-            display: flex;
-            gap: 0.5rem;
-        }
-
-        .action-btn {
+        .outfit-footer-btn {
             flex: 1;
-            padding: 0.5rem 0.75rem;
+            padding: 0.75rem;
             background: transparent;
-            border: 1px solid var(--border);
-            border-radius: 4px;
-            font-size: 0.7rem;
+            border: none;
+            border-right: 1px solid var(--border);
+            font-size: 1.1rem;
             cursor: pointer;
             transition: all 0.15s;
             color: var(--text-muted);
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.4rem;
         }
 
-        .action-btn:hover {
-            border-color: var(--text);
+        .outfit-footer-btn:last-child {
+            border-right: none;
+        }
+
+        .outfit-footer-btn:hover {
+            background: var(--bg-alt);
             color: var(--text);
         }
 
-        .action-btn.saved {
-            background: var(--success);
-            color: white;
-            border-color: var(--success);
+        .outfit-footer-btn.active {
+            color: var(--text);
         }
 
-        .action-btn.worn {
-            background: var(--text);
-            color: white;
-            border-color: var(--text);
+        .outfit-footer-btn.liked {
+            color: var(--success);
+        }
+
+        .outfit-footer-btn.disliked {
+            color: var(--accent);
+        }
+
+        .outfit-footer-btn.saved {
+            color: var(--success);
+        }
+
+        .outfit-footer-btn.worn {
+            color: var(--text);
+            background: var(--bg-alt);
+        }
+
+        .outfit-footer-btn span {
+            font-size: 0.65rem;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+        }
+
+        /* Hide text on mobile, show only icons */
+        @media (max-width: 500px) {
+            .outfit-footer-btn span {
+                display: none;
+            }
+            .outfit-footer-btn {
+                font-size: 1.25rem;
+            }
+        }
+
+        /* Legacy support - hide old elements */
+        .outfit-feedback, .outfit-actions {
+            display: none !important;
         }
 
         .try-again {
@@ -1375,13 +1379,27 @@
                             ${(item.style_tags?.length || item.occasion_tags?.length) ? `<div class="item-tags">${[...(item.style_tags || []), ...(item.occasion_tags || [])].slice(0,3).join(', ')}</div>` : ''}
                         `).join('')}
                     </div>
-                    <div class="outfit-feedback">
-                        <button class="feedback-btn" onclick="sendFeedback(${idx}, true, this)">👍 Like</button>
-                        <button class="feedback-btn" onclick="sendFeedback(${idx}, false, this)">👎 Dislike</button>
-                    </div>
-                    <div class="outfit-actions">
-                        <button class="action-btn" onclick="saveOutfit(${idx}, 'daily', this)">Save for later</button>
-                        <button class="action-btn" onclick="markWorn(${idx}, 'daily', this)">Wearing this</button>
+                    <div class="outfit-footer">
+                        <button class="outfit-footer-btn" onclick="sendFeedback(${idx}, true, this)" title="Like">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/>
+                            </svg>
+                        </button>
+                        <button class="outfit-footer-btn" onclick="sendFeedback(${idx}, false, this)" title="Dislike">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zm7-13h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17"/>
+                            </svg>
+                        </button>
+                        <button class="outfit-footer-btn" onclick="saveOutfit(${idx}, 'daily', this)" title="Save for later">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>
+                            </svg>
+                        </button>
+                        <button class="outfit-footer-btn" onclick="markWorn(${idx}, 'daily', this)" title="Wearing this">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polyline points="20 6 9 17 4 12"/>
+                            </svg>
+                        </button>
                     </div>
                 </div>
             `).join('');
@@ -1540,13 +1558,27 @@
                         `).join('')}
                         ${(outfit.items || []).length === 0 ? '<div style="color: #888; font-size: 0.8rem;">Need more items in closet for this style</div>' : ''}
                     </div>
-                    <div class="outfit-feedback">
-                        <button class="feedback-btn" onclick="sendGeneratedFeedback(${idx}, true, this)">👍 Like</button>
-                        <button class="feedback-btn" onclick="sendGeneratedFeedback(${idx}, false, this)">👎 Dislike</button>
-                    </div>
-                    <div class="outfit-actions">
-                        <button class="action-btn" onclick="saveOutfit(${idx}, 'generated', this)">Save for later</button>
-                        <button class="action-btn" onclick="markWorn(${idx}, 'generated', this)">Wearing this</button>
+                    <div class="outfit-footer">
+                        <button class="outfit-footer-btn" onclick="sendGeneratedFeedback(${idx}, true, this)" title="Like">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/>
+                            </svg>
+                        </button>
+                        <button class="outfit-footer-btn" onclick="sendGeneratedFeedback(${idx}, false, this)" title="Dislike">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zm7-13h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17"/>
+                            </svg>
+                        </button>
+                        <button class="outfit-footer-btn" onclick="saveOutfit(${idx}, 'generated', this)" title="Save for later">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>
+                            </svg>
+                        </button>
+                        <button class="outfit-footer-btn" onclick="markWorn(${idx}, 'generated', this)" title="Wearing this">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polyline points="20 6 9 17 4 12"/>
+                            </svg>
+                        </button>
                     </div>
                 </div>
             `).join('');
@@ -1575,8 +1607,10 @@
                     body: JSON.stringify({ item_ids: itemIds, liked })
                 });
                 
-                btn.parentElement.querySelectorAll('.feedback-btn').forEach(b => b.classList.remove('active'));
-                btn.classList.add('active');
+                // Update button states
+                const footer = btn.closest('.outfit-footer');
+                footer.querySelectorAll('.outfit-footer-btn').forEach(b => b.classList.remove('liked', 'disliked'));
+                btn.classList.add(liked ? 'liked' : 'disliked');
                 
                 // If disliked, regenerate this outfit
                 if (!liked) {
@@ -1653,7 +1687,7 @@
                 }
 
                 btn.disabled = true;
-                btn.textContent = 'Saving...';
+                btn.style.opacity = '0.5';
 
                 const baseItemId = outfit.base_item?.id || null;
                 const occasion = getCurrentOccasion();
@@ -1683,8 +1717,10 @@
                 }
 
                 const data = await res.json();
-                btn.textContent = '✓ Saved';
                 btn.classList.add('saved');
+                btn.style.opacity = '1';
+                // Fill the bookmark icon
+                btn.querySelector('svg path')?.setAttribute('fill', 'currentColor');
                 btn.disabled = true;
                 
                 // Store the outfit ID on the button for mark worn
@@ -1692,14 +1728,14 @@
                 
                 // Enable the "Wearing this" button with the outfit ID
                 const wornBtn = btn.nextElementSibling;
-                if (wornBtn && wornBtn.classList.contains('action-btn')) {
+                if (wornBtn) {
                     wornBtn.dataset.savedOutfitId = data.outfit_id;
                 }
 
                 console.log(`Outfit saved with ID: ${data.outfit_id}`);
             } catch (e) {
                 console.error('Save error:', e);
-                btn.textContent = 'Save failed';
+                btn.style.opacity = '1';
                 btn.disabled = false;
             }
         }
@@ -1717,7 +1753,7 @@
                 }
 
                 btn.disabled = true;
-                btn.textContent = 'Recording...';
+                btn.style.opacity = '0.5';
 
                 // Check if already saved - if so use that ID
                 let outfitId = btn.dataset.savedOutfitId;
@@ -1768,22 +1804,24 @@
                     throw new Error('Mark worn failed');
                 }
 
-                btn.textContent = '✓ Worn';
                 btn.classList.add('worn');
+                btn.style.opacity = '1';
+                // Make the checkmark bolder
+                btn.querySelector('svg')?.setAttribute('stroke-width', '3');
                 btn.disabled = true;
                 
-                // Also disable save button
+                // Also mark save button as saved
                 const saveBtn = btn.previousElementSibling;
-                if (saveBtn && saveBtn.classList.contains('action-btn')) {
-                    saveBtn.textContent = '✓ Saved';
+                if (saveBtn) {
                     saveBtn.classList.add('saved');
+                    saveBtn.querySelector('svg path')?.setAttribute('fill', 'currentColor');
                     saveBtn.disabled = true;
                 }
 
                 console.log(`Outfit ${outfitId} marked as worn`);
             } catch (e) {
                 console.error('Mark worn error:', e);
-                btn.textContent = 'Failed';
+                btn.style.opacity = '1';
                 btn.disabled = false;
             }
         }
@@ -1838,8 +1876,10 @@
                 });
                 console.log(`Feedback response: ${feedbackRes.status}`);
                 
-                btn.parentElement.querySelectorAll('.feedback-btn').forEach(b => b.classList.remove('active'));
-                btn.classList.add('active');
+                // Update button states - clear like/dislike from siblings, add to clicked
+                const footer = btn.closest('.outfit-footer');
+                footer.querySelectorAll('.outfit-footer-btn').forEach(b => b.classList.remove('liked', 'disliked'));
+                btn.classList.add(liked ? 'liked' : 'disliked');
                 console.log(`Taste updated: ${liked ? 'liked' : 'disliked'} ${itemIds.length} items`);
                 
                 // If disliked, regenerate just this outfit with different items
