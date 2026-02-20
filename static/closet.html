@@ -1507,10 +1507,13 @@
                 formData.append('lon', userLocation.lon);
             }
             
-            // Add mood/occasion if specified
-            const mood = moodInput?.value?.trim();
+            // Add mood/occasion if specified - get fresh reference
+            const moodEl = document.getElementById('mood-input');
+            const mood = moodEl?.value?.trim();
+            console.log('Single-item generation mood:', mood, 'element:', moodEl);
             if (mood) {
                 formData.append('mood_text', mood);
+                console.log('Added mood_text to form:', mood);
             }
 
             try {

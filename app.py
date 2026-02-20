@@ -2064,7 +2064,7 @@ async def generate_closet_outfits(
     """
     auth_token = request.cookies.get("auth_token")
     user_id = require_auth(auth_token)
-    logger.info(f"Closet outfit generation: item_id={item_id}, has_file={file is not None}, weather={lat},{lon}")
+    logger.info(f"Closet outfit generation: item_id={item_id}, has_file={file is not None}, weather={lat},{lon}, mood={mood_text}")
     
     base_url = str(request.base_url).rstrip("/")
     
