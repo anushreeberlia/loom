@@ -2258,17 +2258,17 @@ async def get_daily_outfits(
             elif weather_adjustments["skip_layer"] and "layer" in slots:
                 slots = [s for s in slots if s != "layer"]
         
-        # Build query texts
+        # Get occasion name for query text (better retrieval) and filtering
+        occasion_name = occasion_info.get("occasion", "casual")
+        
+        # Build query texts WITH occasion for better retrieval
         query_texts = []
         for slot in slots:
-            query_text = build_query_text(base_item, direction, slot, {})
+            query_text = build_query_text(base_item, direction, slot, {}, occasion=occasion_name)
             query_texts.append(query_text)
         
         # Get embeddings
         query_embeddings = get_batch_embeddings(query_texts)
-        
-        # Retrieve candidates from closet - with SEMANTIC occasion filtering
-        occasion_name = occasion_info.get("occasion", "casual")
         candidates_by_slot = {}
         for i, slot in enumerate(slots):
             try:

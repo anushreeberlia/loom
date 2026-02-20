@@ -449,7 +449,8 @@ def build_query_text(
     base_item: dict, 
     direction: str, 
     slot: str,
-    chosen_items: dict[str, dict] = None
+    chosen_items: dict[str, dict] = None,
+    occasion: str = None
 ) -> str:
     """
     Build a direction-aware query text for embedding.
@@ -460,6 +461,7 @@ def build_query_text(
         direction: Style direction
         slot: Slot to fill
         chosen_items: Items already chosen for this outfit (slot → item)
+        occasion: Optional occasion context (work, casual, going-out) for better retrieval
     """
     base_color = base_item.get("primary_color", "")
     base_category = base_item.get("category", "top")
@@ -486,8 +488,20 @@ def build_query_text(
     elif slot == "accessory":
         color_hint = "in neutral or metallic tones"
     
-    # Build base query
-    base_query = f"{direction_lower} {item_hint} {color_hint}"
+    # Add occasion context for better retrieval (work, casual, going-out, etc.)
+    occasion_hint = ""
+    if occasion:
+        occasion_descriptions = {
+            "work": "professional office-appropriate",
+            "casual": "relaxed everyday",
+            "going-out": "stylish evening night-out",
+            "smart-casual": "polished yet relaxed",
+            "workout": "athletic sporty activewear"
+        }
+        occasion_hint = occasion_descriptions.get(occasion, occasion) + " "
+    
+    # Build base query with occasion
+    base_query = f"{occasion_hint}{direction_lower} {item_hint} {color_hint}"
     
     # Add sequential conditioning - reference already chosen items
     chosen_items = chosen_items or {}
