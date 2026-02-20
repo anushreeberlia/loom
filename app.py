@@ -2431,7 +2431,11 @@ async def get_daily_outfits(
                     collage_url = outfit.get("collage_url", "")
                     # Extract file path from URL (handle both relative and absolute)
                     if collage_url and not collage_url.startswith("http"):
+                        # Convert URL path to actual file path
+                        # /static/generated/X -> collages/X
                         file_path = collage_url.lstrip("/")
+                        if file_path.startswith("static/generated/"):
+                            file_path = file_path.replace("static/generated/", "collages/")
                         if not os.path.exists(file_path):
                             logger.info(f"Collage missing: {file_path}, regenerating...")
                             # Regenerate this collage

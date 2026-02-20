@@ -1511,7 +1511,6 @@
             // Add mood/occasion if specified - use the single-item mood input
             const singleMoodEl = document.getElementById('single-mood-input');
             const mood = singleMoodEl?.value?.trim();
-            console.log('Single-item generation mood:', mood);
             if (mood) {
                 formData.append('mood_text', mood);
             }
