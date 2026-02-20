@@ -355,35 +355,6 @@
             color: var(--text-muted);
         }
 
-        .bg-status {
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            font-size: 0.75rem;
-            color: var(--text-muted);
-            margin-top: 0.75rem;
-            justify-content: center;
-        }
-        .bg-status-dot {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            background: var(--text-muted);
-        }
-        .bg-status-dot.loading {
-            background: #f0ad4e;
-            animation: pulse 1s infinite;
-        }
-        .bg-status-dot.ready {
-            background: var(--success);
-        }
-        .bg-status-dot.failed {
-            background: var(--accent);
-        }
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.4; }
-        }
 
         #bulk-camera-input {
             display: none;
@@ -1022,11 +993,6 @@
                 <input type="file" id="camera-input" accept="image/*" capture="environment" style="position:absolute;opacity:0;width:100%;height:100%;top:0;left:0;cursor:pointer;">
             </label>
         </div>
-        <div class="bg-status" id="bg-status">
-            <span class="bg-status-dot loading"></span>
-            <span class="bg-status-text">Loading background removal...</span>
-        </div>
-        
         <!-- Bulk capture mode -->
         <div class="bulk-capture" id="bulk-capture" style="display: none;">
             <div class="bulk-header">
@@ -1126,28 +1092,6 @@
         let allItems = [];
         let currentFilter = 'all';
         let bulkFiles = []; // Files queued in bulk capture mode
-
-        // Background removal status
-        const bgStatus = document.getElementById('bg-status');
-        const bgStatusDot = bgStatus.querySelector('.bg-status-dot');
-        const bgStatusText = bgStatus.querySelector('.bg-status-text');
-        
-        function updateBgStatus() {
-            if (window.bgRemovalReady === true) {
-                bgStatusDot.className = 'bg-status-dot ready';
-                bgStatusText.textContent = 'Auto background removal ready';
-            } else if (window.bgRemovalReady === false) {
-                bgStatusDot.className = 'bg-status-dot failed';
-                bgStatusText.textContent = 'Background removal unavailable';
-            }
-        }
-        
-        // Check if already loaded
-        if (window.bgRemovalReady !== undefined) {
-            updateBgStatus();
-        }
-        // Listen for load event
-        window.addEventListener('bgRemovalReady', updateBgStatus);
 
         // Toggle user menu dropdown
         function toggleUserMenu() {
