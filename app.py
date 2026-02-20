@@ -1405,12 +1405,22 @@ async def list_saved_outfits(auth_token: Optional[str] = Cookie(None)):
         
         outfits = []
         for row in rows:
+            outfit_id, outfit_data, collage_url, occasion, saved_at = row
+            
+            # Fallback for old saved outfits with local URLs (won't work after restart)
+            if collage_url and '/static/generated/' in collage_url and 'cloudinary' not in collage_url:
+                items = outfit_data.get('items', []) if outfit_data else []
+                if items and items[0].get('image_url'):
+                    collage_url = items[0]['image_url']
+                else:
+                    collage_url = None
+            
             outfits.append({
-                "id": row[0],
-                "outfit_data": row[1],
-                "collage_url": row[2],
-                "occasion": row[3],
-                "saved_at": row[4].isoformat() if row[4] else None
+                "id": outfit_id,
+                "outfit_data": outfit_data,
+                "collage_url": collage_url,
+                "occasion": occasion,
+                "saved_at": saved_at.isoformat() if saved_at else None
             })
         
         return {"outfits": outfits, "count": len(outfits)}
@@ -1439,12 +1449,22 @@ async def list_worn_outfits(auth_token: Optional[str] = Cookie(None)):
         
         outfits = []
         for row in rows:
+            outfit_id, outfit_data, collage_url, occasion, worn_at = row
+            
+            # Fallback for old worn outfits with local URLs
+            if collage_url and '/static/generated/' in collage_url and 'cloudinary' not in collage_url:
+                items = outfit_data.get('items', []) if outfit_data else []
+                if items and items[0].get('image_url'):
+                    collage_url = items[0]['image_url']
+                else:
+                    collage_url = None
+            
             outfits.append({
-                "id": row[0],
-                "outfit_data": row[1],
-                "collage_url": row[2],
-                "occasion": row[3],
-                "worn_at": row[4].isoformat() if row[4] else None
+                "id": outfit_id,
+                "outfit_data": outfit_data,
+                "collage_url": collage_url,
+                "occasion": occasion,
+                "worn_at": worn_at.isoformat() if worn_at else None
             })
         
         return {"outfits": outfits, "count": len(outfits)}
