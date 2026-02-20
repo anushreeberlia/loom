@@ -1506,6 +1506,12 @@
                 formData.append('lat', userLocation.lat);
                 formData.append('lon', userLocation.lon);
             }
+            
+            // Add mood/occasion if specified
+            const mood = moodInput?.value?.trim();
+            if (mood) {
+                formData.append('mood_text', mood);
+            }
 
             try {
                 const response = await fetch('/v1/closet/outfits:generate', {

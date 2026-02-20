@@ -2053,12 +2053,14 @@ async def generate_closet_outfits(
     item_id: int = Form(None),
     file: UploadFile = File(None),
     lat: float = Form(None),
-    lon: float = Form(None)
+    lon: float = Form(None),
+    mood_text: str = Form(None)
 ):
     """
     Generate outfits using ONLY items from user's closet. Requires authentication.
     Either pick an existing closet item (item_id) or upload a new image.
     Optionally pass lat/lon to factor in weather.
+    Optionally pass mood_text to specify occasion (e.g., "work", "date night").
     """
     auth_token = request.cookies.get("auth_token")
     user_id = require_auth(auth_token)
@@ -2172,6 +2174,13 @@ async def generate_closet_outfits(
             weather_adjustments = get_weather_outfit_adjustments(weather_data)
             logger.info(f"Weather: {weather_data.city} {weather_data.temperature_c}°C - {weather_adjustments['notes']}")
     
+    # Parse mood/occasion if provided
+    occasion_name = None
+    if mood_text:
+        occasion_info = interpret_mood_for_occasion(mood_text)
+        occasion_name = occasion_info.get("occasion") if occasion_info else None
+        logger.info(f"Single-item generation with mood: {mood_text} -> occasion: {occasion_name}")
+    
     # Build query embeddings for closet retrieval
     directions = ["Classic", "Trendy", "Bold"]
     base_category = base_item.get("category", "top")
@@ -2181,7 +2190,7 @@ async def generate_closet_outfits(
     for outfit_idx, direction in enumerate(directions):
         slots = get_slots_for_outfit(base_category, outfit_idx)
         for slot in slots:
-            query_text = build_query_text(base_item, direction, slot, {})
+            query_text = build_query_text(base_item, direction, slot, {}, occasion=occasion_name)
             retrieval_tasks.append((outfit_idx, direction, slot))
             query_texts.append(query_text)
     
@@ -2204,7 +2213,8 @@ async def generate_closet_outfits(
                 k=10,
                 precomputed_embedding=precomputed_emb,
                 use_closet=True,
-                user_id=user_id
+                user_id=user_id,
+                occasion=occasion_name  # Pass occasion for semantic filtering
             )
             logger.info(f"  [{direction}] {slot}: {len(candidates)} closet candidates")
             return (outfit_idx, direction, slot, candidates)
