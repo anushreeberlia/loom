@@ -7,6 +7,7 @@ import uuid
 import random
 import logging
 import hashlib
+import json
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import psycopg2
