@@ -2894,6 +2894,39 @@ async def regenerate_single_outfit(
     if exclude_ids:
         excluded = set(int(x) for x in exclude_ids.split(",") if x.strip())
     
+    # Also exclude base items from OTHER outfits in today's cache (avoid duplicate tops)
+    try:
+        conn_check = get_db_connection()
+        cursor_check = conn_check.cursor()
+        # Determine occasion for cache lookup
+        occasion_for_cache = None
+        if mood_text:
+            temp_occasion = interpret_mood_for_occasion(mood_text)
+            occasion_for_cache = temp_occasion.get("occasion") if temp_occasion else "casual"
+        else:
+            temp_occasion = get_occasion_from_time(tz_offset)
+            occasion_for_cache = temp_occasion.get("occasion") if temp_occasion else "casual"
+        
+        cursor_check.execute(
+            """SELECT outfits_json FROM daily_outfit_cache 
+               WHERE user_id = %s AND cache_date = CURRENT_DATE AND occasion = %s""",
+            (user_id, occasion_for_cache)
+        )
+        cached = cursor_check.fetchone()
+        if cached and cached[0]:
+            cached_outfits = cached[0]
+            if isinstance(cached_outfits, list):
+                for i, outfit in enumerate(cached_outfits):
+                    if i != idx and outfit:  # Skip the outfit being regenerated
+                        base = outfit.get("base_item")
+                        if base and base.get("id"):
+                            excluded.add(base["id"])
+                            logger.info(f"Excluding base item {base['id']} ({base.get('name')}) from other outfit {i}")
+        cursor_check.close()
+        conn_check.close()
+    except Exception as e:
+        logger.warning(f"Could not check cached outfits for exclusion: {e}")
+    
     # Get taste vectors
     taste_vector, dislike_vector = get_taste_vector(user_id)
     
