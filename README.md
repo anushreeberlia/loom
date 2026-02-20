@@ -1,31 +1,45 @@
-# AI Outfit Styler
+# Loom - Outfit Builder
 
-Upload a clothing item image, get 3 styled outfit recommendations.
+Your personal AI-powered wardrobe assistant. Upload your closet, get daily outfit recommendations based on weather, occasion, and your style preferences.
 
-## Status
+## Features
 
-🚧 **Work in Progress**
+- **Personal Closet** - Upload and manage your wardrobe items with automatic tagging
+- **Daily Outfits** - Get 3 curated outfit suggestions each day
+- **Weather-Aware** - Recommendations adapt to local weather conditions
+- **Occasion Detection** - Auto-detects work hours, evenings, weekends for appropriate styling
+- **Custom Moods** - Type any mood/occasion for personalized suggestions
+- **Style Learning** - Like/dislike feedback improves recommendations over time
+- **Top Rotation** - FIFO queue ensures variety in outfit suggestions
+- **Save & Track** - Bookmark outfits and track what you've worn
+- **Background Removal** - Client-side AI removes backgrounds from item photos
 
-- [x] Image upload & storage
-- [x] PostgreSQL integration
-- [ ] Vision AI (describe image)
-- [ ] Tag parsing (category, color, style)
-- [ ] Catalog with embeddings
-- [ ] Outfit retrieval & assembly
+## Tech Stack
+
+- **Backend**: FastAPI + Python
+- **Database**: PostgreSQL with pgvector for embeddings
+- **AI**: OpenAI (GPT-4 Vision for tagging, text-embedding-3-small for similarity)
+- **Images**: Cloudinary for storage and transformations
+- **Weather**: OpenWeatherMap API
+- **Auth**: Google OAuth + Email/Password with JWT
+- **Hosting**: Railway
 
 ## Quick Start
 
 ### Prerequisites
 
 - Python 3.10+
-- PostgreSQL 15+
+- PostgreSQL 15+ with pgvector extension
+- Cloudinary account
+- OpenAI API key
+- OpenWeatherMap API key (free tier works)
 
 ### Setup
 
 ```bash
 # Clone
-git clone https://github.com/YOUR_USERNAME/outfit-styler.git
-cd outfit-styler
+git clone https://github.com/anushreeberlia/loom.git
+cd loom
 
 # Virtual environment
 python3 -m venv venv
@@ -34,35 +48,70 @@ source venv/bin/activate
 # Dependencies
 pip install -r requirements.txt
 
-# Database
-createdb outfit_styler
-psql outfit_styler -f schema.sql
+# Environment variables
+cp env.example .env
+# Edit .env with your API keys
 
-# Create uploads folder
-mkdir uploads
+# Database
+createdb loom
+psql loom -f schema.sql
 
 # Run
-python app.py
+uvicorn app:app --reload --port 8080
 ```
 
-### Test
+Visit http://localhost:8080
 
-```bash
-curl -X POST -F "file=@image.jpg" http://localhost:8000/v1/outfits:generate
+## Environment Variables
+
+```
+DATABASE_URL=postgresql://user:pass@localhost/loom
+OPENAI_API_KEY=sk-...
+CLOUDINARY_CLOUD_NAME=...
+CLOUDINARY_API_KEY=...
+CLOUDINARY_API_SECRET=...
+OPENWEATHERMAP_API_KEY=...
+GOOGLE_CLIENT_ID=...
+GOOGLE_CLIENT_SECRET=...
+JWT_SECRET=...
 ```
 
-Or visit http://localhost:8000/docs
-
-## API
+## API Endpoints
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/health` | GET | Health check |
-| `/v1/outfits:generate` | POST | Generate outfits from image |
+| `/` | GET | Landing page |
+| `/closet` | GET | Daily outfits page |
+| `/inventory` | GET | Manage closet items |
+| `/v1/closet/items` | GET/POST | List/add closet items |
+| `/v1/closet/daily` | GET | Get daily outfit recommendations |
+| `/v1/closet/outfits:generate` | POST | Generate outfits from a specific item |
+| `/v1/closet/feedback` | POST | Submit like/dislike feedback |
+| `/v1/closet/outfits/save` | POST | Save outfit for later |
+| `/v1/closet/outfits/saved` | GET | List saved outfits |
+| `/v1/closet/outfits/worn` | GET | List worn outfit history |
+| `/auth/google` | GET | Google OAuth login |
+| `/auth/register` | POST | Email/password registration |
+| `/auth/login` | POST | Email/password login |
 
-## Tech Stack
+## Project Structure
 
-- **Backend**: FastAPI
-- **Database**: PostgreSQL
-- **AI**: Gemini (planned)
+```
+├── app.py              # Main FastAPI application
+├── schema.sql          # Database schema
+├── requirements.txt    # Python dependencies
+├── services/
+│   ├── retrieval.py    # Outfit retrieval & assembly
+│   ├── collage.py      # Outfit image generation
+│   ├── weather.py      # Weather API integration
+│   └── auth.py         # Authentication
+└── static/
+    ├── closet.html     # Daily outfits UI
+    ├── inventory.html  # Closet management UI
+    ├── index.html      # Demo page
+    └── login.html      # Auth page
+```
 
+## License
+
+MIT
