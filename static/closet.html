@@ -1095,6 +1095,7 @@
 
             <div class="generate-section">
                 <div class="selection-preview" id="selection-preview"></div>
+                <input type="text" id="single-mood-input" class="mood-input" placeholder="Occasion? (e.g., work, date night, casual...)" style="width: 100%; margin-bottom: 0.5rem; padding: 0.75rem; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-alt); color: var(--text); font-size: 0.95rem;">
                 <button class="generate-btn" id="generate-btn" disabled>Generate Outfits</button>
             </div>
         </section>
@@ -1507,13 +1508,12 @@
                 formData.append('lon', userLocation.lon);
             }
             
-            // Add mood/occasion if specified - get fresh reference
-            const moodEl = document.getElementById('mood-input');
-            const mood = moodEl?.value?.trim();
-            console.log('Single-item generation mood:', mood, 'element:', moodEl);
+            // Add mood/occasion if specified - use the single-item mood input
+            const singleMoodEl = document.getElementById('single-mood-input');
+            const mood = singleMoodEl?.value?.trim();
+            console.log('Single-item generation mood:', mood);
             if (mood) {
                 formData.append('mood_text', mood);
-                console.log('Added mood_text to form:', mood);
             }
 
             try {
