@@ -281,8 +281,12 @@
                     if (data.user.profile_image) {
                         img.src = data.user.profile_image;
                         img.alt = data.user.name || 'User';
-                        avatar.style.display = 'block';
+                    } else {
+                        // Default avatar for email/password users
+                        img.src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="%23666"><circle cx="12" cy="8" r="4"/><path d="M12 14c-6 0-8 3-8 5v1h16v-1c0-2-2-5-8-5z"/></svg>';
+                        img.alt = data.user.name || data.user.email || 'User';
                     }
+                    avatar.style.display = 'block';
                     document.getElementById('user-name').textContent = data.user.name || data.user.email;
                 }
             } catch (e) {
