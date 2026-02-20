@@ -1198,9 +1198,9 @@
                 dailyLoading.style.display = 'block';
                 dailyGrid.style.display = 'none';
                 dailyActions.style.display = 'none';
-                // Don't force refresh - if same occasion, show cached outfits
-                // User can click "Refresh" button to regenerate
-                loadDailyOutfits(userLocation.lat, userLocation.lon, false, mood || null);
+                // Force refresh when mood is specified to get fresh outfits
+                const shouldRefresh = mood ? true : false;
+                loadDailyOutfits(userLocation.lat, userLocation.lon, shouldRefresh, mood || null);
             }
         });
 
