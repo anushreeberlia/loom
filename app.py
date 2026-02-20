@@ -781,12 +781,6 @@ async def serve_closet():
     return FileResponse("static/closet.html")
 
 
-@app.get("/saved")
-async def serve_saved():
-    """Serve the saved outfits page."""
-    return FileResponse("static/saved.html")
-
-
 @app.get("/inventory")
 async def serve_inventory():
     """Serve the inventory page for managing closet items."""

@@ -163,6 +163,147 @@
             font-size: 0.9rem;
         }
 
+        /* Main Section Tabs */
+        .main-tabs {
+            display: flex;
+            gap: 0;
+            margin-bottom: 2rem;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .main-tab {
+            padding: 0.75rem 1.25rem;
+            background: none;
+            border: none;
+            font-family: inherit;
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            margin-bottom: -1px;
+            transition: all 0.2s;
+        }
+
+        .main-tab:hover {
+            color: var(--text);
+        }
+
+        .main-tab.active {
+            color: var(--text);
+            border-bottom-color: var(--text);
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        /* Saved Outfits Grid */
+        .outfits-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+            gap: 1.5rem;
+        }
+
+        .outfit-card {
+            background: white;
+            border-radius: 12px;
+            overflow: hidden;
+            border: 1px solid var(--border);
+        }
+
+        .outfit-collage {
+            width: 100%;
+            aspect-ratio: 3/4;
+            object-fit: cover;
+            background: var(--bg-alt);
+        }
+
+        .outfit-info {
+            padding: 1rem;
+        }
+
+        .outfit-occasion {
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-muted);
+            margin-bottom: 0.5rem;
+        }
+
+        .outfit-date {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+        }
+
+        .outfit-explanation {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            margin: 0.5rem 0;
+        }
+
+        .outfit-actions {
+            padding: 0.75rem 1rem;
+            display: flex;
+            gap: 0.5rem;
+            border-top: 1px solid var(--border);
+        }
+
+        .outfit-action-btn {
+            flex: 1;
+            padding: 0.5rem 0.75rem;
+            background: transparent;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            font-size: 0.7rem;
+            cursor: pointer;
+            transition: all 0.15s;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .outfit-action-btn:hover {
+            border-color: var(--text);
+            color: var(--text);
+        }
+
+        .outfit-action-btn.primary {
+            background: var(--text);
+            color: white;
+            border-color: var(--text);
+        }
+
+        .outfit-action-btn.danger:hover {
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 4rem 2rem;
+            color: var(--text-muted);
+        }
+
+        .empty-state h3 {
+            font-family: 'Cormorant Garamond', serif;
+            font-size: 1.5rem;
+            font-weight: 400;
+            margin-bottom: 0.5rem;
+            color: var(--text);
+        }
+
+        .empty-state p {
+            font-size: 0.9rem;
+        }
+
+        .empty-state a {
+            color: var(--text);
+        }
+
         /* Upload Actions */
         .upload-actions {
             display: grid;
@@ -834,7 +975,7 @@
         <nav>
             <a href="/inventory" class="active">Inventory</a>
             <a href="/closet">Style</a>
-            <a href="/saved">Saved</a>
+            <a href="/demo">Demo</a>
             <a href="/login" id="login-link">Sign In</a>
             <div class="user-avatar" id="user-avatar" style="display: none;" onclick="toggleUserMenu()">
                 <img src="" alt="" id="user-image">
@@ -851,6 +992,15 @@
             <h1 class="page-title">My Closet</h1>
             <p class="page-subtitle">Upload and manage your wardrobe</p>
         </div>
+
+        <div class="main-tabs">
+            <button class="main-tab active" data-tab="items" onclick="switchMainTab('items')">Closet Items</button>
+            <button class="main-tab" data-tab="saved" onclick="switchMainTab('saved')">Saved Outfits</button>
+            <button class="main-tab" data-tab="worn" onclick="switchMainTab('worn')">Previously Worn</button>
+        </div>
+
+        <!-- Tab: Closet Items -->
+        <div class="tab-content active" id="tab-items">
 
         <div class="upload-actions">
             <label class="upload-zone" id="upload-zone">
@@ -914,6 +1064,27 @@
             <div class="empty-state-icon">👗</div>
             <div class="empty-state-text">Your closet is empty</div>
         </div>
+
+        </div><!-- End tab-items -->
+
+        <!-- Tab: Saved Outfits -->
+        <div class="tab-content" id="tab-saved">
+            <div class="outfits-grid" id="saved-grid"></div>
+            <div class="empty-state" id="saved-empty" style="display: none;">
+                <h3>No saved outfits yet</h3>
+                <p>Head to <a href="/closet">Style</a> to generate outfits and save your favorites!</p>
+            </div>
+        </div>
+
+        <!-- Tab: Previously Worn -->
+        <div class="tab-content" id="tab-worn">
+            <div class="outfits-grid" id="worn-grid"></div>
+            <div class="empty-state" id="worn-empty" style="display: none;">
+                <h3>No outfit history yet</h3>
+                <p>Mark outfits as "Wearing this" to track what you've worn!</p>
+            </div>
+        </div>
+
     </div>
 
     <div class="loading-overlay" id="loading-overlay">
@@ -1593,6 +1764,215 @@
             setTimeout(() => {
                 toast.classList.remove('visible');
             }, 3000);
+        }
+
+        // ========== Saved/Worn Outfits Tab Logic ==========
+        let savedOutfits = [];
+        let wornOutfits = [];
+        let savedLoaded = false;
+        let wornLoaded = false;
+
+        function switchMainTab(tab) {
+            // Update tab buttons
+            document.querySelectorAll('.main-tab').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.tab === tab);
+            });
+
+            // Update tab content
+            document.querySelectorAll('.tab-content').forEach(content => {
+                content.classList.remove('active');
+            });
+            document.getElementById(`tab-${tab}`).classList.add('active');
+
+            // Load data if needed
+            if (tab === 'saved' && !savedLoaded) {
+                fetchSavedOutfits();
+            } else if (tab === 'worn' && !wornLoaded) {
+                fetchWornOutfits();
+            }
+        }
+
+        async function fetchSavedOutfits() {
+            try {
+                const res = await fetch('/v1/closet/outfits/saved');
+                if (res.status === 401) {
+                    window.location.href = '/login';
+                    return;
+                }
+                const data = await res.json();
+                savedOutfits = data.outfits || [];
+                savedLoaded = true;
+                renderSavedOutfits();
+            } catch (e) {
+                console.error('Error fetching saved outfits:', e);
+                savedOutfits = [];
+                renderSavedOutfits();
+            }
+        }
+
+        async function fetchWornOutfits() {
+            try {
+                const res = await fetch('/v1/closet/outfits/worn');
+                if (res.status === 401) {
+                    window.location.href = '/login';
+                    return;
+                }
+                const data = await res.json();
+                wornOutfits = data.outfits || [];
+                wornLoaded = true;
+                renderWornOutfits();
+            } catch (e) {
+                console.error('Error fetching worn outfits:', e);
+                wornOutfits = [];
+                renderWornOutfits();
+            }
+        }
+
+        function formatDate(dateStr) {
+            if (!dateStr) return '';
+            const date = new Date(dateStr);
+            return date.toLocaleDateString('en-US', { 
+                month: 'short', 
+                day: 'numeric',
+                year: date.getFullYear() !== new Date().getFullYear() ? 'numeric' : undefined
+            });
+        }
+
+        function renderSavedOutfits() {
+            const grid = document.getElementById('saved-grid');
+            const empty = document.getElementById('saved-empty');
+
+            if (savedOutfits.length === 0) {
+                grid.innerHTML = '';
+                empty.style.display = 'block';
+                return;
+            }
+
+            empty.style.display = 'none';
+            grid.innerHTML = savedOutfits.map(outfit => {
+                const data = outfit.outfit_data || {};
+                return `
+                    <div class="outfit-card" data-outfit-id="${outfit.id}">
+                        ${outfit.collage_url 
+                            ? `<img class="outfit-collage" src="${outfit.collage_url}" alt="Outfit">`
+                            : '<div class="outfit-collage" style="display: flex; align-items: center; justify-content: center; color: #888;">No image</div>'}
+                        <div class="outfit-info">
+                            ${outfit.occasion ? `<div class="outfit-occasion">${outfit.occasion}</div>` : ''}
+                            ${data.explanation ? `<div class="outfit-explanation">${data.explanation}</div>` : ''}
+                            <div class="outfit-date">${formatDate(outfit.saved_at)}</div>
+                        </div>
+                        <div class="outfit-actions">
+                            <button class="outfit-action-btn primary" onclick="markWornFromSaved(${outfit.id}, this)">Wear Now</button>
+                            <button class="outfit-action-btn danger" onclick="deleteSavedOutfit(${outfit.id}, this)">Remove</button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function renderWornOutfits() {
+            const grid = document.getElementById('worn-grid');
+            const empty = document.getElementById('worn-empty');
+
+            if (wornOutfits.length === 0) {
+                grid.innerHTML = '';
+                empty.style.display = 'block';
+                return;
+            }
+
+            empty.style.display = 'none';
+            grid.innerHTML = wornOutfits.map(outfit => {
+                const data = outfit.outfit_data || {};
+                return `
+                    <div class="outfit-card" data-outfit-id="${outfit.id}">
+                        ${outfit.collage_url 
+                            ? `<img class="outfit-collage" src="${outfit.collage_url}" alt="Outfit">`
+                            : '<div class="outfit-collage" style="display: flex; align-items: center; justify-content: center; color: #888;">No image</div>'}
+                        <div class="outfit-info">
+                            ${outfit.occasion ? `<div class="outfit-occasion">${outfit.occasion}</div>` : ''}
+                            ${data.explanation ? `<div class="outfit-explanation">${data.explanation}</div>` : ''}
+                            <div class="outfit-date">Worn ${formatDate(outfit.worn_at)}</div>
+                        </div>
+                        <div class="outfit-actions">
+                            <button class="outfit-action-btn" onclick="wearAgain(${outfit.id})">Wear Again</button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        async function markWornFromSaved(outfitId, btn) {
+            try {
+                btn.disabled = true;
+                btn.textContent = 'Recording...';
+                
+                const res = await fetch(`/v1/closet/outfits/${outfitId}/worn`, {
+                    method: 'POST'
+                });
+                
+                if (!res.ok) throw new Error('Failed to mark as worn');
+                
+                // Move from saved to worn
+                const outfit = savedOutfits.find(o => o.id === outfitId);
+                if (outfit) {
+                    savedOutfits = savedOutfits.filter(o => o.id !== outfitId);
+                    outfit.worn_at = new Date().toISOString();
+                    wornOutfits.unshift(outfit);
+                }
+                
+                renderSavedOutfits();
+                showToast('Outfit marked as worn!', 'success');
+            } catch (e) {
+                console.error('Mark worn error:', e);
+                btn.textContent = 'Failed';
+                btn.disabled = false;
+            }
+        }
+
+        async function deleteSavedOutfit(outfitId, btn) {
+            if (!confirm('Remove this outfit from your saved list?')) return;
+            
+            try {
+                btn.disabled = true;
+                btn.textContent = 'Removing...';
+                
+                const res = await fetch(`/v1/closet/outfits/${outfitId}`, {
+                    method: 'DELETE'
+                });
+                
+                if (!res.ok) throw new Error('Failed to delete');
+                
+                savedOutfits = savedOutfits.filter(o => o.id !== outfitId);
+                renderSavedOutfits();
+                showToast('Outfit removed', 'success');
+            } catch (e) {
+                console.error('Delete error:', e);
+                btn.textContent = 'Failed';
+                btn.disabled = false;
+            }
+        }
+
+        async function wearAgain(outfitId) {
+            try {
+                const res = await fetch(`/v1/closet/outfits/${outfitId}/worn`, {
+                    method: 'POST'
+                });
+                
+                if (!res.ok) throw new Error('Failed');
+                
+                // Update worn_at
+                const outfit = wornOutfits.find(o => o.id === outfitId);
+                if (outfit) {
+                    outfit.worn_at = new Date().toISOString();
+                    // Re-sort
+                    wornOutfits.sort((a, b) => new Date(b.worn_at) - new Date(a.worn_at));
+                }
+                
+                renderWornOutfits();
+                showToast('Outfit logged as worn again!', 'success');
+            } catch (e) {
+                console.error('Wear again error:', e);
+            }
         }
     </script>
 </body>
