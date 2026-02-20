@@ -532,7 +532,7 @@ async def google_login(request: Request):
     """Redirect to Google OAuth"""
     # Force HTTPS for production (Railway proxy reports http)
     base = str(request.base_url).rstrip("/")
-    if base.startswith("http://") and "railway.app" in base:
+    if base.startswith("http://") and ("railway.app" in base or "loom-style.com" in base):
         base = base.replace("http://", "https://", 1)
     redirect_uri = base + "/auth/google/callback"
     auth_url = get_google_auth_url(redirect_uri)
@@ -552,7 +552,7 @@ async def google_callback(request: Request, code: str = None, error: str = None)
     try:
         # Force HTTPS for production (Railway proxy reports http)
         base = str(request.base_url).rstrip("/")
-        if base.startswith("http://") and "railway.app" in base:
+        if base.startswith("http://") and ("railway.app" in base or "loom-style.com" in base):
             base = base.replace("http://", "https://", 1)
         redirect_uri = base + "/auth/google/callback"
         
