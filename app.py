@@ -1263,6 +1263,58 @@ async def mark_outfit_worn(outfit_id: int, auth_token: Optional[str] = Cookie(No
         conn.close()
 
 
+class MarkItemWornRequest(BaseModel):
+    occasion: str = "casual"  # Default occasion if not specified
+
+
+@app.post("/v1/closet/items/{item_id}/worn")
+async def mark_item_worn(item_id: int, req: MarkItemWornRequest = None, auth_token: Optional[str] = Cookie(None)):
+    """
+    Mark a single item as worn - adds it to the FIFO queue so it's deprioritized.
+    Useful for tracking tops worn outside of app-generated outfits.
+    """
+    user_id = require_auth(auth_token)
+    occasion = req.occasion if req else "casual"
+    
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        # Verify item belongs to user and is a top
+        cursor.execute(
+            """SELECT category FROM user_closet_items WHERE id = %s AND user_id = %s""",
+            (item_id, user_id)
+        )
+        row = cursor.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Item not found")
+        
+        category = row[0]
+        if category != "top":
+            raise HTTPException(status_code=400, detail="Only tops can be marked as worn for rotation")
+        
+        # Add to FIFO queue
+        cursor.execute(
+            """INSERT INTO top_suggestions (user_id, item_id, occasion, last_suggested_at, suggestion_count)
+               VALUES (%s, %s, %s, NOW(), 1)
+               ON CONFLICT (user_id, item_id, occasion) 
+               DO UPDATE SET last_suggested_at = NOW(), suggestion_count = top_suggestions.suggestion_count + 1""",
+            (user_id, item_id, occasion)
+        )
+        
+        conn.commit()
+        logger.info(f"Item {item_id} marked as worn for occasion {occasion}, user={user_id}")
+        return {"status": "worn", "item_id": item_id, "occasion": occasion}
+    except HTTPException:
+        raise
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"Mark item worn error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        cursor.close()
+        conn.close()
+
+
 @app.get("/v1/closet/outfits/saved")
 async def list_saved_outfits(auth_token: Optional[str] = Cookie(None)):
     """List all saved outfits (not yet worn)."""

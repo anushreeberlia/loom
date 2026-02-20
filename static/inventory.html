@@ -1321,6 +1321,7 @@
             itemsGrid.innerHTML = filtered.map(item => `
                 <div class="item-card" data-id="${item.id}">
                     <div class="item-actions">
+                        ${item.category === 'top' ? `<button class="item-btn" onclick="markItemWorn(${item.id}, this)" title="Mark as Worn (deprioritize in suggestions)">👕</button>` : ''}
                         <button class="item-btn" onclick="retagItem(${item.id})" title="Re-tag Item">🏷</button>
                         <button class="item-btn" onclick="removeBgSingle(${item.id})" title="Remove Background">✂</button>
                         <button class="item-btn" onclick="rotateItem(${item.id})" title="Rotate 90°">↻</button>
@@ -1474,6 +1475,49 @@
                 renderItems();
                 showToast(`Added ${completed} item${completed !== 1 ? 's' : ''} to closet`, 'success');
             }, 500);
+        }
+
+        async function markItemWorn(id, btn) {
+            const item = allItems.find(i => i.id === id);
+            if (!item || item.category !== 'top') return;
+            
+            // Ask for occasion
+            const occasion = prompt('Which occasion was this worn for?', 'casual') || 'casual';
+            const validOccasions = ['work', 'casual', 'going-out', 'smart-casual', 'workout'];
+            const normalizedOccasion = validOccasions.find(o => occasion.toLowerCase().includes(o)) || 'casual';
+            
+            btn.disabled = true;
+            btn.style.opacity = '0.5';
+            
+            try {
+                const res = await fetch(`/v1/closet/items/${id}/worn`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ occasion: normalizedOccasion })
+                });
+                
+                if (!res.ok) {
+                    if (res.status === 401) {
+                        window.location.href = '/login';
+                        return;
+                    }
+                    throw new Error('Failed to mark as worn');
+                }
+                
+                showToast(`Marked as worn for ${normalizedOccasion} - will be deprioritized in suggestions`, 'success');
+                btn.textContent = '✓';
+                setTimeout(() => {
+                    btn.textContent = '👕';
+                    btn.disabled = false;
+                    btn.style.opacity = '1';
+                }, 2000);
+                
+            } catch (e) {
+                console.error('Mark worn error:', e);
+                showToast('Failed to mark as worn', 'error');
+                btn.disabled = false;
+                btn.style.opacity = '1';
+            }
         }
 
         async function retagItem(id) {
