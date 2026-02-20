@@ -1271,6 +1271,7 @@ class MarkItemWornRequest(BaseModel):
 async def mark_item_worn(item_id: int, req: MarkItemWornRequest = None, auth_token: Optional[str] = Cookie(None)):
     """
     Mark a single item as worn - adds it to the FIFO queue so it's deprioritized.
+    Also creates a record in saved_outfits with status='worn' for history.
     Useful for tracking tops worn outside of app-generated outfits.
     """
     user_id = require_auth(auth_token)
@@ -1279,16 +1280,17 @@ async def mark_item_worn(item_id: int, req: MarkItemWornRequest = None, auth_tok
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        # Verify item belongs to user and is a top
+        # Get item details
         cursor.execute(
-            """SELECT category FROM user_closet_items WHERE id = %s AND user_id = %s""",
+            """SELECT id, name, category, image_url, primary_color 
+               FROM user_closet_items WHERE id = %s AND user_id = %s""",
             (item_id, user_id)
         )
         row = cursor.fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Item not found")
         
-        category = row[0]
+        item_id, name, category, image_url, primary_color = row
         if category != "top":
             raise HTTPException(status_code=400, detail="Only tops can be marked as worn for rotation")
         
@@ -1301,9 +1303,38 @@ async def mark_item_worn(item_id: int, req: MarkItemWornRequest = None, auth_tok
             (user_id, item_id, occasion)
         )
         
+        # Also create a worn outfit record for history
+        import json
+        outfit_data = {
+            "items": [{
+                "id": item_id,
+                "name": name,
+                "category": category,
+                "slot": "top",
+                "image_url": image_url,
+                "primary_color": primary_color
+            }],
+            "base_item": {
+                "id": item_id,
+                "name": name,
+                "category": category,
+                "image_url": image_url
+            },
+            "explanation": f"Single item worn ({occasion})",
+            "direction": "Quick wear"
+        }
+        
+        cursor.execute(
+            """INSERT INTO saved_outfits (user_id, outfit_data, occasion, base_item_id, status, worn_at)
+               VALUES (%s, %s, %s, %s, 'worn', NOW())
+               RETURNING id""",
+            (user_id, json.dumps(outfit_data), occasion, item_id)
+        )
+        outfit_id = cursor.fetchone()[0]
+        
         conn.commit()
-        logger.info(f"Item {item_id} marked as worn for occasion {occasion}, user={user_id}")
-        return {"status": "worn", "item_id": item_id, "occasion": occasion}
+        logger.info(f"Item {item_id} marked as worn for occasion {occasion}, user={user_id}, outfit_id={outfit_id}")
+        return {"status": "worn", "item_id": item_id, "occasion": occasion, "outfit_id": outfit_id}
     except HTTPException:
         raise
     except Exception as e:

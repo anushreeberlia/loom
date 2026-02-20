@@ -222,6 +222,16 @@
             background: var(--bg-alt);
         }
 
+        .outfit-collage.single-item-img {
+            object-fit: contain;
+            padding: 1rem;
+            background: #f5f4f1;
+        }
+
+        .outfit-card.single-item {
+            border-left: 3px solid var(--accent);
+        }
+
         .outfit-info {
             padding: 1rem;
         }
@@ -1927,14 +1937,22 @@
             empty.style.display = 'none';
             grid.innerHTML = wornOutfits.map(outfit => {
                 const data = outfit.outfit_data || {};
+                const items = data.items || [];
+                const isSingleItem = items.length === 1 && !outfit.collage_url;
+                const singleItemImg = isSingleItem && items[0]?.image_url;
+                
                 return `
-                    <div class="outfit-card" data-outfit-id="${outfit.id}">
+                    <div class="outfit-card ${isSingleItem ? 'single-item' : ''}" data-outfit-id="${outfit.id}">
                         ${outfit.collage_url 
                             ? `<img class="outfit-collage" src="${outfit.collage_url}" alt="Outfit">`
-                            : '<div class="outfit-collage" style="display: flex; align-items: center; justify-content: center; color: #888;">No image</div>'}
+                            : singleItemImg 
+                                ? `<img class="outfit-collage single-item-img" src="${singleItemImg}" alt="${items[0].name || 'Item'}">`
+                                : '<div class="outfit-collage" style="display: flex; align-items: center; justify-content: center; color: #888;">No image</div>'}
                         <div class="outfit-info">
                             ${outfit.occasion ? `<div class="outfit-occasion">${outfit.occasion}</div>` : ''}
-                            ${data.explanation ? `<div class="outfit-explanation">${data.explanation}</div>` : ''}
+                            ${isSingleItem && items[0]?.name 
+                                ? `<div class="outfit-explanation">${items[0].name}</div>` 
+                                : data.explanation ? `<div class="outfit-explanation">${data.explanation}</div>` : ''}
                             <div class="outfit-date">Worn ${formatDate(outfit.worn_at)}</div>
                         </div>
                         <div class="outfit-actions">
