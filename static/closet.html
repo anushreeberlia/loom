@@ -1631,12 +1631,12 @@
             if (img) img.style.opacity = '0.5';
             
             try {
-                // Get base item ID
+                // Get base item ID - keep the same base item for single-item outfit regen
                 const baseItemId = selectedItemId || window.generatedOutfitsData[idx]?.base_item?.id;
                 if (!baseItemId) return;
                 
-                // Use the single-outfit regenerate endpoint
-                let url = `/v1/closet/daily/regenerate/${idx}?exclude_ids=${excludeIds.join(',')}`;
+                // Use the single-outfit regenerate endpoint with base_item_id to keep same base
+                let url = `/v1/closet/daily/regenerate/${idx}?exclude_ids=${excludeIds.join(',')}&base_item_id=${baseItemId}`;
                 if (userLocation && userLocation.lat && userLocation.lon) {
                     url += `&lat=${userLocation.lat}&lon=${userLocation.lon}`;
                 }

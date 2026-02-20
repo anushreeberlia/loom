@@ -2878,15 +2878,17 @@ async def regenerate_single_outfit(
     lon: float = None,
     exclude_ids: str = None,
     tz_offset: float = None,
-    mood_text: str = None
+    mood_text: str = None,
+    base_item_id: int = None  # If provided, force use this base item (for single-item outfit regen)
 ):
     """
     Regenerate a single outfit (after dislike). Requires authentication.
     Excludes items from the disliked outfit to get something different.
+    If base_item_id is provided, keeps the same base item (for single-item outfit generation).
     """
     auth_token = request.cookies.get("auth_token")
     user_id = require_auth(auth_token)
-    logger.info(f"Regenerating outfit {idx} (exclude: {exclude_ids}, tz_offset: {tz_offset}, mood: {mood_text})")
+    logger.info(f"Regenerating outfit {idx} (exclude: {exclude_ids}, tz_offset: {tz_offset}, mood: {mood_text}, base_item_id: {base_item_id})")
     base_url = str(request.base_url).rstrip("/")
     
     # Parse exclude IDs
@@ -2894,38 +2896,40 @@ async def regenerate_single_outfit(
     if exclude_ids:
         excluded = set(int(x) for x in exclude_ids.split(",") if x.strip())
     
-    # Also exclude base items from OTHER outfits in today's cache (avoid duplicate tops)
-    try:
-        conn_check = get_db_connection()
-        cursor_check = conn_check.cursor()
-        # Determine occasion for cache lookup
-        occasion_for_cache = None
-        if mood_text:
-            temp_occasion = interpret_mood_for_occasion(mood_text)
-            occasion_for_cache = temp_occasion.get("occasion") if temp_occasion else "casual"
-        else:
-            temp_occasion = get_occasion_from_time(tz_offset)
-            occasion_for_cache = temp_occasion.get("occasion") if temp_occasion else "casual"
-        
-        cursor_check.execute(
-            """SELECT outfits_json FROM daily_outfit_cache 
-               WHERE user_id = %s AND cache_date = CURRENT_DATE AND occasion = %s""",
-            (user_id, occasion_for_cache)
-        )
-        cached = cursor_check.fetchone()
-        if cached and cached[0]:
-            cached_outfits = cached[0]
-            if isinstance(cached_outfits, list):
-                for i, outfit in enumerate(cached_outfits):
-                    if i != idx and outfit:  # Skip the outfit being regenerated
-                        base = outfit.get("base_item")
-                        if base and base.get("id"):
-                            excluded.add(base["id"])
-                            logger.info(f"Excluding base item {base['id']} ({base.get('name')}) from other outfit {i}")
-        cursor_check.close()
-        conn_check.close()
-    except Exception as e:
-        logger.warning(f"Could not check cached outfits for exclusion: {e}")
+    # Only exclude base items from OTHER outfits if we're not forcing a specific base item
+    # (For single-item outfit generation, we want to keep the same base item)
+    if not base_item_id:
+        try:
+            conn_check = get_db_connection()
+            cursor_check = conn_check.cursor()
+            # Determine occasion for cache lookup
+            occasion_for_cache = None
+            if mood_text:
+                temp_occasion = interpret_mood_for_occasion(mood_text)
+                occasion_for_cache = temp_occasion.get("occasion") if temp_occasion else "casual"
+            else:
+                temp_occasion = get_occasion_from_time(tz_offset)
+                occasion_for_cache = temp_occasion.get("occasion") if temp_occasion else "casual"
+            
+            cursor_check.execute(
+                """SELECT outfits_json FROM daily_outfit_cache 
+                   WHERE user_id = %s AND cache_date = CURRENT_DATE AND occasion = %s""",
+                (user_id, occasion_for_cache)
+            )
+            cached = cursor_check.fetchone()
+            if cached and cached[0]:
+                cached_outfits = cached[0]
+                if isinstance(cached_outfits, list):
+                    for i, outfit in enumerate(cached_outfits):
+                        if i != idx and outfit:  # Skip the outfit being regenerated
+                            base = outfit.get("base_item")
+                            if base and base.get("id"):
+                                excluded.add(base["id"])
+                                logger.info(f"Excluding base item {base['id']} ({base.get('name')}) from other outfit {i}")
+            cursor_check.close()
+            conn_check.close()
+        except Exception as e:
+            logger.warning(f"Could not check cached outfits for exclusion: {e}")
     
     # Get taste vectors
     taste_vector, dislike_vector = get_taste_vector(user_id)
@@ -2996,26 +3000,37 @@ async def regenerate_single_outfit(
                 return False
         return True
     
-    base_categories = ["top", "layer", "bottom", "dress"]
-    if weather_adjustments and weather_adjustments.get("force_layer"):
-        base_categories = ["layer", "top", "bottom"]
-    
     base_item = None
-    for pref_cat in base_categories:
-        candidates = [i for i in all_items 
-                     if i["category"] == pref_cat 
-                     and i["id"] not in excluded 
-                     and is_occasion_appropriate(i)]
-        if candidates:
-            base_item = candidates[0]  # Already randomized
-            break
     
-    # Fallback to any non-excluded item (skip occasion filter)
-    if not base_item:
+    # If base_item_id is provided (single-item outfit regen), force use that item
+    if base_item_id:
         for item in all_items:
-            if item["id"] not in excluded:
+            if item["id"] == base_item_id:
                 base_item = item
+                logger.info(f"Using specified base item: {base_item['name']} (id={base_item_id})")
                 break
+    
+    # Otherwise pick a new base item (daily outfit regen)
+    if not base_item:
+        base_categories = ["top", "layer", "bottom", "dress"]
+        if weather_adjustments and weather_adjustments.get("force_layer"):
+            base_categories = ["layer", "top", "bottom"]
+        
+        for pref_cat in base_categories:
+            candidates = [i for i in all_items 
+                         if i["category"] == pref_cat 
+                         and i["id"] not in excluded 
+                         and is_occasion_appropriate(i)]
+            if candidates:
+                base_item = candidates[0]  # Already randomized
+                break
+        
+        # Fallback to any non-excluded item (skip occasion filter)
+        if not base_item:
+            for item in all_items:
+                if item["id"] not in excluded:
+                    base_item = item
+                    break
     
     if not base_item:
         raise HTTPException(status_code=400, detail="No available items to create outfit")
