@@ -1533,6 +1533,10 @@
         function displayResults(data) {
             loadingSection.classList.remove('visible');
             resultsSection.classList.add('visible');
+            
+            // Hide mood input and weather bar for single-item results
+            document.getElementById('mood-container').style.display = 'none';
+            weatherBar.style.display = 'none';
 
             // Update weather note if we have weather-aware results
             const resultsNote = document.querySelector('.results-note');
@@ -2010,6 +2014,9 @@
         document.getElementById('try-again-btn').addEventListener('click', () => {
             resultsSection.classList.remove('visible');
             selectionSection.style.display = 'block';
+            // Keep mood input and weather bar hidden in selection mode
+            document.getElementById('mood-container').style.display = 'none';
+            weatherBar.style.display = 'none';
             selectedItemId = null;
             selectedFile = null;
             fileInput.value = '';
@@ -2037,6 +2044,9 @@
         document.getElementById('pick-item-btn').addEventListener('click', () => {
             dailySection.style.display = 'none';
             selectionSection.style.display = 'block';
+            // Hide mood input and weather bar in selection mode
+            document.getElementById('mood-container').style.display = 'none';
+            weatherBar.style.display = 'none';
         });
 
         // Back to daily from selection
@@ -2044,6 +2054,9 @@
             selectionSection.style.display = 'none';
             resultsSection.classList.remove('visible');
             dailySection.style.display = 'block';
+            // Show mood input and weather bar again
+            document.getElementById('mood-container').style.display = 'flex';
+            weatherBar.style.display = 'flex';
         });
     </script>
 </body>
