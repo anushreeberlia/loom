@@ -2250,11 +2250,14 @@ async def generate_closet_outfits(
             elif weather_adjustments["skip_layer"] and "layer" in slots:
                 slots = [s for s in slots if s != "layer"]
         
-        # Filter out used items
+        # Filter out used items (prefer diversity, but allow re-use as fallback)
         candidates_by_slot = {}
         for slot in slots:
             raw = all_candidates.get((outfit_idx, slot), [])
             filtered = [c for c in raw if c["id"] not in used_ids_global]
+            # If no candidates after filtering, allow re-use (small closet fallback)
+            if not filtered and raw:
+                filtered = raw  # Allow re-use rather than empty slot
             random.shuffle(filtered)
             candidates_by_slot[slot] = filtered
         

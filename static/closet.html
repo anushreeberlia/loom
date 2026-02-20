@@ -1032,12 +1032,12 @@
             <span>📍 Getting your location for weather-aware recommendations...</span>
         </div>
 
-        <!-- Mood Input (for single-item outfit generation) -->
-        <div class="mood-input-container" id="mood-container">
-            <input type="text" id="mood-input" placeholder="Occasion for outfit styling (e.g., work, date night, brunch...)" />
-        </div>
-
         <!-- Daily Outfits (shown first) -->
+        <!-- Mood Input (for daily outfit styling) -->
+        <div class="mood-input-container" id="mood-container">
+            <input type="text" id="mood-input" placeholder="Occasion? (e.g., work, date night, brunch...)" />
+            <button class="mood-btn" id="mood-btn">Style Me</button>
+        </div>
         <section id="daily-section">
             <div class="page-header">
                 <h1 class="page-title">Today's Outfits</h1>
@@ -1143,6 +1143,32 @@
         const dailyActions = document.getElementById('daily-actions');
         const dailySubtitle = document.getElementById('daily-subtitle');
         const moodInput = document.getElementById('mood-input');
+        const moodBtn = document.getElementById('mood-btn');
+
+        // Style Me button - generates daily outfits with mood/occasion
+        moodBtn.addEventListener('click', () => {
+            const mood = moodInput.value.trim();
+            if (userLocation) {
+                dailyLoading.style.display = 'block';
+                dailyGrid.style.display = 'none';
+                dailyActions.style.display = 'none';
+                // Force refresh when mood is specified to get fresh outfits for this occasion
+                loadDailyOutfits(userLocation.lat, userLocation.lon, true, mood || null);
+            } else {
+                // Try loading without location
+                dailyLoading.style.display = 'block';
+                dailyGrid.style.display = 'none';
+                dailyActions.style.display = 'none';
+                loadDailyOutfits(null, null, true, mood || null);
+            }
+        });
+
+        // Also trigger on Enter key in mood input
+        moodInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                moodBtn.click();
+            }
+        });
 
         // Toggle user menu dropdown
         function toggleUserMenu() {
@@ -1484,12 +1510,6 @@
             if (userLocation) {
                 formData.append('lat', userLocation.lat);
                 formData.append('lon', userLocation.lon);
-            }
-            
-            // Add mood/occasion if specified - use the main mood input bar
-            const mood = moodInput?.value?.trim();
-            if (mood) {
-                formData.append('mood_text', mood);
             }
 
             try {
