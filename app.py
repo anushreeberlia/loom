@@ -1186,8 +1186,36 @@ class SaveOutfitRequest(BaseModel):
 
 @app.post("/v1/closet/outfits/save")
 async def save_outfit(req: SaveOutfitRequest, auth_token: Optional[str] = Cookie(None)):
-    """Save an outfit for later. Requires authentication."""
+    """Save an outfit for later. Uploads collage to Cloudinary for permanent storage."""
     user_id = require_auth(auth_token)
+    
+    permanent_collage_url = req.collage_url
+    
+    # If collage_url is a local/generated path, upload to Cloudinary
+    if req.collage_url and ('/static/generated/' in req.collage_url or req.collage_url.startswith('collages/')):
+        try:
+            # Extract local path from URL
+            local_path = req.collage_url
+            if '/static/generated/' in local_path:
+                local_path = local_path.split('/static/generated/')[-1]
+            
+            # Full path to local file
+            full_path = os.path.join("static", "generated", local_path)
+            
+            if os.path.exists(full_path):
+                logger.info(f"Uploading collage to Cloudinary: {full_path}")
+                upload_result = cloudinary.uploader.upload(
+                    full_path,
+                    folder="outfits",
+                    resource_type="image"
+                )
+                permanent_collage_url = upload_result["secure_url"]
+                logger.info(f"Collage uploaded to Cloudinary: {permanent_collage_url}")
+            else:
+                logger.warning(f"Local collage not found: {full_path}")
+        except Exception as e:
+            logger.error(f"Failed to upload collage to Cloudinary: {e}")
+            # Keep original URL as fallback
     
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -1197,12 +1225,12 @@ async def save_outfit(req: SaveOutfitRequest, auth_token: Optional[str] = Cookie
             """INSERT INTO saved_outfits (user_id, outfit_data, collage_url, occasion, base_item_id, status)
                VALUES (%s, %s, %s, %s, %s, 'saved')
                RETURNING id""",
-            (user_id, json.dumps(req.outfit_data), req.collage_url, req.occasion, req.base_item_id)
+            (user_id, json.dumps(req.outfit_data), permanent_collage_url, req.occasion, req.base_item_id)
         )
         outfit_id = cursor.fetchone()[0]
         conn.commit()
-        logger.info(f"Outfit saved: id={outfit_id}, user={user_id}")
-        return {"status": "saved", "outfit_id": outfit_id}
+        logger.info(f"Outfit saved: id={outfit_id}, user={user_id}, collage={permanent_collage_url}")
+        return {"status": "saved", "outfit_id": outfit_id, "collage_url": permanent_collage_url}
     except Exception as e:
         conn.rollback()
         logger.error(f"Save outfit error: {e}")
