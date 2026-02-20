@@ -1368,17 +1368,6 @@
                         ? `<img class="outfit-collage" src="${outfit.collage_url}?t=${Date.now()}" alt="${outfit.direction}">`
                         : '<div style="padding: 2rem; text-align: center; color: #888;">No collage</div>'}
                     <div class="outfit-explanation">${outfit.explanation || 'Styled outfit'}</div>
-                    <div class="outfit-items">
-                        <div class="outfit-items-title">Pieces from your closet</div>
-                        ${(outfit.items || []).filter(item => item && item.slot).map(item => `
-                            <div class="item-row">
-                                <span class="item-slot">${formatSlot(item.slot)}</span>
-                                <span class="item-name">${item.name || 'Item'}</span>
-                                <span class="item-color color-${item.primary_color || 'grey'}"></span>
-                            </div>
-                            ${(item.style_tags?.length || item.occasion_tags?.length) ? `<div class="item-tags">${[...(item.style_tags || []), ...(item.occasion_tags || [])].slice(0,3).join(', ')}</div>` : ''}
-                        `).join('')}
-                    </div>
                     <div class="outfit-footer">
                         <button class="outfit-footer-btn" onclick="sendFeedback(${idx}, true, this)" title="Like">
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -1546,18 +1535,6 @@
                         ? `<img class="outfit-collage" src="${outfit.collage_url}?t=${Date.now()}" alt="Outfit ${idx + 1}">`
                         : '<div style="padding: 2rem; text-align: center; color: #888;">No collage</div>'}
                     <div class="outfit-explanation">${outfit.explanation || 'Styled outfit'}</div>
-                    <div class="outfit-items">
-                        <div class="outfit-items-title">Pieces from your closet</div>
-                        ${(outfit.items || []).filter(item => item && item.slot).map(item => `
-                            <div class="item-row">
-                                <span class="item-slot">${formatSlot(item.slot)}</span>
-                                <span class="item-name">${item.name || 'Item'}</span>
-                                <span class="item-color color-${item.primary_color || 'grey'}"></span>
-                            </div>
-                            ${(item.style_tags?.length || item.occasion_tags?.length) ? `<div class="item-tags">${[...(item.style_tags || []), ...(item.occasion_tags || [])].slice(0,3).join(', ')}</div>` : ''}
-                        `).join('')}
-                        ${(outfit.items || []).length === 0 ? '<div style="color: #888; font-size: 0.8rem;">Need more items in closet for this style</div>' : ''}
-                    </div>
                     <div class="outfit-footer">
                         <button class="outfit-footer-btn" onclick="sendGeneratedFeedback(${idx}, true, this)" title="Like">
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -1918,21 +1895,6 @@
                             const explanation = card.querySelector('.outfit-explanation');
                             if (explanation && newOutfit.explanation) {
                                 explanation.textContent = newOutfit.explanation;
-                            }
-                            // Update items list (match original structure)
-                            const itemsContainer = card.querySelector('.outfit-items');
-                            if (itemsContainer && newOutfit.items) {
-                                itemsContainer.innerHTML = `
-                                    <div class="outfit-items-title">Pieces from your closet</div>
-                                    ${(newOutfit.items || []).filter(item => item && item.slot).map(item => `
-                                        <div class="item-row">
-                                            <span class="item-slot">${formatSlot(item.slot)}</span>
-                                            <span class="item-name">${item.name || 'Item'}</span>
-                                            <span class="item-color color-${item.primary_color || 'grey'}"></span>
-                                        </div>
-                                        ${(item.style_tags?.length || item.occasion_tags?.length) ? `<div class="item-tags">${[...(item.style_tags || []), ...(item.occasion_tags || [])].slice(0,3).join(', ')}</div>` : ''}
-                                    `).join('')}
-                                `;
                             }
                             card.querySelectorAll('.feedback-btn').forEach(b => b.classList.remove('active'));
                         }
