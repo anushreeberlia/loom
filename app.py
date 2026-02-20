@@ -2505,8 +2505,9 @@ async def regenerate_single_outfit(
         elif weather_adjustments["skip_layer"] and "layer" in slots:
             slots = [s for s in slots if s != "layer"]
     
-    # Build queries and get embeddings
-    query_texts = [build_query_text(base_item, direction, slot, {}) for slot in slots]
+    # Build queries and get embeddings (with occasion if present)
+    occasion_name = occasion_info.get("occasion") if occasion_info else None
+    query_texts = [build_query_text(base_item, direction, slot, {}, occasion=occasion_name) for slot in slots]
     query_embeddings = get_batch_embeddings(query_texts)
     
     # Retrieve candidates (excluding disliked items)
