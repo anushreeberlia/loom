@@ -1186,11 +1186,13 @@
         // Style based on mood description
         moodBtn.addEventListener('click', () => {
             const mood = moodInput.value.trim();
-            if (mood && userLocation) {
+            if (userLocation) {
                 dailyLoading.style.display = 'block';
                 dailyGrid.style.display = 'none';
                 dailyActions.style.display = 'none';
-                loadDailyOutfits(userLocation.lat, userLocation.lon, true, mood);
+                // Don't force refresh - if same occasion, show cached outfits
+                // User can click "Refresh" button to regenerate
+                loadDailyOutfits(userLocation.lat, userLocation.lon, false, mood || null);
             }
         });
 
@@ -1239,15 +1241,15 @@
             );
         }
 
-        async function loadDailyOutfits(lat, lon, nocache = false, mood = null) {
+        async function loadDailyOutfits(lat, lon, refresh = false, mood = null) {
             try {
                 let url = '/v1/closet/daily';
                 const params = [];
                 if (lat !== null && lon !== null) {
                     params.push(`lat=${lat}`, `lon=${lon}`);
                 }
-                if (nocache) {
-                    params.push('nocache=true');
+                if (refresh) {
+                    params.push('refresh=true');
                 }
                 // Send timezone offset so server knows local time
                 const tzOffset = -new Date().getTimezoneOffset() / 60; // Convert minutes to hours
@@ -1989,13 +1991,15 @@
             loadCloset();
         });
 
-        // Refresh daily outfits (with nocache to force regeneration)
+        // Refresh daily outfits (with refresh=true to regenerate and update cache)
         document.getElementById('refresh-daily-btn').addEventListener('click', () => {
             dailyGrid.style.display = 'none';
             dailyActions.style.display = 'none';
             dailyLoading.style.display = 'block';
             dailySubtitle.textContent = 'Generating new looks...';
-            loadDailyOutfits(userLocation?.lat, userLocation?.lon, true);
+            // Get current mood if any, and pass refresh=true to regenerate
+            const currentMood = moodInput?.value?.trim() || null;
+            loadDailyOutfits(userLocation?.lat, userLocation?.lon, true, currentMood);
         });
 
         // Switch to pick item mode

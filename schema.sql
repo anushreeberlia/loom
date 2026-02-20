@@ -156,3 +156,18 @@ CREATE TABLE IF NOT EXISTS saved_outfits (
 
 -- Index for listing user's saved outfits
 CREATE INDEX IF NOT EXISTS idx_saved_outfits_user ON saved_outfits(user_id, saved_at DESC);
+
+-- daily_outfit_cache: Cache daily outfits so they persist for the day
+CREATE TABLE IF NOT EXISTS daily_outfit_cache (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    cache_date DATE NOT NULL DEFAULT CURRENT_DATE,
+    occasion VARCHAR(50),                        -- work, casual, going-out
+    mood_text TEXT,                              -- user's mood input if any
+    outfits_json JSONB NOT NULL,                 -- the 3 daily outfits
+    weather_json JSONB,                          -- weather data at generation time
+    created_at TIMESTAMP DEFAULT NOW(),
+    UNIQUE(user_id, cache_date, occasion)
+);
+
+CREATE INDEX IF NOT EXISTS idx_daily_cache_user_date ON daily_outfit_cache(user_id, cache_date);

@@ -2202,7 +2202,7 @@ async def get_daily_outfits(
     request: Request,
     lat: float = None,
     lon: float = None,
-    nocache: bool = True,  # Always regenerate daily outfits
+    refresh: bool = False,  # If true, regenerate even if cached
     tz_offset: float = None,  # Timezone offset from UTC in hours (e.g., -8 for PST)
     occasion: str = None,  # Manual occasion override (work, casual, going-out, etc.)
     mood: str = None  # Free-form mood description (e.g., "cozy day", "fancy dinner")
@@ -2210,17 +2210,14 @@ async def get_daily_outfits(
     """
     Generate 3 weather-appropriate outfits automatically. Requires authentication.
     Picks different base items from closet for variety.
+    Results are cached per user/day/occasion - only regenerated on explicit refresh.
     """
     auth_token = request.cookies.get("auth_token")
     user_id = require_auth(auth_token)
-    logger.info(f"Daily outfits: lat={lat}, lon={lon}, tz={tz_offset}, mood={mood}")
+    logger.info(f"Daily outfits: lat={lat}, lon={lon}, tz={tz_offset}, mood={mood}, refresh={refresh}")
     base_url = str(request.base_url).rstrip("/")
     
-    # Get taste vectors for personalization (user_id acts as session_id for closet)
-    taste_vector, dislike_vector = get_taste_vector(user_id)
-    if taste_vector or dislike_vector:
-        logger.info(f"Taste vectors found for closet user {user_id}")
-    
+    # Determine occasion first (needed for cache lookup)
     # Get occasion - from mood description, manual selection, or auto-detect
     if mood:
         # Interpret mood using AI
@@ -2254,6 +2251,52 @@ async def get_daily_outfits(
         # Auto-detect from time
         occasion_info = get_occasion_from_time(tz_offset)
         logger.info(f"Auto occasion: {occasion_info['occasion']} - {occasion_info['note']}")
+    
+    occasion_name = occasion_info["occasion"]
+    
+    # Check cache first (unless refresh requested)
+    if not refresh:
+        conn_cache = get_db_connection()
+        cursor_cache = conn_cache.cursor()
+        try:
+            cursor_cache.execute(
+                """SELECT outfits_json, weather_json FROM daily_outfit_cache 
+                   WHERE user_id = %s AND cache_date = CURRENT_DATE AND occasion = %s""",
+                (user_id, occasion_name)
+            )
+            cached = cursor_cache.fetchone()
+            if cached:
+                logger.info(f"Cache hit for user {user_id}, occasion {occasion_name}")
+                cached_outfits = cached[0]
+                cached_weather = cached[1]
+                
+                # Update collage URLs to be absolute
+                for outfit in cached_outfits:
+                    if outfit.get("collage_url") and not outfit["collage_url"].startswith("http"):
+                        outfit["collage_url"] = make_absolute_url(base_url, outfit["collage_url"])
+                
+                response = {
+                    "outfits": cached_outfits,
+                    "source": "closet_daily",
+                    "occasion": occasion_name,
+                    "occasion_note": occasion_info["note"],
+                    "cached": True
+                }
+                if cached_weather:
+                    response["weather"] = cached_weather
+                return response
+        except Exception as e:
+            logger.warning(f"Cache lookup failed: {e}")
+        finally:
+            cursor_cache.close()
+            conn_cache.close()
+    
+    logger.info(f"Generating fresh outfits for user {user_id}, occasion {occasion_name}")
+    
+    # Get taste vectors for personalization (user_id acts as session_id for closet)
+    taste_vector, dislike_vector = get_taste_vector(user_id)
+    if taste_vector or dislike_vector:
+        logger.info(f"Taste vectors found for closet user {user_id}")
     
     # Fetch weather
     weather_data = None
@@ -2312,7 +2355,6 @@ async def get_daily_outfits(
     avoid_seasons = weather_adjustments.get("avoid_seasons", []) if weather_adjustments else []
     prefer_occasions = occasion_info.get("prefer_occasions", [])
     avoid_occasions = occasion_info.get("avoid_occasions", [])
-    occasion_name = occasion_info.get("occasion", "casual")  # For semantic scoring
     
     def item_score(item):
         """Score item by season, occasion, style, and material appropriateness."""
@@ -2608,6 +2650,39 @@ async def get_daily_outfits(
         logger.info(f"Recorded {len(selected_bases)} top suggestions for user {user_id}, occasion {occasion_name}")
     except Exception as e:
         logger.warning(f"Could not record top suggestions: {e}")
+    
+    # Cache the generated outfits for today
+    try:
+        import json
+        # Store outfits with relative URLs for caching
+        outfits_for_cache = []
+        for o in outfits:
+            cached_outfit = dict(o)
+            # Convert absolute collage URL back to relative for storage
+            if cached_outfit.get("collage_url") and base_url in str(cached_outfit["collage_url"]):
+                cached_outfit["collage_url"] = cached_outfit["collage_url"].replace(base_url, "")
+            outfits_for_cache.append(cached_outfit)
+        
+        weather_for_cache = weather_data.to_dict() if weather_data else None
+        
+        conn_cache = get_db_connection()
+        cursor_cache = conn_cache.cursor()
+        cursor_cache.execute(
+            """INSERT INTO daily_outfit_cache (user_id, cache_date, occasion, mood_text, outfits_json, weather_json)
+               VALUES (%s, CURRENT_DATE, %s, %s, %s, %s)
+               ON CONFLICT (user_id, cache_date, occasion) 
+               DO UPDATE SET outfits_json = EXCLUDED.outfits_json, 
+                             weather_json = EXCLUDED.weather_json,
+                             mood_text = EXCLUDED.mood_text,
+                             created_at = NOW()""",
+            (user_id, occasion_name, mood, json.dumps(outfits_for_cache), json.dumps(weather_for_cache) if weather_for_cache else None)
+        )
+        conn_cache.commit()
+        cursor_cache.close()
+        conn_cache.close()
+        logger.info(f"Cached daily outfits for user {user_id}, occasion {occasion_name}")
+    except Exception as e:
+        logger.warning(f"Could not cache daily outfits: {e}")
     
     response = {
         "outfits": outfits,
