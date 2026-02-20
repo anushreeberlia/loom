@@ -2623,7 +2623,7 @@ async def get_daily_outfits(
                 direction=f"outfit_{idx + 1}",
                 items=items_for_collage,
                 base_item={"image_url": base_item["image_url"], "category": base_category},
-                force=nocache  # Force regeneration when refreshing
+                force=refresh  # Force regeneration when refreshing
             )
             outfit["collage_url"] = make_absolute_url(base_url, collage_path)
         except Exception as e:
