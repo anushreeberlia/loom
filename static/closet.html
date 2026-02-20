@@ -1032,10 +1032,9 @@
             <span>📍 Getting your location for weather-aware recommendations...</span>
         </div>
 
-        <!-- Mood Input -->
+        <!-- Mood Input (for single-item outfit generation) -->
         <div class="mood-input-container" id="mood-container">
-            <input type="text" id="mood-input" placeholder="How are you feeling? (e.g., cozy day at home, fancy dinner, casual brunch...)" />
-            <button id="mood-btn" class="mood-btn">Style Me</button>
+            <input type="text" id="mood-input" placeholder="Occasion for outfit styling (e.g., work, date night, brunch...)" />
         </div>
 
         <!-- Daily Outfits (shown first) -->
@@ -1144,7 +1143,6 @@
         const dailyActions = document.getElementById('daily-actions');
         const dailySubtitle = document.getElementById('daily-subtitle');
         const moodInput = document.getElementById('mood-input');
-        const moodBtn = document.getElementById('mood-btn');
 
         // Toggle user menu dropdown
         function toggleUserMenu() {
@@ -1191,26 +1189,6 @@
         loadCloset();
         initDaily();
 
-        // Style based on mood description
-        moodBtn.addEventListener('click', () => {
-            const mood = moodInput.value.trim();
-            if (userLocation) {
-                dailyLoading.style.display = 'block';
-                dailyGrid.style.display = 'none';
-                dailyActions.style.display = 'none';
-                // Force refresh when mood is specified to get fresh outfits
-                const shouldRefresh = mood ? true : false;
-                loadDailyOutfits(userLocation.lat, userLocation.lon, shouldRefresh, mood || null);
-            }
-        });
-
-        // Also trigger on Enter key
-        moodInput.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') {
-                moodBtn.click();
-            }
-        });
-
         async function loadCloset() {
             try {
                 const res = await fetch('/v1/closet/items');
@@ -1249,18 +1227,7 @@
             );
         }
 
-        let dailyLoadInProgress = false;
-        let lastDailyLoadParams = null;
-        
         async function loadDailyOutfits(lat, lon, refresh = false, mood = null) {
-            // Debounce - prevent multiple concurrent calls with same params
-            const paramsKey = `${lat}-${lon}-${refresh}-${mood}`;
-            if (dailyLoadInProgress && lastDailyLoadParams === paramsKey) {
-                console.log('Skipping duplicate daily load request');
-                return;
-            }
-            dailyLoadInProgress = true;
-            lastDailyLoadParams = paramsKey;
             
             try {
                 let url = '/v1/closet/daily';
@@ -1311,7 +1278,6 @@
                 dailyLoading.style.display = 'none';
                 
                 if (data.outfits && data.outfits.length > 0) {
-                    console.log('Received outfits:', data.outfits.map(o => o.base_item?.name || 'unknown'));
                     displayDailyOutfits(data.outfits);
                     dailyGrid.style.display = 'grid';
                     dailyActions.style.display = 'block';
@@ -1326,8 +1292,6 @@
                 dailySubtitle.textContent = 'Could not load outfits. Try picking an item below.';
                 dailyActions.style.display = 'block';
                 document.getElementById('refresh-daily-btn').style.display = 'none';
-            } finally {
-                dailyLoadInProgress = false;
             }
         }
 
