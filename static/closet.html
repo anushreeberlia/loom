@@ -2057,6 +2057,9 @@
             // Show mood input and weather bar again
             document.getElementById('mood-container').style.display = 'flex';
             weatherBar.style.display = 'flex';
+            // Clear mood input and reload time-based daily outfits
+            moodInput.value = '';
+            loadDailyOutfits(userLocation?.lat, userLocation?.lon, false, null);
         });
     </script>
 </body>
