@@ -2591,26 +2591,29 @@ async def get_daily_outfits(
     
     # Pick top 3 TOPS as base items with FIFO rotation
     # Tops suggested recently are penalized to ensure variety across days
+    # NOTE: FIFO rotation only applies to auto-detected occasions (not manual mood)
     import random
     from datetime import datetime, timedelta
     
     # Get recent top suggestions for this user+occasion (FIFO queue)
+    # Skip for manual mood - those are one-off requests without rotation
     recent_suggestions = {}
-    try:
-        conn_suggest = get_db_connection()
-        cursor_suggest = conn_suggest.cursor()
-        cursor_suggest.execute(
-            """SELECT item_id, last_suggested_at 
-               FROM top_suggestions 
-               WHERE user_id = %s AND occasion = %s""",
-            (user_id, occasion_name)
-        )
-        for row in cursor_suggest.fetchall():
-            recent_suggestions[row[0]] = row[1]
-        cursor_suggest.close()
-        conn_suggest.close()
-    except Exception as e:
-        logger.warning(f"Could not fetch recent suggestions: {e}")
+    if not mood:
+        try:
+            conn_suggest = get_db_connection()
+            cursor_suggest = conn_suggest.cursor()
+            cursor_suggest.execute(
+                """SELECT item_id, last_suggested_at 
+                   FROM top_suggestions 
+                   WHERE user_id = %s AND occasion = %s""",
+                (user_id, occasion_name)
+            )
+            for row in cursor_suggest.fetchall():
+                recent_suggestions[row[0]] = row[1]
+            cursor_suggest.close()
+            conn_suggest.close()
+        except Exception as e:
+            logger.warning(f"Could not fetch recent suggestions: {e}")
     
     # Filter to just tops, score them with recency penalty
     tops_only = [item for item in all_items if item.get("category") == "top" and item.get("embedding")]
@@ -2822,23 +2825,27 @@ async def get_daily_outfits(
         outfits.append(outfit)
     
     # Record suggested tops to FIFO queue (so they're deprioritized next time)
-    try:
-        conn_record = get_db_connection()
-        cursor_record = conn_record.cursor()
-        for base_item in selected_bases:
-            cursor_record.execute(
-                """INSERT INTO top_suggestions (user_id, item_id, occasion, last_suggested_at, suggestion_count)
-                   VALUES (%s, %s, %s, NOW(), 1)
-                   ON CONFLICT (user_id, item_id, occasion) 
-                   DO UPDATE SET last_suggested_at = NOW(), suggestion_count = top_suggestions.suggestion_count + 1""",
-                (user_id, base_item["id"], occasion_name)
-            )
-        conn_record.commit()
-        cursor_record.close()
-        conn_record.close()
-        logger.info(f"Recorded {len(selected_bases)} top suggestions for user {user_id}, occasion {occasion_name}")
-    except Exception as e:
-        logger.warning(f"Could not record top suggestions: {e}")
+    # Skip for manual mood - those are one-off and shouldn't affect the rotation
+    if not mood:
+        try:
+            conn_record = get_db_connection()
+            cursor_record = conn_record.cursor()
+            for base_item in selected_bases:
+                cursor_record.execute(
+                    """INSERT INTO top_suggestions (user_id, item_id, occasion, last_suggested_at, suggestion_count)
+                       VALUES (%s, %s, %s, NOW(), 1)
+                       ON CONFLICT (user_id, item_id, occasion) 
+                       DO UPDATE SET last_suggested_at = NOW(), suggestion_count = top_suggestions.suggestion_count + 1""",
+                    (user_id, base_item["id"], occasion_name)
+                )
+            conn_record.commit()
+            cursor_record.close()
+            conn_record.close()
+            logger.info(f"Recorded {len(selected_bases)} top suggestions for user {user_id}, occasion {occasion_name}")
+        except Exception as e:
+            logger.warning(f"Could not record top suggestions: {e}")
+    else:
+        logger.info(f"Skipping FIFO recording for manual mood: {mood}")
     
     # Cache the generated outfits for today - ONLY for auto-detected occasions (no manual mood)
     # Manual mood outfits are one-off and shouldn't overwrite the time-based cache
