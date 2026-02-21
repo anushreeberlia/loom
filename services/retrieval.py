@@ -16,8 +16,7 @@ from services.outfit import (
     build_base_item_text,
     get_preferred_colors,
     get_avoid_colors,
-    is_layer_compatible,
-    is_layer_style_compatible
+    is_layer_compatible
 )
 
 load_dotenv()
@@ -515,6 +514,21 @@ def build_query_text(
     # Get slot-specific item type hint
     item_hint = SLOT_ITEM_HINTS.get(slot, f"women's {slot}")
     
+    # For layers: customize the hint based on what's underneath
+    # This helps embeddings find layers that work with the specific top
+    if slot == "layer":
+        top = None
+        if chosen_items:
+            top = chosen_items.get("top")
+        if not top and base_category == "top":
+            top = base_item
+        
+        if top:
+            top_name = top.get("name", "").lower()
+            top_style = " ".join((top.get("style_tags") or [])[:2])
+            # Include top description so embedding finds compatible layers
+            item_hint = f"women's layer (cardigan, jacket, or blazer) that pairs well with a {top_style} {top_name}"
+    
     # Build color guidance based on policy
     if color_policy == "neutrals":
         color_hint = "in neutral colors like black, white, gray, or beige"
@@ -910,8 +924,8 @@ def retrieve_for_slot(
         if top:
             compatible = []
             for c in candidates:
-                # Check both material weight AND style compatibility
-                if is_layer_compatible(c, top) and is_layer_style_compatible(c, top):
+                # Check material weight compatibility (layer should be heavier than top)
+                if is_layer_compatible(c, top):
                     compatible.append(c)
             if compatible:  # Only filter if we have options left
                 candidates = compatible
