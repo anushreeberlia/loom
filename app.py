@@ -2441,12 +2441,12 @@ async def get_daily_outfits(
                             file_path = file_path.replace("static/generated/", "collages/")
                         if not os.path.exists(file_path):
                             logger.info(f"Collage missing: {file_path}, regenerating...")
-                            # Regenerate this collage
+                            # Regenerate this collage - use user_id and occasion in path
                             try:
                                 items_for_collage = outfit.get("items", [])
                                 base_item = outfit.get("base_item", {})
                                 collage_path = generate_outfit_collage(
-                                    generation_id=f"daily_{idx}",
+                                    generation_id=f"u{user_id}_{occasion_name}_{idx}",
                                     direction=f"outfit_{idx + 1}",
                                     items=items_for_collage,
                                     base_item={"image_url": base_item.get("image_url"), "category": base_item.get("category", "top")},
@@ -2804,11 +2804,11 @@ async def get_daily_outfits(
             outfit["direction"] = f"Outfit {idx + 1}"
             outfit["base_item"] = base_item
         
-        # Generate collage
+        # Generate collage - use user_id and occasion in path to prevent overwrites
         try:
             items_for_collage = outfit.get("items", [])
             collage_path = generate_outfit_collage(
-                generation_id=f"daily_{idx}",
+                generation_id=f"u{user_id}_{occasion_name}_{idx}",
                 direction=f"outfit_{idx + 1}",
                 items=items_for_collage,
                 base_item={"image_url": base_item["image_url"], "category": base_category},
@@ -2840,38 +2840,42 @@ async def get_daily_outfits(
     except Exception as e:
         logger.warning(f"Could not record top suggestions: {e}")
     
-    # Cache the generated outfits for today
-    try:
-        import json
-        # Store outfits with relative URLs for caching
-        outfits_for_cache = []
-        for o in outfits:
-            cached_outfit = dict(o)
-            # Convert absolute collage URL back to relative for storage
-            if cached_outfit.get("collage_url") and base_url in str(cached_outfit["collage_url"]):
-                cached_outfit["collage_url"] = cached_outfit["collage_url"].replace(base_url, "")
-            outfits_for_cache.append(cached_outfit)
-        
-        weather_for_cache = weather_data.to_dict() if weather_data else None
-        
-        conn_cache = get_db_connection()
-        cursor_cache = conn_cache.cursor()
-        cursor_cache.execute(
-            """INSERT INTO daily_outfit_cache (user_id, cache_date, occasion, mood_text, outfits_json, weather_json)
-               VALUES (%s, CURRENT_DATE, %s, %s, %s, %s)
-               ON CONFLICT (user_id, cache_date, occasion) 
-               DO UPDATE SET outfits_json = EXCLUDED.outfits_json, 
-                             weather_json = EXCLUDED.weather_json,
-                             mood_text = EXCLUDED.mood_text,
-                             created_at = NOW()""",
-            (user_id, occasion_name, mood, json.dumps(outfits_for_cache), json.dumps(weather_for_cache) if weather_for_cache else None)
-        )
-        conn_cache.commit()
-        cursor_cache.close()
-        conn_cache.close()
-        logger.info(f"Cached daily outfits for user {user_id}, occasion {occasion_name}")
-    except Exception as e:
-        logger.warning(f"Could not cache daily outfits: {e}")
+    # Cache the generated outfits for today - ONLY for auto-detected occasions (no manual mood)
+    # Manual mood outfits are one-off and shouldn't overwrite the time-based cache
+    if not mood:
+        try:
+            import json
+            # Store outfits with relative URLs for caching
+            outfits_for_cache = []
+            for o in outfits:
+                cached_outfit = dict(o)
+                # Convert absolute collage URL back to relative for storage
+                if cached_outfit.get("collage_url") and base_url in str(cached_outfit["collage_url"]):
+                    cached_outfit["collage_url"] = cached_outfit["collage_url"].replace(base_url, "")
+                outfits_for_cache.append(cached_outfit)
+            
+            weather_for_cache = weather_data.to_dict() if weather_data else None
+            
+            conn_cache = get_db_connection()
+            cursor_cache = conn_cache.cursor()
+            cursor_cache.execute(
+                """INSERT INTO daily_outfit_cache (user_id, cache_date, occasion, mood_text, outfits_json, weather_json)
+                   VALUES (%s, CURRENT_DATE, %s, %s, %s, %s)
+                   ON CONFLICT (user_id, cache_date, occasion) 
+                   DO UPDATE SET outfits_json = EXCLUDED.outfits_json, 
+                                 weather_json = EXCLUDED.weather_json,
+                                 mood_text = EXCLUDED.mood_text,
+                                 created_at = NOW()""",
+                (user_id, occasion_name, None, json.dumps(outfits_for_cache), json.dumps(weather_for_cache) if weather_for_cache else None)
+            )
+            conn_cache.commit()
+            cursor_cache.close()
+            conn_cache.close()
+            logger.info(f"Cached daily outfits for user {user_id}, occasion {occasion_name}")
+        except Exception as e:
+            logger.warning(f"Could not cache daily outfits: {e}")
+    else:
+        logger.info(f"Skipping cache for manual mood: {mood}")
     
     response = {
         "outfits": outfits,
@@ -3123,11 +3127,14 @@ async def regenerate_single_outfit(
         outfit["direction"] = f"Outfit {idx + 1}"
         outfit["base_item"] = base_item
     
-    # Generate new collage (forced)
+    # Get occasion name for collage path and caching
+    occasion_name = occasion_info.get("occasion") if occasion_info else "casual"
+    
+    # Generate new collage (forced) - use user_id and occasion in path
     try:
         items_for_collage = outfit.get("items", [])
         collage_path = generate_outfit_collage(
-            generation_id=f"daily_{idx}",
+            generation_id=f"u{user_id}_{occasion_name}_{idx}",
             direction=f"outfit_{idx + 1}",
             items=items_for_collage,
             base_item={"image_url": base_item["image_url"], "category": base_category},
@@ -3138,47 +3145,50 @@ async def regenerate_single_outfit(
         logger.error(f"Collage error: {e}")
         outfit["collage_url"] = None
     
-    # Update the daily cache with the new outfit
-    try:
-        occasion_name = occasion_info.get("occasion") if occasion_info else "casual"
-        conn_cache = get_db_connection()
-        cursor_cache = conn_cache.cursor()
-        
-        # Get current cached outfits
-        cursor_cache.execute(
-            """SELECT outfits_json FROM daily_outfit_cache 
-               WHERE user_id = %s AND cache_date = CURRENT_DATE AND occasion = %s""",
-            (user_id, occasion_name)
-        )
-        cached = cursor_cache.fetchone()
-        
-        if cached and cached[0]:
-            cached_outfits = cached[0]
-            if isinstance(cached_outfits, list) and 0 <= idx < len(cached_outfits):
-                # Prepare outfit for cache (remove embeddings, etc.)
-                outfit_for_cache = {
-                    "direction": outfit.get("direction"),
-                    "explanation": outfit.get("explanation"),
-                    "collage_url": collage_path,  # Store relative path
-                    "base_item": {k: v for k, v in base_item.items() if k != "embedding"},
-                    "items": [{k: v for k, v in item.items() if k != "embedding"} for item in outfit.get("items", [])]
-                }
-                cached_outfits[idx] = outfit_for_cache
-                
-                # Save back to cache
-                cursor_cache.execute(
-                    """UPDATE daily_outfit_cache 
-                       SET outfits_json = %s, created_at = NOW()
-                       WHERE user_id = %s AND cache_date = CURRENT_DATE AND occasion = %s""",
-                    (json.dumps(cached_outfits), user_id, occasion_name)
-                )
-                conn_cache.commit()
-                logger.info(f"Updated cache with regenerated outfit {idx} for user {user_id}")
-        
-        cursor_cache.close()
-        conn_cache.close()
-    except Exception as e:
-        logger.error(f"Failed to update cache: {e}")
+    # Update the daily cache with the new outfit (only if not manual mood)
+    # Manual mood outfits are one-off and shouldn't modify the time-based cache
+    if not mood_text:
+        try:
+            conn_cache = get_db_connection()
+            cursor_cache = conn_cache.cursor()
+            
+            # Get current cached outfits
+            cursor_cache.execute(
+                """SELECT outfits_json FROM daily_outfit_cache 
+                   WHERE user_id = %s AND cache_date = CURRENT_DATE AND occasion = %s""",
+                (user_id, occasion_name)
+            )
+            cached = cursor_cache.fetchone()
+            
+            if cached and cached[0]:
+                cached_outfits = cached[0]
+                if isinstance(cached_outfits, list) and 0 <= idx < len(cached_outfits):
+                    # Prepare outfit for cache (remove embeddings, etc.)
+                    outfit_for_cache = {
+                        "direction": outfit.get("direction"),
+                        "explanation": outfit.get("explanation"),
+                        "collage_url": collage_path,  # Store relative path
+                        "base_item": {k: v for k, v in base_item.items() if k != "embedding"},
+                        "items": [{k: v for k, v in item.items() if k != "embedding"} for item in outfit.get("items", [])]
+                    }
+                    cached_outfits[idx] = outfit_for_cache
+                    
+                    # Save back to cache
+                    cursor_cache.execute(
+                        """UPDATE daily_outfit_cache 
+                           SET outfits_json = %s, created_at = NOW()
+                           WHERE user_id = %s AND cache_date = CURRENT_DATE AND occasion = %s""",
+                        (json.dumps(cached_outfits), user_id, occasion_name)
+                    )
+                    conn_cache.commit()
+                    logger.info(f"Updated cache with regenerated outfit {idx} for user {user_id}")
+            
+            cursor_cache.close()
+            conn_cache.close()
+        except Exception as e:
+            logger.error(f"Failed to update cache: {e}")
+    else:
+        logger.info(f"Skipping cache update for manual mood regeneration: {mood_text}")
     
     return outfit
 
