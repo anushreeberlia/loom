@@ -2572,8 +2572,14 @@ async def get_daily_outfits(
                 score -= 5  # Strong penalty for avoided tags
         
         # SEMANTIC scoring using embeddings - this is the key for workout/active occasions
-        if item.get("embedding") and occasion_name:
-            semantic_score = compute_occasion_score(item["embedding"], occasion_name, all_item_tags)
+        # Use raw mood text if provided (direct embedding), otherwise use mapped occasion
+        if item.get("embedding") and (mood or occasion_name):
+            semantic_score = compute_occasion_score(
+                item["embedding"], 
+                occasion=occasion_name if not mood else None,
+                mood_text=mood if mood else None,
+                item_tags=all_item_tags
+            )
             score += semantic_score * 15  # Strong weight for semantic fit
         
         # Material scoring for weather (especially important for layers)
