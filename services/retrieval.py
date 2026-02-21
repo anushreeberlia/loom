@@ -92,6 +92,8 @@ OCCASION_SEMANTIC_CONTEXTS = {
 
 # Cache for occasion embeddings (computed once per session)
 _occasion_embedding_cache = {}
+# Cache for mood text embeddings
+_mood_embedding_cache = {}
 
 
 def get_occasion_embeddings(occasion: str) -> tuple[list[float], list[float]]:
@@ -113,20 +115,56 @@ def get_occasion_embeddings(occasion: str) -> tuple[list[float], list[float]]:
     return embeddings[0], embeddings[1]
 
 
-def compute_occasion_score(item_embedding: list[float], occasion: str, item_tags: set = None) -> float:
+def get_mood_embedding(mood_text: str) -> list[float]:
+    """
+    Embed raw mood text directly for semantic matching.
+    This allows any mood description to work without mapping to predefined occasions.
+    
+    Args:
+        mood_text: Free-form mood like "beach day", "funeral", "wedding guest"
+        
+    Returns:
+        Embedding vector for the mood
+    """
+    if mood_text in _mood_embedding_cache:
+        return _mood_embedding_cache[mood_text]
+    
+    # Create an outfit-focused description for better matching
+    outfit_context = f"outfit for {mood_text} - clothing style appropriate for this occasion"
+    embeddings = get_batch_embeddings([outfit_context])
+    
+    _mood_embedding_cache[mood_text] = embeddings[0]
+    return embeddings[0]
+
+
+def compute_occasion_score(item_embedding: list[float], occasion: str = None, 
+                          mood_text: str = None, item_tags: set = None) -> float:
     """
     Compute how well an item fits an occasion using semantic similarity.
     
-    Returns a score where:
-    - Higher = better fit for the occasion
-    - Items similar to anti-vibe get penalized more heavily
-    - Score is amplified to create meaningful separation
+    Can use either:
+    - occasion: A predefined occasion (work, casual, going-out, etc.)
+    - mood_text: Raw mood text that gets embedded directly (more flexible)
+    
+    Returns a score where higher = better fit.
     """
     import numpy as np
     
+    item_emb = np.array(item_embedding)
+    
+    # If mood_text provided, use direct embedding comparison (more flexible)
+    if mood_text:
+        mood_emb = np.array(get_mood_embedding(mood_text))
+        # Simple cosine similarity - items similar to the mood score higher
+        score = float(np.dot(item_emb, mood_emb) / (np.linalg.norm(item_emb) * np.linalg.norm(mood_emb)))
+        return score
+    
+    # Otherwise use predefined occasion vibe/anti-vibe
+    if not occasion:
+        occasion = "casual"
+        
     vibe_emb, anti_vibe_emb = get_occasion_embeddings(occasion)
     
-    item_emb = np.array(item_embedding)
     vibe = np.array(vibe_emb)
     anti_vibe = np.array(anti_vibe_emb)
     
@@ -151,20 +189,27 @@ def compute_occasion_score(item_embedding: list[float], occasion: str, item_tags
     return score
 
 
-def filter_by_occasion_semantic(candidates: list[dict], occasion: str, threshold: float = -0.02) -> list[dict]:
+def filter_by_occasion_semantic(candidates: list[dict], occasion: str = None, 
+                                mood_text: str = None, threshold: float = -0.02) -> list[dict]:
     """
     Filter and rank candidates by semantic occasion fit.
+    
+    Can use either:
+    - occasion: A predefined occasion (work, casual, going-out, etc.)
+    - mood_text: Raw mood text for direct embedding comparison (handles any mood!)
     
     Args:
         candidates: List of items with embeddings
         occasion: The target occasion (work, casual, going-out, etc.)
+        mood_text: Raw mood text like "beach day", "funeral", "wedding guest"
         threshold: Minimum occasion score to include (items below this are filtered out)
     
     Returns:
         Filtered and sorted candidates (best fits first)
     """
-    if occasion not in OCCASION_SEMANTIC_CONTEXTS:
-        return candidates  # No filtering if unknown occasion
+    # Skip filtering if neither occasion nor mood_text provided
+    if not mood_text and occasion not in OCCASION_SEMANTIC_CONTEXTS:
+        return candidates
     
     if not candidates:
         return candidates
@@ -180,7 +225,9 @@ def filter_by_occasion_semantic(candidates: list[dict], occasion: str, threshold
             c["_occasion_score"] = 0  # No embedding = neutral
             scored.append(c)
         else:
-            score = compute_occasion_score(c["embedding"], occasion, item_tags)
+            # Use mood_text for direct embedding if provided, otherwise use occasion
+            score = compute_occasion_score(c["embedding"], occasion=occasion, 
+                                          mood_text=mood_text, item_tags=item_tags)
             c["_occasion_score"] = score
             if score >= threshold:
                 scored.append(c)
@@ -441,7 +488,8 @@ def build_query_text(
     direction: str, 
     slot: str,
     chosen_items: dict[str, dict] = None,
-    occasion: str = None
+    occasion: str = None,
+    mood_text: str = None
 ) -> str:
     """
     Build a direction-aware query text for embedding.
@@ -452,7 +500,8 @@ def build_query_text(
         direction: Style direction
         slot: Slot to fill
         chosen_items: Items already chosen for this outfit (slot → item)
-        occasion: Optional occasion context (work, casual, going-out) for better retrieval
+        occasion: Optional predefined occasion (work, casual, going-out)
+        mood_text: Raw mood text like "beach day", "funeral" - uses directly if provided
     """
     base_color = base_item.get("primary_color", "")
     base_category = base_item.get("category", "top")
@@ -479,9 +528,13 @@ def build_query_text(
     elif slot == "accessory":
         color_hint = "in neutral or metallic tones"
     
-    # Add occasion context for better retrieval (work, casual, going-out, etc.)
+    # Add occasion context for better retrieval
+    # mood_text takes priority - allows ANY description like "beach day", "funeral", etc.
     occasion_hint = ""
-    if occasion:
+    if mood_text:
+        # Use raw mood text directly - much more flexible!
+        occasion_hint = f"for {mood_text} "
+    elif occasion:
         occasion_descriptions = {
             "work": "professional office-appropriate",
             "casual": "relaxed everyday",
@@ -748,6 +801,7 @@ def retrieve_for_slot(
     use_closet: bool = False,
     user_id: str = "default",
     occasion: str = None,  # Semantic occasion filtering (work, casual, going-out, etc.)
+    mood_text: str = None,  # Raw mood text for direct embedding comparison (more flexible!)
     prefer_occasions: list[str] = None,  # Legacy - kept for compatibility
     avoid_occasions: list[str] = None  # Legacy - kept for compatibility
 ) -> list[dict]:
@@ -768,6 +822,8 @@ def retrieve_for_slot(
         precomputed_embedding: Pre-computed query embedding (skips API call if provided)
         use_closet: If True, search user's closet instead of catalog
         user_id: User ID for closet filtering (only used if use_closet=True)
+        occasion: Predefined occasion (work, casual, going-out, etc.)
+        mood_text: Raw mood text like "beach day", "funeral" - uses direct embedding comparison
     """
     base_color = base_item.get("primary_color", "unknown")
     
@@ -815,8 +871,13 @@ def retrieve_for_slot(
                 c["_color_penalty"] = True  # Mark for soft scoring penalty
     
     # Apply SEMANTIC occasion filtering (intelligent, not keyword-based)
-    if occasion and occasion in OCCASION_SEMANTIC_CONTEXTS:
-        candidates = filter_by_occasion_semantic(candidates, occasion, threshold=-0.03)
+    # mood_text takes priority - it allows ANY mood description to work via direct embedding
+    # occasion is used as fallback for predefined occasions
+    if mood_text:
+        # Direct embedding comparison - works for ANY mood like "beach day", "funeral", etc.
+        candidates = filter_by_occasion_semantic(candidates, mood_text=mood_text, threshold=-0.03)
+    elif occasion and occasion in OCCASION_SEMANTIC_CONTEXTS:
+        candidates = filter_by_occasion_semantic(candidates, occasion=occasion, threshold=-0.03)
     # Legacy keyword filtering (fallback if occasion not provided but prefer/avoid are)
     elif avoid_occasions or prefer_occasions:
         avoid_set = set(avoid_occasions or [])

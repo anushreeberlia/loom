@@ -2174,12 +2174,10 @@ async def generate_closet_outfits(
             weather_adjustments = get_weather_outfit_adjustments(weather_data)
             logger.info(f"Weather: {weather_data.city} {weather_data.temperature_c}°C - {weather_adjustments['notes']}")
     
-    # Parse mood/occasion if provided
-    occasion_name = None
+    # Log mood if provided - we'll use it directly for semantic matching
+    # No need to map to predefined occasions anymore!
     if mood_text:
-        occasion_info = interpret_mood_for_occasion(mood_text)
-        occasion_name = occasion_info.get("occasion") if occasion_info else None
-        logger.info(f"Single-item generation with mood: {mood_text} -> occasion: {occasion_name}")
+        logger.info(f"Single-item generation with mood: {mood_text} (using direct embedding)")
     
     # Build query embeddings for closet retrieval
     directions = ["Classic", "Trendy", "Bold"]
@@ -2190,7 +2188,7 @@ async def generate_closet_outfits(
     for outfit_idx, direction in enumerate(directions):
         slots = get_slots_for_outfit(base_category, outfit_idx)
         for slot in slots:
-            query_text = build_query_text(base_item, direction, slot, {}, occasion=occasion_name)
+            query_text = build_query_text(base_item, direction, slot, {}, mood_text=mood_text)
             retrieval_tasks.append((outfit_idx, direction, slot))
             query_texts.append(query_text)
     
@@ -2214,7 +2212,7 @@ async def generate_closet_outfits(
                 precomputed_embedding=precomputed_emb,
                 use_closet=True,
                 user_id=user_id,
-                occasion=occasion_name  # Pass occasion for semantic filtering
+                mood_text=mood_text  # Direct embedding comparison - works for ANY mood!
             )
             logger.info(f"  [{direction}] {slot}: {len(candidates)} closet candidates")
             return (outfit_idx, direction, slot, candidates)
@@ -2723,10 +2721,14 @@ async def get_daily_outfits(
         # Get occasion name for query text (better retrieval) and filtering
         occasion_name = occasion_info.get("occasion", "casual")
         
-        # Build query texts WITH occasion for better retrieval
+        # Build query texts - use raw mood if provided, otherwise use predefined occasion
+        # This allows ANY mood description to work (beach day, funeral, etc.)
         query_texts = []
         for slot in slots:
-            query_text = build_query_text(base_item, direction, slot, {}, occasion=occasion_name)
+            if mood:
+                query_text = build_query_text(base_item, direction, slot, {}, mood_text=mood)
+            else:
+                query_text = build_query_text(base_item, direction, slot, {}, occasion=occasion_name)
             query_texts.append(query_text)
         
         # Get embeddings
@@ -2735,6 +2737,7 @@ async def get_daily_outfits(
         for i, slot in enumerate(slots):
             try:
                 # First try without re-using items from other outfits
+                # Use mood_text if provided (direct embedding), otherwise occasion (predefined)
                 candidates = retrieve_for_slot(
                     base_item=base_item,
                     direction=direction,
@@ -2745,7 +2748,8 @@ async def get_daily_outfits(
                     precomputed_embedding=query_embeddings[i],
                     use_closet=True,
                     user_id=user_id,
-                    occasion=occasion_name
+                    mood_text=mood if mood else None,  # Direct embedding for any mood!
+                    occasion=occasion_name if not mood else None
                 )
                 # If no good candidates, allow re-use
                 if not candidates:
@@ -2759,7 +2763,8 @@ async def get_daily_outfits(
                         precomputed_embedding=query_embeddings[i],
                         use_closet=True,
                         user_id=user_id,
-                        occasion=occasion_name
+                        mood_text=mood if mood else None,
+                        occasion=occasion_name if not mood else None
                     )
                 candidates_by_slot[slot] = candidates
             except Exception as e:
@@ -3075,9 +3080,13 @@ async def regenerate_single_outfit(
         elif weather_adjustments["skip_layer"] and "layer" in slots:
             slots = [s for s in slots if s != "layer"]
     
-    # Build queries and get embeddings (with occasion if present)
+    # Build queries and get embeddings
+    # Use raw mood_text if provided (direct embedding), otherwise use predefined occasion
     occasion_name = occasion_info.get("occasion") if occasion_info else None
-    query_texts = [build_query_text(base_item, direction, slot, {}, occasion=occasion_name) for slot in slots]
+    if mood_text:
+        query_texts = [build_query_text(base_item, direction, slot, {}, mood_text=mood_text) for slot in slots]
+    else:
+        query_texts = [build_query_text(base_item, direction, slot, {}, occasion=occasion_name) for slot in slots]
     query_embeddings = get_batch_embeddings(query_texts)
     
     # Retrieve candidates (excluding disliked items)
@@ -3093,7 +3102,9 @@ async def regenerate_single_outfit(
                 k=10,
                 precomputed_embedding=query_embeddings[i],
                 use_closet=True,
-                user_id=user_id
+                user_id=user_id,
+                mood_text=mood_text if mood_text else None,  # Direct embedding for any mood!
+                occasion=occasion_name if not mood_text else None
             )
             candidates_by_slot[slot] = candidates
         except Exception as e:
