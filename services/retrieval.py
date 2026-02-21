@@ -77,15 +77,15 @@ OCCASION_SEMANTIC_CONTEXTS = {
         "anti_vibe": "formal black-tie gala ballgown evening gown tuxedo ultra dressy"
     },
     "going-out": {
-        "vibe": "glamorous sexy elegant party date night dinner chic statement bold eye-catching dressy stylish trendy",
-        "anti_vibe": "athletic sporty gym workout sweatpants hoodie casual basic plain conservative modest office"
+        "vibe": "glamorous sexy elegant party date night dinner chic statement bold eye-catching dressy stylish trendy fashionable sophisticated luxurious satin silk velvet lace sequins sparkle glam night out club dress to impress",
+        "anti_vibe": "athletic sporty gym workout sweatpants hoodie casual basic plain everyday cotton t-shirt running exercise activewear fitness comfortable lounge relaxed daytime errands weekend lazy simple ordinary"
     },
     "smart-casual": {
-        "vibe": "polished put-together elevated casual refined dinner date chic sophisticated understated elegant",
-        "anti_vibe": "gym workout athletic sporty sweatpants loungewear pajamas ultra casual sloppy"
+        "vibe": "polished put-together elevated casual refined dinner date chic sophisticated understated elegant dressed up nice",
+        "anti_vibe": "gym workout athletic sporty sweatpants loungewear pajamas ultra casual sloppy running exercise t-shirt basic"
     },
     "workout": {
-        "vibe": "athletic sporty gym fitness activewear performance breathable stretchy comfortable movement exercise training leggings sneakers",
+        "vibe": "athletic sporty gym fitness activewear performance breathable stretchy comfortable movement exercise training leggings sneakers running",
         "anti_vibe": "formal dressy elegant heels business office work professional evening gown party blazer suit"
     }
 }
@@ -115,12 +115,12 @@ def get_occasion_embeddings(occasion: str) -> tuple[list[float], list[float]]:
 
 def compute_occasion_score(item_embedding: list[float], occasion: str, item_tags: set = None) -> float:
     """
-    Compute how well an item fits an occasion using semantic similarity + tag logic.
+    Compute how well an item fits an occasion using semantic similarity.
     
     Returns a score where:
     - Higher = better fit for the occasion
-    - Items similar to anti-vibe get penalized
-    - Items with mismatched occasion tags get penalized
+    - Items similar to anti-vibe get penalized more heavily
+    - Score is amplified to create meaningful separation
     """
     import numpy as np
     
@@ -134,28 +134,19 @@ def compute_occasion_score(item_embedding: list[float], occasion: str, item_tags
     vibe_sim = np.dot(item_emb, vibe) / (np.linalg.norm(item_emb) * np.linalg.norm(vibe))
     anti_sim = np.dot(item_emb, anti_vibe) / (np.linalg.norm(item_emb) * np.linalg.norm(anti_vibe))
     
-    # Base score from embeddings
-    score = float(vibe_sim - anti_sim)
+    # Amplified score: penalize anti-vibe more heavily for going-out/smart-casual
+    # This ensures casual items get properly deprioritized for dressy occasions
+    if occasion in ("going-out", "smart-casual"):
+        # Weight anti-vibe 1.5x more to strongly penalize casual items
+        score = float(vibe_sim - 1.5 * anti_sim)
+    else:
+        score = float(vibe_sim - anti_sim)
     
-    # Tag-based adjustments (semantic backup)
-    if item_tags:
-        # Work occasion: penalize party/dinner/going-out items
-        if occasion == "work":
-            party_tags = {"party", "dinner", "date", "going-out", "night-out", "clubbing", "sexy", "glamorous", "statement"}
-            if item_tags & party_tags:
-                score -= 0.1  # Strong penalty
-        
-        # Going-out occasion: penalize work/office items
-        elif occasion == "going-out":
-            work_tags = {"work", "office", "business", "professional", "conservative"}
-            if item_tags & work_tags:
-                score -= 0.1
-        
-        # Workout occasion: only allow athletic items
-        elif occasion == "workout":
-            athletic_tags = {"sporty", "athletic", "activewear", "gym", "workout"}
-            if not (item_tags & athletic_tags):
-                score -= 0.15  # Very strong penalty for non-athletic
+    # Workout is special case - needs athletic items
+    if item_tags and occasion == "workout":
+        athletic_tags = {"sporty", "athletic", "activewear", "gym", "workout"}
+        if not (item_tags & athletic_tags):
+            score -= 0.15  # Very strong penalty for non-athletic
     
     return score
 
