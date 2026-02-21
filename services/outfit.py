@@ -142,6 +142,59 @@ def is_layer_compatible(layer: dict, top: dict) -> bool:
     # A heavy coat should always pass over any top
     return layer_weight >= top_weight - 0.15
 
+
+def is_layer_style_compatible(layer: dict, top: dict) -> bool:
+    """
+    Check if a layer's style works with the top underneath.
+    
+    Layer compatibility isn't just about weight - it's also about:
+    - Silhouette: strappy top needs open cardigan/jacket, not closed vest
+    - Neckline: low-cut cami doesn't work with high-neck layer
+    - Style: casual top needs casual layer, dressy needs dressy
+    
+    Returns:
+        True if the layer style works with this top
+    """
+    if not layer or not top:
+        return True
+    
+    layer_name = (layer.get("name") or "").lower()
+    top_name = (top.get("name") or "").lower()
+    
+    layer_tags = set(layer.get("style_tags") or [])
+    top_tags = set(top.get("style_tags") or [])
+    
+    # Detect strappy/revealing tops
+    strappy_keywords = {"cami", "camisole", "strappy", "strap", "spaghetti", "tank"}
+    is_strappy_top = any(kw in top_name for kw in strappy_keywords)
+    
+    # Detect closed/fitted layers (vests, pullovers) vs open layers (cardigans, jackets)
+    closed_layer_keywords = {"vest", "pullover", "sweater vest", "knit vest"}
+    is_closed_layer = any(kw in layer_name for kw in closed_layer_keywords)
+    
+    # Strappy/cami tops look awkward with closed vests (straps peek out)
+    # They work better with open cardigans, jackets, or blazers
+    if is_strappy_top and is_closed_layer:
+        return False
+    
+    # Check formality mismatch
+    # Sexy/revealing top + conservative layer = awkward
+    revealing_tags = {"sexy", "revealing", "strappy", "low-cut"}
+    conservative_tags = {"conservative", "modest", "office", "professional"}
+    if (top_tags & revealing_tags) and (layer_tags & conservative_tags):
+        return False
+    
+    # Athletic top needs athletic layer
+    athletic_tags = {"sporty", "athletic", "activewear", "gym"}
+    if (top_tags & athletic_tags) and not (layer_tags & athletic_tags):
+        # Athletic top with non-athletic layer is usually fine (zip-up over gym top)
+        # But dressy layer over athletic top is weird
+        dressy_tags = {"elegant", "dressy", "formal", "chic"}
+        if layer_tags & dressy_tags:
+            return False
+    
+    return True
+
 # What slots to fill based on input item category
 OUTFIT_SLOTS = {
     "top": ["bottom", "shoes", "accessory"],
