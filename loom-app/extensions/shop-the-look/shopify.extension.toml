@@ -1,0 +1,7 @@
+api_version = "2025-01"
+
+[[extensions]]
+uid = "a35aedbc-2d73-3964-7df3-65e355fd714812995c41"
+type = "theme"
+name = "Shop the Look by Loom"
+handle = "shop-the-look"

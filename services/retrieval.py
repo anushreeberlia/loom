@@ -676,7 +676,8 @@ def retrieve_candidates(
     prefer_colors: set[str] = None,
     source: str = None,
     use_closet: bool = False,
-    user_id: str = "default"
+    user_id: str = "default",
+    shop_domain: str = None,  # If set, query shopify_catalog_items instead
 ) -> list[dict]:
     """
     Vector search for candidates in a category with color filtering.
@@ -705,6 +706,9 @@ def retrieve_candidates(
     if use_closet:
         table = "user_closet_items"
         select_cols = "id, name, image_url, NULL as product_url, primary_color, style_tags"
+    elif shop_domain:
+        table = "shopify_catalog_items"
+        select_cols = "id, name, image_url, product_url, primary_color, style_tags, shopify_product_id, price"
     else:
         table = "catalog_items"
         select_cols = "id, name, image_url, product_url, primary_color, style_tags"
@@ -717,6 +721,11 @@ def retrieve_candidates(
     if use_closet:
         where_conditions.append("user_id = %s")
         params.append(user_id)
+    # Shopify mode: filter by shop_domain + only processed items
+    elif shop_domain:
+        where_conditions.append("shop_domain = %s")
+        where_conditions.append("processed_at IS NOT NULL")
+        params.append(shop_domain)
     # Catalog mode: filter by source
     elif source:
         where_conditions.append("source = %s")
@@ -748,7 +757,7 @@ def retrieve_candidates(
     cursor.close()
     conn.close()
     
-    columns = ["id", "name", "image_url", "product_url", "primary_color", "style_tags", "embedding_text", "distance"]
+    columns = ["id", "name", "image_url", "product_url", "primary_color", "style_tags", "shopify_product_id", "price", "embedding_text", "distance"]
     candidates = []
     for row in rows:
         item = dict(zip(columns, row))
@@ -815,10 +824,11 @@ def retrieve_for_slot(
     precomputed_embedding: list[float] = None,
     use_closet: bool = False,
     user_id: str = "default",
-    occasion: str = None,  # Semantic occasion filtering (work, casual, going-out, etc.)
-    mood_text: str = None,  # Raw mood text for direct embedding comparison (more flexible!)
-    prefer_occasions: list[str] = None,  # Legacy - kept for compatibility
-    avoid_occasions: list[str] = None  # Legacy - kept for compatibility
+    occasion: str = None,
+    mood_text: str = None,
+    prefer_occasions: list[str] = None,
+    avoid_occasions: list[str] = None,
+    shop_domain: str = None,  # If set, retrieve from shopify_catalog_items
 ) -> list[dict]:
     """
     Retrieve candidate items for a specific slot and direction.
@@ -863,8 +873,9 @@ def retrieve_for_slot(
         query_embedding = get_query_embedding(query_text)
     
     # Map slot to category if needed (e.g., "layer" -> "top")
-    # For closet, use exact category (user categorized their items)
-    search_category = slot if use_closet else SLOT_CATEGORY_MAP.get(slot, slot)
+    # For closet OR Shopify catalog, use exact category (items are already categorized correctly)
+    # Main catalog stores layers under "top"; Shopify catalog has category="layer" directly
+    search_category = slot if (use_closet or shop_domain) else SLOT_CATEGORY_MAP.get(slot, slot)
     
     # Get more candidates than needed, then filter
     candidates = retrieve_candidates(
@@ -876,8 +887,24 @@ def retrieve_for_slot(
         prefer_colors=prefer_colors,
         source=source,
         use_closet=use_closet,
-        user_id=user_id
+        user_id=user_id,
+        shop_domain=shop_domain,
     )
+    # Shopify: if no items with category='layer', try 'top' and filter to layer-like (vest, jacket, etc.)
+    if slot == "layer" and shop_domain and not candidates:
+        candidates = retrieve_candidates(
+            category="top",
+            query_embedding=query_embedding,
+            k=k * 6,
+            exclude_ids=exclude_ids,
+            avoid_colors=avoid_colors,
+            prefer_colors=prefer_colors,
+            source=source,
+            use_closet=False,
+            user_id=user_id,
+            shop_domain=shop_domain,
+        )
+        candidates = filter_layer_items(candidates)
     
     # For closet: apply soft color penalty (prefer non-matching, but don't exclude)
     if use_closet and avoid_colors_soft:
@@ -908,8 +935,8 @@ def retrieve_for_slot(
         candidates = sorted(filtered, key=lambda x: (1 if x.get("_occasion_boost") else 0), reverse=True)
     
     # For layer slot in catalog mode, filter to only include layer-like items
-    # (closet items are already properly categorized by user)
-    if slot == "layer" and not use_closet:
+    # (closet and Shopify catalog items are already properly categorized by user)
+    if slot == "layer" and not use_closet and not shop_domain:
         candidates = filter_layer_items(candidates)
     
     # For layers: filter by compatibility with the top underneath

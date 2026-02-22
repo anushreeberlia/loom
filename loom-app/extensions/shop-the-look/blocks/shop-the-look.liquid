@@ -1,0 +1,292 @@
+{% comment %}Loom — Shop the Look block{% endcomment %}
+
+<div
+  id="loom-shop-the-look"
+  class="loom-stl"
+  data-product-id="{{ product.id }}"
+  data-shop="{{ shop.permanent_domain }}"
+>
+  <div class="loom-stl__header">
+    <h3 class="loom-stl__title">{{ block.settings.title }}</h3>
+    <p class="loom-stl__subtitle">{{ block.settings.subtitle }}</p>
+  </div>
+
+  <div class="loom-stl__loading" id="loom-loading">
+    <div class="loom-stl__spinner"></div>
+    <p>Styling your look…</p>
+  </div>
+
+  <div class="loom-stl__outfits" id="loom-outfits" style="display:none"></div>
+
+  <div class="loom-stl__empty" id="loom-empty" style="display:none">
+    <p id="loom-empty-msg">Outfit suggestions coming soon for this item.</p>
+  </div>
+</div>
+
+<style>
+  .loom-stl {
+    margin: 2rem 0;
+    font-family: inherit;
+    color: #222;
+  }
+  .loom-stl__header { margin-bottom: 1.25rem; }
+  .loom-stl__title  { font-size: 1.25rem; font-weight: 600; margin: 0 0 0.25rem; }
+  .loom-stl__subtitle { font-size: 0.875rem; color: #666; margin: 0; }
+
+  .loom-stl__loading {
+    display: flex; align-items: center; gap: 0.75rem;
+    padding: 1.5rem 0; color: #888; font-size: 0.875rem;
+  }
+  .loom-stl__spinner {
+    width: 18px; height: 18px;
+    border: 2px solid #eee; border-top-color: #000;
+    border-radius: 50%; animation: loom-spin 0.7s linear infinite;
+  }
+  @keyframes loom-spin { to { transform: rotate(360deg); } }
+  .loom-stl__empty { color: #bbb; font-size: 0.85rem; padding: 1rem 0; }
+
+  .loom-stl__outfits {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    gap: 1rem;
+  }
+
+  .loom-stl__outfit {
+    flex: 0 0 calc(33.333% - 0.67rem);
+    min-width: 0;
+    border: 1px solid #eee;
+    border-radius: 12px;
+    padding: 1rem;
+  }
+  .loom-stl__outfit-label {
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: #888;
+    margin: 0 0 0.5rem;
+  }
+
+  .loom-stl__grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    grid-template-rows: repeat(2, auto);
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
+  }
+
+  .loom-stl__item {
+    min-width: 0;
+    text-decoration: none;
+    color: inherit;
+    display: flex;
+    flex-direction: column;
+    border-radius: 6px;
+    overflow: hidden;
+    background: #f7f7f7;
+    transition: box-shadow 0.15s;
+  }
+  .loom-stl__item:hover { box-shadow: 0 2px 12px rgba(0,0,0,0.08); }
+  .loom-stl__item--anchor { outline: 2px solid #000; outline-offset: 2px; }
+
+  .loom-stl__item-img-wrap {
+    width: 100%;
+    aspect-ratio: 1;
+    flex-shrink: 0;
+    background: #f0f0f0;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .loom-stl__item-img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    display: block;
+  }
+
+  .loom-stl__item-info {
+    padding: 0.35rem 0.4rem 0.45rem;
+    flex: 1;
+    min-width: 0;
+  }
+  .loom-stl__item-name {
+    font-size: 0.7rem;
+    font-weight: 500;
+    margin: 0 0 0.15rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: #222;
+  }
+  .loom-stl__item-price {
+    font-size: 0.7rem;
+    color: #555;
+    margin: 0;
+  }
+
+  .loom-stl__explanation {
+    font-size: 0.8rem;
+    color: #666;
+    font-style: italic;
+    margin: 0.5rem 0 0;
+    line-height: 1.5;
+  }
+  .loom-stl__pieces { margin-top: 0.5rem; font-size: 0.7rem; color: #555; }
+  .loom-stl__pieces-title { text-transform: uppercase; letter-spacing: 0.06em; color: #999; margin-bottom: 0.35rem; }
+  .loom-stl__piece { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.2rem; }
+  .loom-stl__piece-slot { min-width: 2.5rem; text-transform: uppercase; letter-spacing: 0.05em; color: #999; font-size: 0.65rem; }
+  .loom-stl__piece-name { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .loom-stl__piece-price { color: #888; white-space: nowrap; }
+</style>
+
+<script>
+(function() {
+  var BACKEND_URL = {{ block.settings.backend_url | json }};
+  var el = document.getElementById('loom-shop-the-look');
+  if (!el) return;
+
+  var productId  = 'gid://shopify/Product/' + el.dataset.productId;
+  var shopDomain = el.dataset.shop;
+
+  var OUTFIT_LABELS = { Classic: 'Outfit 1', Trendy: 'Outfit 2', Bold: 'Outfit 3' };
+  var SLOT_LABELS = { top: 'TOP', bottom: 'BTM', shoes: 'SHOES', layer: 'LAYER', accessory: 'ACC', dress: 'DRESS' };
+  // Layout: row1 = top | bottom, row2 = shoes | layer, row3 = accessory (when present)
+  var GRID_ORDER = ['top', 'bottom', 'shoes', 'layer', 'accessory'];
+
+  function orderItemsByLayout(items) {
+    var ordered = [];
+    var slotNorm = function(s) { return (s || '').toLowerCase(); };
+    GRID_ORDER.forEach(function(slot) {
+      var found = items.filter(function(i) {
+        var s = slotNorm(i.slot);
+        return s === slot || (i.is_anchor && s === slot);
+      })[0];
+      if (found) ordered.push(found);
+    });
+    // Append any item not in GRID_ORDER
+    items.forEach(function(i) {
+      if (ordered.indexOf(i) === -1) ordered.push(i);
+    });
+    return ordered.slice(0, 6);
+  }
+
+  function renderAllOutfits(outfits) {
+    var container = document.getElementById('loom-outfits');
+    var html = '';
+
+    outfits.forEach(function(outfit, idx) {
+      var label = OUTFIT_LABELS[outfit.direction] || ('Outfit ' + (idx + 1));
+      var items = outfit.outfit_items || [];
+      var ordered = orderItemsByLayout(items);
+
+      html += '<div class="loom-stl__outfit">';
+      html += '<p class="loom-stl__outfit-label">' + label + '</p>';
+      html += '<div class="loom-stl__grid">';
+
+      ordered.forEach(function(item) {
+        var href = item.product_url || '#';
+        html += '<a href="' + href + '" class="loom-stl__item' +
+          (item.is_anchor ? ' loom-stl__item--anchor' : '') +
+          '" target="_blank" rel="noopener">' +
+          '<div class="loom-stl__item-img-wrap">' +
+          '<img class="loom-stl__item-img" src="' + item.image_url +
+            '" alt="' + item.name + '" loading="lazy">' +
+          '</div>' +
+          '<div class="loom-stl__item-info">' +
+            '<p class="loom-stl__item-name">' + item.name + '</p>' +
+            (item.price ? '<p class="loom-stl__item-price">$' + Number(item.price).toFixed(2) + '</p>' : '') +
+          '</div>' +
+          '</a>';
+      });
+
+      html += '</div>';
+
+      if (outfit.explanation) {
+        html += '<p class="loom-stl__explanation">' + outfit.explanation + '</p>';
+      }
+      if (ordered.length) {
+        html += '<div class="loom-stl__pieces"><p class="loom-stl__pieces-title">Pieces from catalog</p>';
+        ordered.forEach(function(p) {
+          var slotKey = (p.slot || '').toLowerCase();
+          var slotLabel = SLOT_LABELS[slotKey] || (p.slot || '').toUpperCase();
+          html += '<div class="loom-stl__piece"><span class="loom-stl__piece-slot">' + slotLabel + '</span><span class="loom-stl__piece-name">' + p.name + '</span>';
+          if (p.price) html += '<span class="loom-stl__piece-price">$' + Number(p.price).toFixed(2) + '</span>';
+          html += '</div>';
+        });
+        html += '</div>';
+      }
+      html += '</div>';
+    });
+
+    container.innerHTML = html;
+  }
+
+  function loadOutfits() {
+    var emptyMsg = document.getElementById('loom-empty-msg');
+    if (!BACKEND_URL || !BACKEND_URL.trim()) {
+      document.getElementById('loom-loading').style.display = 'none';
+      document.getElementById('loom-empty').style.display = 'block';
+      if (emptyMsg) emptyMsg.textContent = 'Set "Loom backend URL" in this section (e.g. your Cloudflared tunnel or Railway URL).';
+      return;
+    }
+    var base = BACKEND_URL.trim().replace(/\/$/, '');
+    var params = new URLSearchParams({ shop_domain: shopDomain, product_id: productId });
+    fetch(base + '/shopify/outfits?' + params)
+      .then(function(r) {
+        if (!r.ok) throw new Error('Backend returned ' + r.status);
+        return r.json();
+      })
+      .then(function(data) {
+        document.getElementById('loom-loading').style.display = 'none';
+        if (!data.outfits || data.outfits.length === 0) {
+          document.getElementById('loom-empty').style.display = 'block';
+          if (emptyMsg) emptyMsg.textContent = 'Outfit suggestions coming soon for this item. Sync your catalog and process items in Loom first.';
+          return;
+        }
+        document.getElementById('loom-outfits').style.display = 'flex';
+        var order = { Classic: 0, Trendy: 1, Bold: 2 };
+        var sorted = (data.outfits || []).slice().sort(function(a, b) {
+          return (order[a.direction] ?? 99) - (order[b.direction] ?? 99);
+        });
+        renderAllOutfits(sorted);
+      })
+      .catch(function() {
+        document.getElementById('loom-loading').style.display = 'none';
+        document.getElementById('loom-empty').style.display = 'block';
+        if (emptyMsg) emptyMsg.textContent = 'Could not load suggestions. Check "Loom backend URL" and that the backend is running (e.g. Cloudflared tunnel).';
+      });
+  }
+
+  loadOutfits();
+})();
+</script>
+
+{% schema %}
+{
+  "name": "Shop the Look",
+  "target": "section",
+  "settings": [
+    {
+      "type": "text",
+      "id": "title",
+      "label": "Section title",
+      "default": "Complete the Look"
+    },
+    {
+      "type": "text",
+      "id": "subtitle",
+      "label": "Subtitle",
+      "default": "AI-styled outfits built from our catalog"
+    },
+    {
+      "type": "text",
+      "id": "backend_url",
+      "label": "Loom backend URL",
+      "info": "Your deployed Loom API URL (e.g. https://your-app.railway.app)"
+    }
+  ]
+}
+{% endschema %}
