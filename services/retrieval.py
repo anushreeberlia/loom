@@ -706,12 +706,15 @@ def retrieve_candidates(
     if use_closet:
         table = "user_closet_items"
         select_cols = "id, name, image_url, NULL as product_url, primary_color, style_tags"
+        base_columns = ["id", "name", "image_url", "product_url", "primary_color", "style_tags"]
     elif shop_domain:
         table = "shopify_catalog_items"
         select_cols = "id, name, image_url, product_url, primary_color, style_tags, shopify_product_id, price"
+        base_columns = ["id", "name", "image_url", "product_url", "primary_color", "style_tags", "shopify_product_id", "price"]
     else:
         table = "catalog_items"
         select_cols = "id, name, image_url, product_url, primary_color, style_tags"
+        base_columns = ["id", "name", "image_url", "product_url", "primary_color", "style_tags"]
     
     # Build dynamic WHERE clause
     where_conditions = ["category = %s", "embedding IS NOT NULL"]
@@ -757,7 +760,7 @@ def retrieve_candidates(
     cursor.close()
     conn.close()
     
-    columns = ["id", "name", "image_url", "product_url", "primary_color", "style_tags", "shopify_product_id", "price", "embedding_text", "distance"]
+    columns = base_columns + ["embedding_text", "distance"]
     candidates = []
     for row in rows:
         item = dict(zip(columns, row))
