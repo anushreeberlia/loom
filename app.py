@@ -2358,6 +2358,7 @@ async def get_daily_outfits(
     lat: float = None,
     lon: float = None,
     refresh: bool = False,  # If true, regenerate even if cached
+    from_style: bool = False,  # If true and default mood: skip cache, generate new (once per day when user goes to Style)
     tz_offset: float = None,  # Timezone offset from UTC in hours (e.g., -8 for PST)
     occasion: str = None,  # Manual occasion override (work, casual, going-out, etc.)
     mood: str = None  # Free-form mood description (e.g., "cozy day", "fancy dinner")
@@ -2365,11 +2366,12 @@ async def get_daily_outfits(
     """
     Generate 3 weather-appropriate outfits automatically. Requires authentication.
     Picks different base items from closet for variety.
-    Results are cached per user/day/occasion - only regenerated on explicit refresh.
+    When from_style=true and no mood/occasion (default mood), always generate fresh for the day.
+    Otherwise results are cached per user/day/occasion - use cache when available.
     """
     auth_token = request.cookies.get("auth_token")
     user_id = require_auth(auth_token)
-    logger.info(f"Daily outfits: lat={lat}, lon={lon}, tz={tz_offset}, mood={mood}, refresh={refresh}")
+    logger.info(f"Daily outfits: lat={lat}, lon={lon}, tz={tz_offset}, mood={mood}, refresh={refresh}, from_style={from_style}")
     base_url = str(request.base_url).rstrip("/")
     
     # Determine occasion first (needed for cache lookup)
@@ -2408,9 +2410,12 @@ async def get_daily_outfits(
         logger.info(f"Auto occasion: {occasion_info['occasion']} - {occasion_info['note']}")
     
     occasion_name = occasion_info["occasion"]
-    
-    # Check cache first (unless refresh requested)
-    if not refresh:
+    is_default_mood = not mood and not occasion
+    has_manual_mood = bool(mood and mood.strip())
+
+    # Skip cache when: explicit refresh, manual mood (never use default cache for mood-specific requests), or Style + default
+    skip_cache = refresh or has_manual_mood or (from_style and is_default_mood)
+    if not skip_cache:
         conn_cache = get_db_connection()
         cursor_cache = conn_cache.cursor()
         try:
@@ -2858,9 +2863,8 @@ async def get_daily_outfits(
     else:
         logger.info(f"Skipping FIFO recording for manual mood: {mood}")
     
-    # Cache the generated outfits for today - ONLY for auto-detected occasions (no manual mood)
-    # Manual mood outfits are one-off and shouldn't overwrite the time-based cache
-    if not mood:
+    # Don't cache manual mood outfits - only cache default (no user mood input)
+    if not has_manual_mood:
         try:
             import json
             # Store outfits with relative URLs for caching
@@ -2893,7 +2897,7 @@ async def get_daily_outfits(
         except Exception as e:
             logger.warning(f"Could not cache daily outfits: {e}")
     else:
-        logger.info(f"Skipping cache for manual mood: {mood}")
+        logger.info("Skipping cache for manual mood outfits")
     
     response = {
         "outfits": outfits,
@@ -3169,9 +3173,8 @@ async def regenerate_single_outfit(
         logger.error(f"Collage error: {e}")
         outfit["collage_url"] = None
     
-    # Update the daily cache with the new outfit (only if not manual mood)
-    # Manual mood outfits are one-off and shouldn't modify the time-based cache
-    if not mood_text:
+    # Don't write manual mood outfits to daily cache
+    if not (mood_text and mood_text.strip()):
         try:
             conn_cache = get_db_connection()
             cursor_cache = conn_cache.cursor()
@@ -3212,7 +3215,7 @@ async def regenerate_single_outfit(
         except Exception as e:
             logger.error(f"Failed to update cache: {e}")
     else:
-        logger.info(f"Skipping cache update for manual mood regeneration: {mood_text}")
+        logger.info("Skipping cache update for manual mood outfit")
     
     return outfit
 
