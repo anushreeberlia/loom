@@ -69,8 +69,8 @@ DIRECTION_ACCESSORY_PREFS = {
 # Each occasion has a "vibe" description and an "anti-vibe" description
 OCCASION_SEMANTIC_CONTEXTS = {
     "work": {
-        "vibe": "professional office business conservative modest polished refined tailored structured classic understated sophisticated blazer trousers slacks pencil skirt midi skirt button-down blouse loafers oxford pumps cardigan tote bag collared shirt dress pants",
-        "anti_vibe": "sexy revealing provocative clubbing nightlife halter tank top cami camisole strappy spaghetti strap tube top bandeau sweatshirt hoodie athletic sporty gym workout mini skirt cargo crop top graphic tee cropped low cut plunging neckline backless sheer see-through animal print ripped distressed sneakers platform boots thigh-high stiletto chunky jewelry casual weekend lounge"
+        "vibe": "professional office business conservative modest polished refined tailored structured classic understated sophisticated blazer trousers slacks pencil skirt midi skirt knee-length button-down blouse loafers oxford pumps closed-toe cardigan tote bag collared shirt dress pants wool cotton structured handbag",
+        "anti_vibe": "sexy revealing provocative clubbing nightlife party halter tank top cami camisole strappy spaghetti strap tube top bandeau sweatshirt hoodie athletic sporty gym workout mini skirt mini dress short skirt short shorts hot pants cargo shorts denim shorts cutoffs crop top graphic tee cropped low cut plunging neckline backless sheer see-through animal print leopard ripped distressed sneakers platform boots thigh-high boots stiletto heels chunky jewelry casual weekend lounge beach swimwear festival rave college university logo"
     },
     "casual": {
         "vibe": "relaxed comfortable everyday effortless laid-back weekend brunch daytime jeans t-shirt sneakers denim jacket hoodie tote bag flats sandals cotton linen shorts sundress canvas",
@@ -228,11 +228,19 @@ def filter_by_occasion_semantic(candidates: list[dict], occasion: str = None,
     if len(all_scored) <= 3:
         return all_scored
     
-    # Keep items within 70% of the best score (relative cutoff)
+    # Keep items within threshold of the best score
+    # Work is stricter - need higher percentage of best score
     best = all_scored[0].get("_occasion_score", 0)
     if best > 0:
-        cutoff = best * 0.7
+        # Work occasion requires stricter filtering (85% of best)
+        # Other occasions use looser filtering (70% of best)
+        cutoff_pct = 0.85 if occasion == "work" else 0.7
+        cutoff = best * cutoff_pct
         filtered = [c for c in all_scored if c.get("_occasion_score", 0) >= cutoff]
+        
+        # Log for debugging
+        logger.info(f"Occasion filter ({occasion}): best={best:.3f}, cutoff={cutoff:.3f}, kept {len(filtered)}/{len(all_scored)}")
+        
         return filtered if len(filtered) >= 3 else all_scored[:3]
     
     return all_scored
@@ -544,9 +552,15 @@ def build_query_text(
     else:  # two_tone
         color_hint = "in neutral or one accent color"
     
-    # Slot-specific color overrides
+    # Slot-specific overrides for better semantic matching
     if slot == "shoes":
-        color_hint = "in neutral colors like black, white, or beige"
+        if occasion == "work":
+            color_hint = "in professional neutral colors: black, navy, beige, or brown"
+            item_hint = "women's professional closed-toe work shoes like loafers, pumps, or flats - office-appropriate"
+        else:
+            color_hint = "in neutral colors like black, white, or beige"
+    elif slot == "bottom" and occasion == "work":
+        item_hint = "women's professional bottoms like tailored trousers, dress pants, pencil skirt, or midi skirt - knee-length or longer, office-appropriate"
     elif slot == "accessory":
         color_hint = "in neutral or metallic tones"
     
@@ -921,6 +935,7 @@ def retrieve_for_slot(
         for c in candidates:
             if c.get("primary_color") in avoid_colors_soft:
                 c["_color_penalty"] = True  # Mark for soft scoring penalty
+    
     
     # Apply SEMANTIC occasion filtering (intelligent, not keyword-based)
     # mood_text takes priority - it allows ANY mood description to work via direct embedding
