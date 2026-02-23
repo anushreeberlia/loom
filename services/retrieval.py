@@ -69,8 +69,8 @@ DIRECTION_ACCESSORY_PREFS = {
 # Each occasion has a "vibe" description and an "anti-vibe" description
 OCCASION_SEMANTIC_CONTEXTS = {
     "work": {
-        "vibe": "professional office business conservative modest polished refined tailored structured classic understated sophisticated blazer trousers slacks pencil skirt midi skirt button-down blouse loafers oxford pumps cardigan tote bag",
-        "anti_vibe": "sexy revealing provocative clubbing nightlife mini skirt cargo skirt crop top graphic tee cropped tank low cut plunging neckline backless sheer see-through animal print ripped distressed sneakers platform boots thigh-high boots stiletto chunky jewelry"
+        "vibe": "professional office business conservative modest polished refined tailored structured classic understated sophisticated blazer trousers slacks pencil skirt midi skirt button-down blouse loafers oxford pumps cardigan tote bag collared shirt dress pants",
+        "anti_vibe": "sexy revealing provocative clubbing nightlife halter tank top cami camisole strappy spaghetti strap tube top bandeau sweatshirt hoodie athletic sporty gym workout mini skirt cargo crop top graphic tee cropped low cut plunging neckline backless sheer see-through animal print ripped distressed sneakers platform boots thigh-high stiletto chunky jewelry casual weekend lounge"
     },
     "casual": {
         "vibe": "relaxed comfortable everyday effortless laid-back weekend brunch daytime jeans t-shirt sneakers denim jacket hoodie tote bag flats sandals cotton linen shorts sundress canvas",
@@ -172,16 +172,22 @@ def compute_occasion_score(item_embedding: list[float], occasion: str = None,
     vibe_sim = np.dot(item_emb, vibe) / (np.linalg.norm(item_emb) * np.linalg.norm(vibe))
     anti_sim = np.dot(item_emb, anti_vibe) / (np.linalg.norm(item_emb) * np.linalg.norm(anti_vibe))
     
-    # Base score = vibe similarity (positive for all matching items)
-    # Penalty only when item is MORE similar to anti-vibe than vibe
+    # Score = vibe similarity - anti_vibe penalty
+    # Work needs stronger filtering - casual/revealing items should be heavily penalized
     score = float(vibe_sim)
-    excess_anti = max(0, anti_sim - vibe_sim)
     
-    if occasion in ("going-out", "smart-casual"):
+    if occasion == "work":
+        # Work is strict - penalize anti-vibe items heavily
+        # Even items somewhat similar to anti-vibe should be deprioritized
+        score -= anti_sim * 2.0  # Strong penalty for any anti-vibe similarity
+        # Extra penalty if more similar to anti than vibe
+        if anti_sim > vibe_sim:
+            score -= (anti_sim - vibe_sim) * 3.0
+    elif occasion in ("going-out", "smart-casual"):
+        excess_anti = max(0, anti_sim - vibe_sim)
         score -= excess_anti * 3
-    elif occasion == "work":
-        score -= excess_anti * 2
     else:
+        excess_anti = max(0, anti_sim - vibe_sim)
         score -= excess_anti
     
     if item_tags and occasion == "workout":
@@ -513,8 +519,22 @@ def build_query_text(
         if top:
             top_name = top.get("name", "").lower()
             top_style = " ".join((top.get("style_tags") or [])[:2])
-            # Include top description so embedding finds compatible layers
-            item_hint = f"women's layer (cardigan, jacket, or blazer) that pairs well with a {top_style} {top_name}"
+            top_color = top.get("primary_color", "")
+            
+            # Detect top type to build better layer query
+            is_strappy = any(kw in top_name for kw in ["cami", "tank", "halter", "strappy", "strap"])
+            is_athletic = any(kw in top_name for kw in ["sweat", "hoodie", "athletic", "sport", "gym"])
+            is_dressy = any(kw in top_name for kw in ["blouse", "silk", "satin", "elegant"])
+            
+            # Build layer hint based on top type
+            if is_strappy:
+                item_hint = f"women's open cardigan or lightweight jacket (not vest or pullover) that drapes nicely over a {top_color} {top_name}"
+            elif is_athletic:
+                item_hint = f"women's sporty zip-up jacket or athletic layer that matches a casual {top_color} {top_name}"
+            elif is_dressy:
+                item_hint = f"women's elegant blazer or refined cardigan that complements a dressy {top_color} {top_name}"
+            else:
+                item_hint = f"women's layer (cardigan, jacket, or blazer) that pairs well with a {top_style} {top_color} {top_name}"
     
     # Build color guidance based on policy
     if color_policy == "neutrals":
