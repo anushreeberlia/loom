@@ -172,10 +172,8 @@ def compute_occasion_score(item_embedding: list[float], occasion: str = None,
     vibe_sim = np.dot(item_emb, vibe) / (np.linalg.norm(item_emb) * np.linalg.norm(vibe))
     anti_sim = np.dot(item_emb, anti_vibe) / (np.linalg.norm(item_emb) * np.linalg.norm(anti_vibe))
     
-    # Amplified score: penalize anti-vibe more heavily for going-out/smart-casual
-    # This ensures casual items get properly deprioritized for dressy occasions
-    if occasion in ("going-out", "smart-casual"):
-        # Weight anti-vibe 1.5x more to strongly penalize casual items
+    # Amplified anti-vibe penalty for occasions where inappropriate items are a bigger risk
+    if occasion in ("work", "going-out", "smart-casual"):
         score = float(vibe_sim - 1.5 * anti_sim)
     else:
         score = float(vibe_sim - anti_sim)
@@ -919,10 +917,9 @@ def retrieve_for_slot(
     # mood_text takes priority - it allows ANY mood description to work via direct embedding
     # occasion is used as fallback for predefined occasions
     if mood_text:
-        # Direct embedding comparison - works for ANY mood like "beach day", "funeral", etc.
-        candidates = filter_by_occasion_semantic(candidates, mood_text=mood_text, threshold=-0.03)
+        candidates = filter_by_occasion_semantic(candidates, mood_text=mood_text, threshold=0.0)
     elif occasion and occasion in OCCASION_SEMANTIC_CONTEXTS:
-        candidates = filter_by_occasion_semantic(candidates, occasion=occasion, threshold=-0.03)
+        candidates = filter_by_occasion_semantic(candidates, occasion=occasion, threshold=0.0)
     # Legacy keyword filtering (fallback if occasion not provided but prefer/avoid are)
     elif avoid_occasions or prefer_occasions:
         avoid_set = set(avoid_occasions or [])

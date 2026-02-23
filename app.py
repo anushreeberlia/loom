@@ -2374,6 +2374,11 @@ async def get_daily_outfits(
     logger.info(f"Daily outfits: lat={lat}, lon={lon}, tz={tz_offset}, mood={mood}, refresh={refresh}, from_style={from_style}")
     base_url = str(request.base_url).rstrip("/")
     
+    # Compute user's local date (not server UTC) for cache keying
+    from datetime import datetime, timedelta, timezone
+    user_tz = timezone(timedelta(hours=tz_offset)) if tz_offset is not None else timezone.utc
+    user_today = datetime.now(user_tz).date()
+    
     # Determine occasion first (needed for cache lookup)
     # Get occasion - from mood description, manual selection, or auto-detect
     if mood:
@@ -2386,7 +2391,7 @@ async def get_daily_outfits(
             "work": {
                 "occasion": "work",
                 "prefer_occasions": ["work", "office", "business-casual", "professional", "elegant", "classic"],
-                "avoid_occasions": [],  # Semantic filtering handles this now
+                "avoid_occasions": [],
                 "note": "Work / Office"
             },
             "casual": {
@@ -2421,8 +2426,8 @@ async def get_daily_outfits(
         try:
             cursor_cache.execute(
                 """SELECT outfits_json, weather_json FROM daily_outfit_cache 
-                   WHERE user_id = %s AND cache_date = CURRENT_DATE AND occasion = %s""",
-                (user_id, occasion_name)
+                   WHERE user_id = %s AND cache_date = %s AND occasion = %s""",
+                (user_id, user_today, occasion_name)
             )
             cached = cursor_cache.fetchone()
             if cached:
@@ -2605,9 +2610,9 @@ async def get_daily_outfits(
     from datetime import datetime, timedelta
     
     # Get recent top suggestions for this user+occasion (FIFO queue)
-    # Skip for manual mood - those are one-off requests without rotation
+    # Only use rotation for default occasion (no manual mood or occasion)
     recent_suggestions = {}
-    if not mood:
+    if is_default_mood:
         try:
             conn_suggest = get_db_connection()
             cursor_suggest = conn_suggest.cursor()
@@ -2841,8 +2846,8 @@ async def get_daily_outfits(
         outfits.append(outfit)
     
     # Record suggested tops to FIFO queue (so they're deprioritized next time)
-    # Skip for manual mood - those are one-off and shouldn't affect the rotation
-    if not mood:
+    # Only record for default occasion (no manual mood or occasion)
+    if is_default_mood:
         try:
             conn_record = get_db_connection()
             cursor_record = conn_record.cursor()
@@ -2882,13 +2887,13 @@ async def get_daily_outfits(
             cursor_cache = conn_cache.cursor()
             cursor_cache.execute(
                 """INSERT INTO daily_outfit_cache (user_id, cache_date, occasion, mood_text, outfits_json, weather_json)
-                   VALUES (%s, CURRENT_DATE, %s, %s, %s, %s)
+                   VALUES (%s, %s, %s, %s, %s, %s)
                    ON CONFLICT (user_id, cache_date, occasion) 
                    DO UPDATE SET outfits_json = EXCLUDED.outfits_json, 
                                  weather_json = EXCLUDED.weather_json,
                                  mood_text = EXCLUDED.mood_text,
                                  created_at = NOW()""",
-                (user_id, occasion_name, None, json.dumps(outfits_for_cache), json.dumps(weather_for_cache) if weather_for_cache else None)
+                (user_id, user_today, occasion_name, None, json.dumps(outfits_for_cache), json.dumps(weather_for_cache) if weather_for_cache else None)
             )
             conn_cache.commit()
             cursor_cache.close()
@@ -2934,6 +2939,10 @@ async def regenerate_single_outfit(
     logger.info(f"Regenerating outfit {idx} (exclude: {exclude_ids}, tz_offset: {tz_offset}, mood: {mood_text}, base_item_id: {base_item_id})")
     base_url = str(request.base_url).rstrip("/")
     
+    from datetime import datetime, timedelta, timezone
+    user_tz = timezone(timedelta(hours=tz_offset)) if tz_offset is not None else timezone.utc
+    user_today = datetime.now(user_tz).date()
+    
     # Parse exclude IDs
     excluded = set()
     if exclude_ids:
@@ -2956,8 +2965,8 @@ async def regenerate_single_outfit(
             
             cursor_check.execute(
                 """SELECT outfits_json FROM daily_outfit_cache 
-                   WHERE user_id = %s AND cache_date = CURRENT_DATE AND occasion = %s""",
-                (user_id, occasion_for_cache)
+                   WHERE user_id = %s AND cache_date = %s AND occasion = %s""",
+                (user_id, user_today, occasion_for_cache)
             )
             cached = cursor_check.fetchone()
             if cached and cached[0]:
@@ -3182,8 +3191,8 @@ async def regenerate_single_outfit(
             # Get current cached outfits
             cursor_cache.execute(
                 """SELECT outfits_json FROM daily_outfit_cache 
-                   WHERE user_id = %s AND cache_date = CURRENT_DATE AND occasion = %s""",
-                (user_id, occasion_name)
+                   WHERE user_id = %s AND cache_date = %s AND occasion = %s""",
+                (user_id, user_today, occasion_name)
             )
             cached = cursor_cache.fetchone()
             
@@ -3204,8 +3213,8 @@ async def regenerate_single_outfit(
                     cursor_cache.execute(
                         """UPDATE daily_outfit_cache 
                            SET outfits_json = %s, created_at = NOW()
-                           WHERE user_id = %s AND cache_date = CURRENT_DATE AND occasion = %s""",
-                        (json.dumps(cached_outfits), user_id, occasion_name)
+                           WHERE user_id = %s AND cache_date = %s AND occasion = %s""",
+                        (json.dumps(cached_outfits), user_id, user_today, occasion_name)
                     )
                     conn_cache.commit()
                     logger.info(f"Updated cache with regenerated outfit {idx} for user {user_id}")
