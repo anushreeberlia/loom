@@ -1146,21 +1146,20 @@
         const moodBtn = document.getElementById('mood-btn');
 
         // Style Me button - generates daily outfits with mood/occasion
-        moodBtn.addEventListener('click', () => {
+        moodBtn.addEventListener('click', async () => {
             const mood = moodInput.value.trim();
-            if (userLocation) {
-                dailyLoading.style.display = 'block';
-                dailyGrid.style.display = 'none';
-                dailyActions.style.display = 'none';
-                // Force refresh when mood is specified to get fresh outfits for this occasion
-                loadDailyOutfits(userLocation.lat, userLocation.lon, true, mood || null);
-            } else {
-                // Try loading without location
-                dailyLoading.style.display = 'block';
-                dailyGrid.style.display = 'none';
-                dailyActions.style.display = 'none';
-                loadDailyOutfits(null, null, true, mood || null);
+            dailyLoading.style.display = 'block';
+            dailyGrid.style.display = 'none';
+            dailyActions.style.display = 'none';
+            if (!userLocation && navigator.geolocation) {
+                try {
+                    const pos = await new Promise((resolve, reject) => {
+                        navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 5000 });
+                    });
+                    userLocation = { lat: pos.coords.latitude, lon: pos.coords.longitude };
+                } catch(e) { /* proceed without location */ }
             }
+            loadDailyOutfits(userLocation?.lat, userLocation?.lon, true, mood || null);
         });
 
         // Also trigger on Enter key in mood input
@@ -1258,7 +1257,7 @@
             try {
                 let url = '/v1/closet/daily';
                 const params = [];
-                if (lat !== null && lon !== null) {
+                if (lat != null && lon != null) {
                     params.push(`lat=${lat}`, `lon=${lon}`);
                 }
                 if (refresh) {
@@ -2030,12 +2029,19 @@
         });
 
         // Refresh daily outfits (with refresh=true to regenerate and update cache)
-        document.getElementById('refresh-daily-btn').addEventListener('click', () => {
+        document.getElementById('refresh-daily-btn').addEventListener('click', async () => {
             dailyGrid.style.display = 'none';
             dailyActions.style.display = 'none';
             dailyLoading.style.display = 'block';
             dailySubtitle.textContent = 'Generating new looks...';
-            // Get current mood if any, and pass refresh=true to regenerate
+            if (!userLocation && navigator.geolocation) {
+                try {
+                    const pos = await new Promise((resolve, reject) => {
+                        navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 5000 });
+                    });
+                    userLocation = { lat: pos.coords.latitude, lon: pos.coords.longitude };
+                } catch(e) { /* proceed without location */ }
+            }
             const currentMood = moodInput?.value?.trim() || null;
             loadDailyOutfits(userLocation?.lat, userLocation?.lon, true, currentMood);
         });
