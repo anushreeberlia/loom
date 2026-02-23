@@ -2572,17 +2572,14 @@ async def get_daily_outfits(
         style_tags = item.get("style_tags") or []
         all_item_tags = set(occasion_tags + style_tags)
         
-        # Count direct tag matches (not "everyday" fallback)
         direct_matches = sum(1 for o in prefer_occasions if o in all_item_tags)
-        score += direct_matches * 5  # Strong boost for direct matches
+        score += direct_matches * 5
         
-        # Penalize items with avoided tags
         for o in avoid_occasions:
             if o in all_item_tags:
-                score -= 5  # Strong penalty for avoided tags
+                score -= 5
         
-        # SEMANTIC scoring using embeddings - this is the key for workout/active occasions
-        # Use raw mood text if provided (direct embedding), otherwise use mapped occasion
+        # Semantic scoring using embeddings
         if item.get("embedding") and (mood or occasion_name):
             semantic_score = compute_occasion_score(
                 item["embedding"], 
@@ -2590,13 +2587,12 @@ async def get_daily_outfits(
                 mood_text=mood if mood else None,
                 item_tags=all_item_tags
             )
-            score += semantic_score * 15  # Strong weight for semantic fit
+            score += semantic_score * 15
         
-        # Material scoring for weather (especially important for layers)
+        # Material scoring for weather
         if weather_adjustments:
             material = item.get("material") or ""
             material_score = get_material_weather_score(material, weather_adjustments)
-            # Extra weight for layers - material matters more
             if item.get("category") == "layer":
                 material_score *= 2
             score += material_score

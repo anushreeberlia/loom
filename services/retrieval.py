@@ -69,24 +69,24 @@ DIRECTION_ACCESSORY_PREFS = {
 # Each occasion has a "vibe" description and an "anti-vibe" description
 OCCASION_SEMANTIC_CONTEXTS = {
     "work": {
-        "vibe": "professional office business conservative modest appropriate polished refined tailored structured classic understated sophisticated practical comfortable sensible",
-        "anti_vibe": "sexy revealing provocative clubbing nightlife glamorous flashy bold statement attention-grabbing mini skirt thigh high crop top low cut plunging neckline backless sheer see through animal print"
+        "vibe": "professional office business conservative modest polished refined tailored structured classic understated sophisticated blazer trousers slacks pencil skirt midi skirt button-down blouse loafers oxford pumps cardigan tote bag",
+        "anti_vibe": "sexy revealing provocative clubbing nightlife mini skirt cargo skirt crop top graphic tee cropped tank low cut plunging neckline backless sheer see-through animal print ripped distressed sneakers platform boots thigh-high boots stiletto chunky jewelry"
     },
     "casual": {
-        "vibe": "relaxed comfortable everyday effortless laid-back weekend brunch daytime practical easy-going simple",
-        "anti_vibe": "formal black-tie gala ballgown evening gown tuxedo ultra dressy"
+        "vibe": "relaxed comfortable everyday effortless laid-back weekend brunch daytime jeans t-shirt sneakers denim jacket hoodie tote bag flats sandals cotton linen shorts sundress canvas",
+        "anti_vibe": "formal black-tie gala ballgown evening gown tuxedo sequin gown stiletto heels satin dress pearl necklace cufflinks bow tie blazer suit pencil skirt"
     },
     "going-out": {
-        "vibe": "glamorous sexy elegant party date night dinner chic statement bold eye-catching dressy stylish trendy fashionable sophisticated luxurious satin silk velvet lace sequins sparkle glam night out club dress to impress",
-        "anti_vibe": "athletic sporty gym workout sweatpants hoodie casual basic plain everyday cotton t-shirt running exercise activewear fitness comfortable lounge relaxed daytime errands weekend lazy simple ordinary"
+        "vibe": "glamorous sexy elegant party date night dinner chic statement bold eye-catching dressy heels mini dress bodycon satin silk velvet lace sequins clutch bag strappy sandals statement earrings cocktail dress",
+        "anti_vibe": "athletic sporty gym workout sweatpants hoodie sneakers running shoes t-shirt joggers leggings activewear baseball cap flip flops crocs backpack"
     },
     "smart-casual": {
-        "vibe": "polished put-together elevated casual refined dinner date chic sophisticated understated elegant dressed up nice",
-        "anti_vibe": "gym workout athletic sporty sweatpants loungewear pajamas ultra casual sloppy running exercise t-shirt basic"
+        "vibe": "polished put-together elevated casual refined dinner date chic sophisticated understated elegant blazer chinos loafers ankle boots midi skirt knit sweater leather bag structured dress",
+        "anti_vibe": "gym workout athletic sporty sweatpants joggers loungewear pajamas hoodie graphic tee flip flops crocs running shoes baseball cap ripped jeans"
     },
     "workout": {
-        "vibe": "athletic sporty gym fitness activewear performance breathable stretchy comfortable movement exercise training leggings sneakers running",
-        "anti_vibe": "formal dressy elegant heels business office work professional evening gown party blazer suit"
+        "vibe": "athletic sporty gym fitness activewear performance breathable stretchy leggings sports bra sneakers running shoes tank top shorts joggers headband water bottle duffel bag",
+        "anti_vibe": "formal dressy elegant heels blazer suit pencil skirt silk blouse leather shoes loafers evening gown sequins satin clutch bag jewelry watch"
     }
 }
 
@@ -172,17 +172,22 @@ def compute_occasion_score(item_embedding: list[float], occasion: str = None,
     vibe_sim = np.dot(item_emb, vibe) / (np.linalg.norm(item_emb) * np.linalg.norm(vibe))
     anti_sim = np.dot(item_emb, anti_vibe) / (np.linalg.norm(item_emb) * np.linalg.norm(anti_vibe))
     
-    # Amplified anti-vibe penalty for occasions where inappropriate items are a bigger risk
-    if occasion in ("work", "going-out", "smart-casual"):
-        score = float(vibe_sim - 1.5 * anti_sim)
-    else:
-        score = float(vibe_sim - anti_sim)
+    # Base score = vibe similarity (positive for all matching items)
+    # Penalty only when item is MORE similar to anti-vibe than vibe
+    score = float(vibe_sim)
+    excess_anti = max(0, anti_sim - vibe_sim)
     
-    # Workout is special case - needs athletic items
+    if occasion in ("going-out", "smart-casual"):
+        score -= excess_anti * 3
+    elif occasion == "work":
+        score -= excess_anti * 2
+    else:
+        score -= excess_anti
+    
     if item_tags and occasion == "workout":
         athletic_tags = {"sporty", "athletic", "activewear", "gym", "workout"}
         if not (item_tags & athletic_tags):
-            score -= 0.15  # Very strong penalty for non-athletic
+            score -= 0.15
     
     return score
 
@@ -216,14 +221,12 @@ def filter_by_occasion_semantic(candidates: list[dict], occasion: str = None,
     scored = []
     filtered_out = []
     for c in candidates:
-        # Gather all item tags for semantic + tag-based scoring
         item_tags = set((c.get("occasion_tags") or []) + (c.get("style_tags") or []))
         
         if not c.get("embedding"):
-            c["_occasion_score"] = 0  # No embedding = neutral
+            c["_occasion_score"] = 0
             scored.append(c)
         else:
-            # Use mood_text for direct embedding if provided, otherwise use occasion
             score = compute_occasion_score(c["embedding"], occasion=occasion, 
                                           mood_text=mood_text, item_tags=item_tags)
             c["_occasion_score"] = score
