@@ -196,21 +196,8 @@ def filter_by_occasion_semantic(candidates: list[dict], occasion: str = None,
                                 mood_text: str = None, threshold: float = -0.02) -> list[dict]:
     """
     Filter and rank candidates by semantic occasion fit.
-    
-    Can use either:
-    - occasion: A predefined occasion (work, casual, going-out, etc.)
-    - mood_text: Raw mood text for direct embedding comparison (handles any mood!)
-    
-    Args:
-        candidates: List of items with embeddings
-        occasion: The target occasion (work, casual, going-out, etc.)
-        mood_text: Raw mood text like "beach day", "funeral", "wedding guest"
-        threshold: Minimum occasion score to include (items below this are filtered out)
-    
-    Returns:
-        Filtered and sorted candidates (best fits first)
+    Uses relative filtering: keeps top half of scored candidates.
     """
-    # Skip filtering if neither occasion nor mood_text provided
     if not mood_text and occasion not in OCCASION_SEMANTIC_CONTEXTS:
         return candidates
     
@@ -218,32 +205,31 @@ def filter_by_occasion_semantic(candidates: list[dict], occasion: str = None,
         return candidates
     
     # Score all candidates
-    scored = []
-    filtered_out = []
+    all_scored = []
     for c in candidates:
         item_tags = set((c.get("occasion_tags") or []) + (c.get("style_tags") or []))
         
         if not c.get("embedding"):
             c["_occasion_score"] = 0
-            scored.append(c)
         else:
             score = compute_occasion_score(c["embedding"], occasion=occasion, 
                                           mood_text=mood_text, item_tags=item_tags)
             c["_occasion_score"] = score
-            if score >= threshold:
-                scored.append(c)
-            else:
-                filtered_out.append(c)
+        all_scored.append(c)
     
-    # Sort by occasion score (best fits first)
-    scored.sort(key=lambda x: x.get("_occasion_score", 0), reverse=True)
+    all_scored.sort(key=lambda x: x.get("_occasion_score", 0), reverse=True)
     
-    # If we filtered out everything, return at least some items (sorted by score)
-    if not scored and filtered_out:
-        filtered_out.sort(key=lambda x: x.get("_occasion_score", 0), reverse=True)
-        return filtered_out[:3]  # Return top 3 even if below threshold
+    if len(all_scored) <= 3:
+        return all_scored
     
-    return scored
+    # Keep items within 70% of the best score (relative cutoff)
+    best = all_scored[0].get("_occasion_score", 0)
+    if best > 0:
+        cutoff = best * 0.7
+        filtered = [c for c in all_scored if c.get("_occasion_score", 0) >= cutoff]
+        return filtered if len(filtered) >= 3 else all_scored[:3]
+    
+    return all_scored
 
 
 def infer_product_type(item_name: str, slot: str) -> dict:
@@ -920,9 +906,9 @@ def retrieve_for_slot(
     # mood_text takes priority - it allows ANY mood description to work via direct embedding
     # occasion is used as fallback for predefined occasions
     if mood_text:
-        candidates = filter_by_occasion_semantic(candidates, mood_text=mood_text, threshold=0.0)
+        candidates = filter_by_occasion_semantic(candidates, mood_text=mood_text)
     elif occasion and occasion in OCCASION_SEMANTIC_CONTEXTS:
-        candidates = filter_by_occasion_semantic(candidates, occasion=occasion, threshold=0.0)
+        candidates = filter_by_occasion_semantic(candidates, occasion=occasion)
     # Legacy keyword filtering (fallback if occasion not provided but prefer/avoid are)
     elif avoid_occasions or prefer_occasions:
         avoid_set = set(avoid_occasions or [])
