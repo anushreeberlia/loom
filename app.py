@@ -55,112 +55,6 @@ def verify_password(password: str, hashed: str) -> bool:
     return bcrypt.checkpw(password.encode('utf-8'), hashed.encode('utf-8'))
 
 
-def interpret_mood_for_occasion(mood: str) -> dict:
-    """
-    Use AI to interpret a free-form mood description into occasion preferences.
-    
-    Args:
-        mood: Free-form text like "cozy day at home", "fancy dinner date", etc.
-        
-    Returns:
-        Dict with occasion, prefer_occasions, avoid_occasions, note, needs_layer
-    """
-    if not OPENAI_API_KEY:
-        # Fallback to casual if no API key
-        return {
-            "occasion": "casual",
-            "prefer_occasions": ["casual", "everyday"],
-            "avoid_occasions": [],
-            "note": mood,
-            "needs_layer": None  # Let weather decide
-        }
-    
-    prompt = f"""Based on this mood/feeling description, determine the appropriate outfit occasion.
-
-Mood: "{mood}"
-
-Return JSON with:
-- occasion: MUST be exactly one of: work, casual, going-out, smart-casual, workout
-- prefer_occasions: array of 3-5 tags to look for
-- avoid_occasions: array of 3-5 tags to exclude
-- note: short summary (max 30 chars, no emoji)
-- needs_layer: boolean - true if going outside/commuting/needs jacket, false if staying indoors/at home/gym, null if unclear
-
-Examples:
-- "cozy day at home" → needs_layer: false (indoor, no jacket needed)
-- "office today" → needs_layer: true (going outside, commuting)
-- "dinner date" → needs_layer: true (going out)
-- "working from home" → needs_layer: false (indoor)
-- "gym session" → needs_layer: false (indoor workout)
-
-JSON only."""
-
-    try:
-        response = httpx.post(
-            "https://api.openai.com/v1/chat/completions",
-            headers={
-                "Authorization": f"Bearer {OPENAI_API_KEY}",
-                "Content-Type": "application/json"
-            },
-            json={
-                "model": "gpt-4o-mini",
-                "messages": [
-                    {"role": "system", "content": "You are a fashion stylist. Return only valid JSON."},
-                    {"role": "user", "content": prompt}
-                ],
-                "temperature": 0.3,
-                "max_tokens": 200
-            },
-            timeout=10.0
-        )
-        
-        if response.status_code == 200:
-            import json
-            text = response.json()["choices"][0]["message"]["content"]
-            # Clean up markdown if present
-            text = text.strip()
-            if text.startswith("```"):
-                lines = text.split("\n")
-                text = "\n".join(lines[1:-1])
-            
-            result = json.loads(text)
-            
-            # Normalize occasion to known values
-            KNOWN_OCCASIONS = {"work", "casual", "going-out", "smart-casual", "workout"}
-            OCCASION_ALIASES = {
-                "active": "workout", "gym": "workout", "fitness": "workout", "exercise": "workout",
-                "party": "going-out", "date": "going-out", "dinner": "going-out", "night-out": "going-out",
-                "formal": "smart-casual", "business": "work", "office": "work",
-                "brunch": "casual", "cozy": "casual", "relaxed": "casual"
-            }
-            raw_occasion = result.get("occasion", "casual").lower()
-            if raw_occasion not in KNOWN_OCCASIONS:
-                raw_occasion = OCCASION_ALIASES.get(raw_occasion, "casual")
-            
-            # Parse needs_layer - can be true, false, or null
-            needs_layer = result.get("needs_layer")
-            if needs_layer is not None:
-                needs_layer = bool(needs_layer)
-            
-            return {
-                "occasion": raw_occasion,
-                "prefer_occasions": result.get("prefer_occasions", ["casual", "everyday"]),
-                "avoid_occasions": result.get("avoid_occasions", []),
-                "note": result.get("note", mood),
-                "needs_layer": needs_layer
-            }
-    except Exception as e:
-        logger.error(f"Mood interpretation error: {e}")
-    
-    # Fallback
-    return {
-        "occasion": "casual",
-        "prefer_occasions": ["casual", "everyday"],
-        "avoid_occasions": [],
-        "note": mood,
-        "needs_layer": None  # Let weather decide
-    }
-
 
 class FeedbackRequest(BaseModel):
     generation_id: int
@@ -2365,11 +2259,18 @@ async def get_daily_outfits(
     user_today = datetime.now(user_tz).date()
     
     # Determine occasion first (needed for cache lookup)
-    # Get occasion - from mood description, manual selection, or auto-detect
+    # Mood requests: no GPT call — FashionCLIP embedding handles item selection directly
+    # Default/dropdown: use predefined occasion configs or auto-detect from time
     if mood:
-        # Interpret mood using AI
-        occasion_info = interpret_mood_for_occasion(mood)
-        logger.info(f"Mood '{mood}' -> {occasion_info['occasion']} - {occasion_info['note']}")
+        mood_slug = mood.strip().lower().replace(" ", "-")
+        occasion_info = {
+            "occasion": mood_slug,
+            "prefer_occasions": [],
+            "avoid_occasions": [],
+            "note": mood.strip(),
+            "needs_layer": None,
+        }
+        logger.info(f"Mood '{mood}' -> direct embedding (occasion slug: {mood_slug})")
     elif occasion:
         # Manual occasion selected (fallback for dropdown if used)
         OCCASION_CONFIGS = {
@@ -2813,12 +2714,11 @@ async def get_daily_outfits(
             outfit["direction"] = f"Outfit {idx + 1}"
             outfit["base_item"] = base_item
         
-        # Generate collage - include mood in path so mood outfits don't overwrite defaults
+        # Generate collage — occasion_name is already the mood slug for mood requests
         try:
             items_for_collage = outfit.get("items", [])
-            mood_slug = f"_{mood.strip().replace(' ', '-')}" if has_manual_mood else ""
             collage_path = generate_outfit_collage(
-                generation_id=f"u{user_id}_{occasion_name}{mood_slug}_{idx}",
+                generation_id=f"u{user_id}_{occasion_name}_{idx}",
                 direction=f"outfit_{idx + 1}",
                 items=items_for_collage,
                 base_item={"image_url": base_item["image_url"], "category": base_category},
@@ -2941,10 +2841,8 @@ async def regenerate_single_outfit(
             conn_check = get_db_connection()
             cursor_check = conn_check.cursor()
             # Determine occasion for cache lookup
-            occasion_for_cache = None
             if mood_text:
-                temp_occasion = interpret_mood_for_occasion(mood_text)
-                occasion_for_cache = temp_occasion.get("occasion") if temp_occasion else "casual"
+                occasion_for_cache = mood_text.strip().lower().replace(" ", "-")
             else:
                 temp_occasion = get_occasion_from_time(tz_offset)
                 occasion_for_cache = temp_occasion.get("occasion") if temp_occasion else "casual"
@@ -2981,9 +2879,14 @@ async def regenerate_single_outfit(
             weather_adjustments = get_weather_outfit_adjustments(weather_data)
     
     # Determine occasion (from mood or auto-detect)
+    # Mood requests: no GPT call — embedding handles item selection
     occasion_info = None
     if mood_text:
-        occasion_info = interpret_mood_for_occasion(mood_text)
+        occasion_info = {
+            "occasion": mood_text.strip().lower().replace(" ", "-"),
+            "prefer_occasions": [],
+            "avoid_occasions": [],
+        }
     else:
         occasion_info = get_occasion_from_time(tz_offset)
     
