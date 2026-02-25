@@ -13,7 +13,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import psycopg2
 from psycopg2.extras import Json
 
-from services.vision import describe_image
+from services.vision import analyze_image, describe_image
 from services.parser import parse_description
 from services.embedding import embed_base_item, embed_item_image
 from services.outfit import (
@@ -833,39 +833,29 @@ async def generate_outfits(request: Request, file: UploadFile = File(...), sessi
     # Check cache first
     cached = get_cached_image_analysis(image_hash)
     if cached and cached.get("embedding"):
-        logger.info(f"⚡ Cache HIT for image {image_hash[:12]}... - skipping Vision/Parser/Embedding")
-        description = cached["description"]
+        logger.info(f"Cache HIT for image {image_hash[:12]}... - skipping Vision/Embedding")
         base_item = cached["base_item"]
         embedding = cached["embedding"]
     else:
         logger.info(f"Cache MISS for image {image_hash[:12]}... - calling APIs")
 
-    # 2. Vision: Get description from image
-    logger.info("Calling vision API...")
-    try:
-        description = describe_image(contents)
-        logger.info(f"Description: {description[:100]}...")
-    except Exception as e:
-        logger.error(f"Vision API error: {e}")
-        raise HTTPException(status_code=500, detail=f"Vision API error: {str(e)}")
+        # Vision: Single-call image analysis (GPT-4o-mini vision → structured JSON)
+        logger.info("Analyzing image...")
+        try:
+            base_item = analyze_image(contents)
+            logger.info(f"BaseItem: {base_item}")
+        except Exception as e:
+            logger.error(f"Vision analysis error: {e}")
+            raise HTTPException(status_code=500, detail=f"Vision analysis error: {str(e)}")
 
-    # 3. Parser: Convert description to structured JSON
-    logger.info("Parsing description to BaseItem...")
-    try:
-        base_item = parse_description(description)
-        logger.info(f"BaseItem: {base_item}")
-    except Exception as e:
-        logger.error(f"Parser error: {e}")
-        raise HTTPException(status_code=500, detail=f"Parser error: {str(e)}")
-
-    # 4. Embedding: Generate image embedding via FashionCLIP
-    logger.info("Generating FashionCLIP image embedding...")
-    try:
-        embedding = embed_item_image(contents)
-        logger.info(f"Embedding generated (dim={len(embedding)})")
-    except Exception as e:
-        logger.error(f"Embedding error: {e}")
-        raise HTTPException(status_code=500, detail=f"Embedding error: {str(e)}")
+        # Embedding: Generate image embedding via FashionCLIP
+        logger.info("Generating FashionCLIP image embedding...")
+        try:
+            embedding = embed_item_image(contents)
+            logger.info(f"Embedding generated (dim={len(embedding)})")
+        except Exception as e:
+            logger.error(f"Embedding error: {e}")
+            raise HTTPException(status_code=500, detail=f"Embedding error: {str(e)}")
 
     # 5. Retrieve candidates and assemble outfits
     # Phase 1: BATCH all query embeddings in ONE API call
@@ -1662,21 +1652,13 @@ async def add_closet_item(request: Request, file: UploadFile = File(...)):
         logger.error(f"Cloudinary upload error: {e}")
         raise HTTPException(status_code=500, detail=f"Image upload failed: {str(e)}")
     
-    # 2. Vision: Get description from image
+    # 2. Vision: Single-call image analysis (GPT-4o-mini vision → structured JSON)
     try:
-        description = describe_image(contents)
-        logger.info(f"Vision description: {description[:100]}...")
-    except Exception as e:
-        logger.error(f"Vision API error: {e}")
-        raise HTTPException(status_code=500, detail=f"Vision API error: {str(e)}")
-    
-    # 3. Parser: Convert description to structured JSON
-    try:
-        parsed = parse_description(description)
+        parsed = analyze_image(contents)
         logger.info(f"Parsed item: {parsed}")
     except Exception as e:
-        logger.error(f"Parser error: {e}")
-        raise HTTPException(status_code=500, detail=f"Parser error: {str(e)}")
+        logger.error(f"Vision analysis error: {e}")
+        raise HTTPException(status_code=500, detail=f"Vision analysis error: {str(e)}")
     
     # 4. Embedding: Generate FashionCLIP image embedding
     try:
@@ -1824,9 +1806,8 @@ async def retag_all_closet_items(user_id: str = "default"):
                     results["failed"] += 1
                     continue
                 
-                # Re-run vision + parser
-                description = describe_image(response.content)
-                parsed = parse_description(description)
+                # Single-call image analysis
+                parsed = analyze_image(response.content)
                 
                 # Generate new name
                 name = f"{parsed.get('primary_color', '')} {parsed.get('category', 'item')}".strip().title()
@@ -1901,9 +1882,8 @@ async def retag_single_item(item_id: int, auth_token: Optional[str] = Cookie(Non
         if response.status_code != 200:
             raise HTTPException(status_code=500, detail="Could not download image")
         
-        # Re-run vision + parser
-        description = describe_image(response.content)
-        parsed = parse_description(description)
+        # Single-call image analysis
+        parsed = analyze_image(response.content)
         
         # Generate new name
         name = f"{parsed.get('primary_color', '')} {parsed.get('category', 'item')}".strip().title()
@@ -2129,9 +2109,8 @@ async def generate_closet_outfits(
             logger.error(f"Cloudinary upload error: {e}")
             raise HTTPException(status_code=500, detail=f"Image upload failed: {str(e)}")
         
-        # Process through vision/parser pipeline
-        description = describe_image(contents)
-        base_item = parse_description(description)
+        # Single-call image analysis
+        base_item = analyze_image(contents)
         embedding = embed_item_image(contents)
         image_hash = hashlib.sha256(contents).hexdigest()
         
