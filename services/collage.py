@@ -4,6 +4,8 @@ Creates grid-layout collages from outfit items.
 """
 import os
 import logging
+from io import BytesIO
+from functools import lru_cache
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 
@@ -28,18 +30,26 @@ def collage_exists(generation_id: int, direction: str) -> bool:
     return get_collage_path(generation_id, direction).exists()
 
 
+@lru_cache(maxsize=128)
+def _fetch_url(url: str) -> bytes | None:
+    """Download and cache image bytes — same item image is only fetched once."""
+    import httpx
+    resp = httpx.get(url, timeout=15)
+    if resp.status_code != 200:
+        logger.warning(f"Image fetch failed: {url} (status {resp.status_code})")
+        return None
+    return resp.content
+
+
 def load_and_resize_image(image_path: str, size: tuple[int, int]) -> Image.Image | None:
     """Load an image and resize it to fit in the given size while maintaining aspect ratio."""
     try:
-        # Handle remote URLs
+        # Handle remote URLs (cached in memory)
         if image_path.startswith("http"):
-            import httpx
-            from io import BytesIO
-            response = httpx.get(image_path, timeout=10)
-            if response.status_code != 200:
-                logger.warning(f"Image not found: {image_path} (status {response.status_code})")
+            data = _fetch_url(image_path)
+            if data is None:
                 return None
-            img = Image.open(BytesIO(response.content))
+            img = Image.open(BytesIO(data))
         else:
             # Local file
             if not os.path.exists(image_path):

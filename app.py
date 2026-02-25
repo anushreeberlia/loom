@@ -2557,14 +2557,16 @@ async def get_daily_outfits(
         style_tags = item.get("style_tags") or []
         all_item_tags = set(occasion_tags + style_tags)
         
-        direct_matches = sum(1 for o in prefer_occasions if o in all_item_tags)
-        score += direct_matches * 5
+        # When mood text is provided, rely on semantic embedding match (not tag matching)
+        # Tag matching fails for creative moods like "manual labor" or "circus"
+        if not has_manual_mood:
+            direct_matches = sum(1 for o in prefer_occasions if o in all_item_tags)
+            score += direct_matches * 5
+            for o in avoid_occasions:
+                if o in all_item_tags:
+                    score -= 5
         
-        for o in avoid_occasions:
-            if o in all_item_tags:
-                score -= 5
-        
-        # Semantic scoring using embeddings
+        # Semantic scoring using embeddings — primary signal for mood-based requests
         if item.get("embedding") and (mood or occasion_name):
             semantic_score = compute_occasion_score(
                 item["embedding"], 
@@ -2572,7 +2574,7 @@ async def get_daily_outfits(
                 mood_text=mood if mood else None,
                 item_tags=all_item_tags
             )
-            score += semantic_score * 15
+            score += semantic_score * (25 if has_manual_mood else 15)
         
         # Material scoring for weather
         if weather_adjustments:
@@ -2818,7 +2820,7 @@ async def get_daily_outfits(
                 direction=f"outfit_{idx + 1}",
                 items=items_for_collage,
                 base_item={"image_url": base_item["image_url"], "category": base_category},
-                force=refresh  # Force regeneration when refreshing
+                force=refresh
             )
             outfit["collage_url"] = make_absolute_url(base_url, collage_path)
         except Exception as e:
