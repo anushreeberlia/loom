@@ -2634,7 +2634,16 @@ async def get_daily_outfits(
         tags_str = ",".join((item.get("style_tags") or [])[:3])
         mat = item.get("material", "")
         fit = item.get("fit", "")
-        logger.info(f"  Top candidate: {item['name']} score={score:.1f} tags=[{tags_str}] mat={mat} fit={fit}{recency_note}")
+        # Debug: show score components for mood requests
+        debug = ""
+        if has_manual_mood and item.get("embedding"):
+            from services.retrieval import compute_occasion_score as _cos, compute_text_mood_score as _ctms
+            from services.embedding import build_embedding_text as _bet
+            _emb_s = _cos(item["embedding"], mood_text=mood)
+            _txt = _bet(item)
+            _txt_s = _ctms(_txt, mood) if _txt else 0
+            debug = f" [emb={_emb_s:.3f} txt={_txt_s:.3f}]"
+        logger.info(f"  Top candidate: {item['name']} score={score:.1f} tags=[{tags_str}] mat={mat} fit={fit}{debug}{recency_note}")
     
     selected_bases = []
     used_ids = set()
