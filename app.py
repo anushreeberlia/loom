@@ -2630,15 +2630,7 @@ async def get_daily_outfits(
             days = (datetime.now() - recent_suggestions[item["id"]]).days if recent_suggestions[item["id"]] else 0
             recency_note = f" (last: {days}d ago)"
         tags_str = ",".join((item.get("style_tags") or [])[:3])
-        mat = item.get("material", "")
-        fit = item.get("fit", "")
-        debug = ""
-        if has_manual_mood and item.get("embedding"):
-            from services.retrieval import compute_occasion_score as _cos, compute_tag_mood_score as _ctms
-            _emb_s = _cos(item["embedding"], mood_text=mood)
-            _tag_s = _ctms(item.get("style_tags") or [], mood)
-            debug = f" [emb={_emb_s:.3f} tag={_tag_s:.3f}]"
-        logger.info(f"  Top candidate: {item['name']} score={score:.1f} tags=[{tags_str}] mat={mat} fit={fit}{debug}{recency_note}")
+        logger.info(f"  Top candidate: {item['name']} score={score:.1f} tags=[{tags_str}]{recency_note}")
     
     selected_bases = []
     used_ids = set()
