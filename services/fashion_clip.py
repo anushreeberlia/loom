@@ -60,8 +60,8 @@ class FashionCLIPService:
         self._tokenizer = CLIPTokenizerFast.from_pretrained(MODEL_NAME)
 
         # Build dummy inputs ONCE (reused on every embed call instead of rebuilt each time)
-        self._cached_dummy_text = self._build_dummy_text()
-        self._cached_dummy_image = self._build_dummy_image()
+        self._cached_dummy_text = self._get_dummy_text_inputs()
+        self._cached_dummy_image = self._get_dummy_image_inputs()
 
         logger.info(
             "FashionCLIP loaded (ONNX). Inputs: %s, Outputs: %s",
@@ -96,7 +96,7 @@ class FashionCLIPService:
         feed = {k: v for k, v in image_inputs.items() if k in self._input_names}
         # CLIP ONNX may require both modalities; provide dummy text if needed
         if "input_ids" in self._input_names and "input_ids" not in feed:
-            feed.update(self._get_dummy_text_inputs())
+            feed.update(self._cached_dummy_text)
 
         outputs = self._session.run(None, feed)
         output_map = dict(zip(self._output_names, outputs))
@@ -114,8 +114,8 @@ class FashionCLIPService:
 
         raise RuntimeError(f"Could not find {EMBEDDING_DIM}-dim image embedding in outputs: {self._output_names}")
 
-    def embed_text(self, text: str) -> list[float]:
-        """Encode text to a 512-dim vector in the same space as images."""
+    def _embed_text_uncached(self, text: str) -> list[float]:
+        """Raw ONNX forward pass for a single text string."""
         self._load()
         text_inputs = self._tokenizer(
             text, return_tensors="np", padding=True, truncation=True, max_length=77
@@ -123,7 +123,7 @@ class FashionCLIPService:
 
         feed = {k: v for k, v in text_inputs.items() if k in self._input_names}
         if "pixel_values" in self._input_names and "pixel_values" not in feed:
-            feed.update(self._get_dummy_image_inputs())
+            feed.update(self._cached_dummy_image)
 
         outputs = self._session.run(None, feed)
         output_map = dict(zip(self._output_names, outputs))
@@ -138,6 +138,10 @@ class FashionCLIPService:
                 return self._normalize(vec)
 
         raise RuntimeError(f"Could not find {EMBEDDING_DIM}-dim text embedding in outputs: {self._output_names}")
+
+    def embed_text(self, text: str) -> list[float]:
+        """Encode text to a 512-dim vector (LRU-cached — repeat queries are free)."""
+        return _text_cache(text)
 
     def embed_texts(self, texts: list[str]) -> list[list[float]]:
         """Batch-encode multiple text strings."""
@@ -161,8 +165,13 @@ class FashionCLIPService:
         return dict(sorted(scores.items(), key=lambda x: -x[1]))
 
 
-# Module-level singleton
+# Module-level singleton + LRU text-embedding cache
 _service = FashionCLIPService()
+
+
+@lru_cache(maxsize=256)
+def _text_cache(text: str) -> list[float]:
+    return _service._embed_text_uncached(text)
 
 
 def embed_image(image_bytes: bytes) -> list[float]:
