@@ -14,6 +14,7 @@ Model files are downloaded from HuggingFace Hub on first use (~605MB, cached).
 import io
 import os
 import logging
+from functools import lru_cache
 
 import numpy as np
 from PIL import Image
@@ -33,6 +34,8 @@ class FashionCLIPService:
         self._tokenizer = None
         self._input_names = None
         self._output_names = None
+        self._cached_dummy_text = None
+        self._cached_dummy_image = None
 
     def _load(self):
         if self._session is not None:
@@ -53,9 +56,12 @@ class FashionCLIPService:
         self._input_names = {inp.name for inp in self._session.get_inputs()}
         self._output_names = [out.name for out in self._session.get_outputs()]
 
-        # Load from repo root; patrickjohncyh/fashion-clip has no onnx subfolder for processor/tokenizer
         self._processor = CLIPProcessor.from_pretrained(MODEL_NAME)
         self._tokenizer = CLIPTokenizerFast.from_pretrained(MODEL_NAME)
+
+        # Build dummy inputs ONCE (reused on every embed call instead of rebuilt each time)
+        self._cached_dummy_text = self._build_dummy_text()
+        self._cached_dummy_image = self._build_dummy_image()
 
         logger.info(
             "FashionCLIP loaded (ONNX). Inputs: %s, Outputs: %s",

@@ -2809,11 +2809,12 @@ async def get_daily_outfits(
             outfit["direction"] = f"Outfit {idx + 1}"
             outfit["base_item"] = base_item
         
-        # Generate collage - use user_id and occasion in path to prevent overwrites
+        # Generate collage - include mood in path so mood outfits don't overwrite defaults
         try:
             items_for_collage = outfit.get("items", [])
+            mood_slug = f"_{mood.strip().replace(' ', '-')}" if has_manual_mood else ""
             collage_path = generate_outfit_collage(
-                generation_id=f"u{user_id}_{occasion_name}_{idx}",
+                generation_id=f"u{user_id}_{occasion_name}{mood_slug}_{idx}",
                 direction=f"outfit_{idx + 1}",
                 items=items_for_collage,
                 base_item={"image_url": base_item["image_url"], "category": base_category},
