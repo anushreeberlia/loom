@@ -179,5 +179,10 @@ def zero_shot_classify(image_bytes: bytes, labels: list[str]) -> dict[str, float
     return _service.zero_shot_classify(image_bytes, labels)
 
 
+def warmup():
+    """Pre-load model at startup so first request isn't blocked by download+load."""
+    _service._load()
+
+
 def get_embedding_dim() -> int:
     return EMBEDDING_DIM

@@ -184,6 +184,13 @@ class LoginRequest(BaseModel):
 
 app = FastAPI(title="AI Outfit Styler")
 
+
+@app.on_event("startup")
+async def _startup():
+    from services.fashion_clip import warmup
+    warmup()
+
+
 # Ensure directories exist
 Path("collages").mkdir(exist_ok=True)
 Path("static").mkdir(exist_ok=True)
