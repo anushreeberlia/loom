@@ -53,12 +53,9 @@ class FashionCLIPService:
         self._input_names = {inp.name for inp in self._session.get_inputs()}
         self._output_names = [out.name for out in self._session.get_outputs()]
 
-        self._processor = CLIPProcessor.from_pretrained(
-            MODEL_NAME, subfolder="onnx"
-        )
-        self._tokenizer = CLIPTokenizerFast.from_pretrained(
-            MODEL_NAME, subfolder="onnx"
-        )
+        # Load from repo root; patrickjohncyh/fashion-clip has no onnx subfolder for processor/tokenizer
+        self._processor = CLIPProcessor.from_pretrained(MODEL_NAME)
+        self._tokenizer = CLIPTokenizerFast.from_pretrained(MODEL_NAME)
 
         logger.info(
             "FashionCLIP loaded (ONNX). Inputs: %s, Outputs: %s",

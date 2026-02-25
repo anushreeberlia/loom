@@ -1017,7 +1017,7 @@ async def generate_outfits(request: Request, file: UploadFile = File(...), sessi
                (input_image_url, input_image_hash, input_description, parsed_tags, base_item_embedding, output_outfits, input_type) 
                VALUES (%s, %s, %s, %s, %s, %s, %s) 
                RETURNING id""",
-            (str(upload_path), image_hash, description, Json(base_item), embedding, Json(outfits), "image")
+            (str(upload_path), image_hash, f"{base_item.get('primary_color', '')} {base_item.get('category', 'item')}".strip() or None, Json(base_item), embedding, Json(outfits), "image")
         )
         generation_id = cursor.fetchone()[0]
         conn.commit()
@@ -1064,7 +1064,6 @@ async def generate_outfits(request: Request, file: UploadFile = File(...), sessi
     return {
         "generation_id": generation_id,
         "base_item": base_item,
-        "description": description,
         "outfits": outfits
     }
 
@@ -1920,7 +1919,6 @@ async def retag_single_item(item_id: int, auth_token: Optional[str] = Cookie(Non
             "id": item_id,
             "old_name": old_name,
             "new_name": name,
-            "description": description,
             "category": parsed.get("category"),
             "primary_color": parsed.get("primary_color"),
             "style_tags": parsed.get("style_tags"),
