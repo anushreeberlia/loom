@@ -5,7 +5,6 @@ Vector search and candidate retrieval logic.
 import os
 import logging
 import psycopg2
-import httpx
 from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
@@ -18,12 +17,11 @@ from services.outfit import (
     get_avoid_colors,
     is_layer_compatible
 )
+from services.fashion_clip import embed_text as _clip_embed_text, embed_texts as _clip_embed_texts
 
 load_dotenv()
 
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://localhost:5432/outfit_styler")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
-EMBEDDING_MODEL = "text-embedding-3-small"
 
 
 # Slot-specific item type hints for better embedding search
@@ -634,58 +632,15 @@ def filter_candidates(candidates: list[dict], slot: str = None) -> list[dict]:
 
 
 def get_query_embedding(text: str) -> list[float]:
-    """Embed query text using OpenAI."""
-    if not OPENAI_API_KEY:
-        raise ValueError("OPENAI_API_KEY not set")
-    
-    response = httpx.post(
-        "https://api.openai.com/v1/embeddings",
-        headers={
-            "Authorization": f"Bearer {OPENAI_API_KEY}",
-            "Content-Type": "application/json"
-        },
-        json={
-            "model": EMBEDDING_MODEL,
-            "input": text
-        },
-        timeout=30.0
-    )
-    
-    if response.status_code != 200:
-        raise Exception(f"Embedding API error: {response.text}")
-    
-    data = response.json()
-    return data["data"][0]["embedding"]
+    """Embed query text using FashionCLIP text encoder (512-dim, local, free)."""
+    return _clip_embed_text(text)
 
 
 def get_batch_embeddings(texts: list[str]) -> list[list[float]]:
-    """Embed multiple texts in a single API call (much faster than individual calls)."""
-    if not OPENAI_API_KEY:
-        raise ValueError("OPENAI_API_KEY not set")
-    
+    """Batch-embed multiple texts using FashionCLIP (local, free)."""
     if not texts:
         return []
-    
-    response = httpx.post(
-        "https://api.openai.com/v1/embeddings",
-        headers={
-            "Authorization": f"Bearer {OPENAI_API_KEY}",
-            "Content-Type": "application/json"
-        },
-        json={
-            "model": EMBEDDING_MODEL,
-            "input": texts  # Batch all texts in one call
-        },
-        timeout=30.0
-    )
-    
-    if response.status_code != 200:
-        raise Exception(f"Embedding API error: {response.text}")
-    
-    data = response.json()
-    # Sort by index to maintain order (API may return out of order)
-    sorted_data = sorted(data["data"], key=lambda x: x["index"])
-    return [item["embedding"] for item in sorted_data]
+    return _clip_embed_texts(texts)
 
 
 def retrieve_candidates(

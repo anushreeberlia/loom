@@ -1,4 +1,17 @@
+"""
+Generate FashionCLIP embeddings for catalog items.
+
+FashionCLIP 2.0 (512-dim) replaces OpenAI text-embedding-3-small (1536-dim).
+For catalog items with images, embeds the image directly.
+For items without images, falls back to text embedding.
+
+Run: python scripts/generate_embeddings.py
+"""
+
 import os
+import sys
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import psycopg2
 import httpx
 import time
@@ -6,124 +19,81 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-DATABASE_URL = "postgresql://localhost:5432/outfit_styler"
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://localhost:5432/outfit_styler")
 
-# OpenAI text-embedding-3-small outputs 1536 dimensions
-EMBEDDING_MODEL = "text-embedding-3-small"
-
-
-def build_embedding_text(item: dict) -> str:
-    """Build deterministic text string for embedding."""
-    parts = [
-        item["name"],
-        f"Category: {item['category']}",
-        f"Color: {item['primary_color']}",
-    ]
-    
-    if item.get("fit") and item["fit"] != "unknown":
-        parts.append(f"Fit: {item['fit']}")
-    
-    if item.get("material"):
-        parts.append(f"Material: {item['material']}")
-    
-    if item.get("style_tags"):
-        parts.append(f"Style: {', '.join(item['style_tags'])}")
-    
-    if item.get("occasion_tags"):
-        parts.append(f"Occasion: {', '.join(item['occasion_tags'])}")
-    
-    if item.get("season_tags"):
-        parts.append(f"Season: {', '.join(item['season_tags'])}")
-    
-    return ". ".join(parts) + "."
-
-
-def get_embedding(text: str) -> list[float]:
-    """Call OpenAI embedding API."""
-    response = httpx.post(
-        "https://api.openai.com/v1/embeddings",
-        headers={
-            "Authorization": f"Bearer {OPENAI_API_KEY}",
-            "Content-Type": "application/json"
-        },
-        json={
-            "model": EMBEDDING_MODEL,
-            "input": text
-        },
-        timeout=30.0
-    )
-    
-    if response.status_code != 200:
-        raise Exception(f"API error: {response.text}")
-    
-    data = response.json()
-    return data["data"][0]["embedding"]
+from services.fashion_clip import embed_text, embed_image
+from services.embedding import build_embedding_text
 
 
 def main():
-    if not OPENAI_API_KEY:
-        print("Error: OPENAI_API_KEY environment variable not set")
-        print("Get a key at: https://platform.openai.com/api-keys")
-        print("Add to .env: OPENAI_API_KEY=sk-...")
-        return
-    
     conn = psycopg2.connect(DATABASE_URL)
     cursor = conn.cursor()
-    
-    # Get items without embeddings (tagged OR untagged with basic info)
+
     cursor.execute("""
         SELECT id, name, category, primary_color, fit, material,
-               style_tags, occasion_tags, season_tags
-        FROM catalog_items 
+               style_tags, occasion_tags, season_tags, image_url
+        FROM catalog_items
         WHERE embedding IS NULL
           AND name IS NOT NULL
           AND category IS NOT NULL;
     """)
-    
+
     rows = cursor.fetchall()
     columns = ["id", "name", "category", "primary_color", "fit", "material",
-               "style_tags", "occasion_tags", "season_tags"]
-    
+               "style_tags", "occasion_tags", "season_tags", "image_url"]
+
     items = [dict(zip(columns, row)) for row in rows]
-    
+
     total = len(items)
-    print(f"Found {total} items needing embeddings")
-    
+    print(f"Found {total} items needing FashionCLIP embeddings")
+
     if total == 0:
         print("Nothing to embed!")
         cursor.close()
         conn.close()
         return
-    
+
     embedded = 0
     failed = 0
-    
+
     for i, item in enumerate(items):
         item_id = item["id"]
         name = item["name"]
-        
+
         print(f"[{i+1}/{total}] [{item_id}] {name[:50]}...", end=" ", flush=True)
-        
+
         try:
-            text = build_embedding_text(item)
-            embedding = get_embedding(text)
-            
-            # Store as pgvector format
+            image_url = item.get("image_url")
+            embedding = None
+
+            # Prefer image embedding (direct CLIP encoding)
+            if image_url:
+                try:
+                    resp = httpx.get(image_url, timeout=15.0, follow_redirects=True)
+                    if resp.status_code == 200:
+                        embedding = embed_image(resp.content)
+                        print("(image)", end=" ")
+                except Exception:
+                    pass
+
+            # Fallback to text embedding
+            if embedding is None:
+                text = build_embedding_text(item)
+                embedding = embed_text(text)
+                print("(text)", end=" ")
+
             cursor.execute(
                 "UPDATE catalog_items SET embedding = %s WHERE id = %s",
                 (embedding, item_id)
             )
             conn.commit()
-            print("✓")
+            print("ok")
             embedded += 1
-            
+
         except Exception as e:
-            print(f"✗ {str(e)[:60]}")
+            print(f"FAIL {str(e)[:60]}")
             failed += 1
-        
-        time.sleep(0.1)  # OpenAI has high rate limits
-    
+
     cursor.close()
     conn.close()
     print(f"\n{'='*50}")

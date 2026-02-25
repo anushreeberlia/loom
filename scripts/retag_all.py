@@ -16,7 +16,7 @@ load_dotenv()
 
 from services.vision import describe_image
 from services.parser import parse_description
-from services.embedding import embed_base_item
+from services.embedding import embed_item_image
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 print(f"DATABASE_URL: {DATABASE_URL[:30]}..." if DATABASE_URL else "DATABASE_URL: None", flush=True)

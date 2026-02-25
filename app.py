@@ -15,7 +15,7 @@ from psycopg2.extras import Json
 
 from services.vision import describe_image
 from services.parser import parse_description
-from services.embedding import embed_base_item
+from services.embedding import embed_base_item, embed_item_image
 from services.outfit import (
     STYLE_DIRECTIONS, 
     get_slots_for_outfit, 
@@ -319,14 +319,15 @@ def update_taste_vector(session_id: str, item_embeddings: list[list], liked: boo
         return
     
     # Filter out empty embeddings
-    valid_embeddings = [e for e in item_embeddings if e and len(e) == 1536]
+    from services.fashion_clip import EMBEDDING_DIM
+    valid_embeddings = [e for e in item_embeddings if e and len(e) == EMBEDDING_DIM]
     if not valid_embeddings:
         return
     
     # Average the item embeddings from this outfit
     outfit_embedding = [
         sum(e[i] for e in valid_embeddings) / len(valid_embeddings)
-        for i in range(1536)
+        for i in range(EMBEDDING_DIM)
     ]
     
     conn = get_db_connection()
@@ -348,7 +349,7 @@ def update_taste_vector(session_id: str, item_embeddings: list[list], liked: boo
                 alpha = 1.0 / (count + 1)
                 new_embedding = [
                     (1 - alpha) * current_emb[i] + alpha * outfit_embedding[i]
-                    for i in range(1536)
+                    for i in range(EMBEDDING_DIM)
                 ]
                 cursor.execute(
                     """UPDATE taste_vectors 
@@ -375,7 +376,7 @@ def update_taste_vector(session_id: str, item_embeddings: list[list], liked: boo
                 alpha = 1.0 / (count + 1)
                 new_embedding = [
                     (1 - alpha) * current_emb[i] + alpha * outfit_embedding[i]
-                    for i in range(1536)
+                    for i in range(EMBEDDING_DIM)
                 ]
                 cursor.execute(
                     """UPDATE taste_vectors 
@@ -857,10 +858,10 @@ async def generate_outfits(request: Request, file: UploadFile = File(...), sessi
         logger.error(f"Parser error: {e}")
         raise HTTPException(status_code=500, detail=f"Parser error: {str(e)}")
 
-    # 4. Embedding: Generate embedding for BaseItem
-    logger.info("Generating embedding...")
+    # 4. Embedding: Generate image embedding via FashionCLIP
+    logger.info("Generating FashionCLIP image embedding...")
     try:
-        embedding = embed_base_item(base_item)
+        embedding = embed_item_image(contents)
         logger.info(f"Embedding generated (dim={len(embedding)})")
     except Exception as e:
         logger.error(f"Embedding error: {e}")
@@ -1677,10 +1678,10 @@ async def add_closet_item(request: Request, file: UploadFile = File(...)):
         logger.error(f"Parser error: {e}")
         raise HTTPException(status_code=500, detail=f"Parser error: {str(e)}")
     
-    # 4. Embedding: Generate embedding
+    # 4. Embedding: Generate FashionCLIP image embedding
     try:
-        embedding = embed_base_item(parsed)
-        logger.info(f"Embedding generated (dim={len(embedding)})")
+        embedding = embed_item_image(contents)
+        logger.info(f"FashionCLIP embedding generated (dim={len(embedding)})")
     except Exception as e:
         logger.error(f"Embedding error: {e}")
         raise HTTPException(status_code=500, detail=f"Embedding error: {str(e)}")
@@ -1907,8 +1908,8 @@ async def retag_single_item(item_id: int, auth_token: Optional[str] = Cookie(Non
         # Generate new name
         name = f"{parsed.get('primary_color', '')} {parsed.get('category', 'item')}".strip().title()
         
-        # Generate new embedding with updated tags
-        embedding = embed_base_item(parsed)
+        # Generate new FashionCLIP image embedding
+        embedding = embed_item_image(response.content)
         
         # Update database with tags AND embedding
         cursor.execute(
@@ -2131,7 +2132,7 @@ async def generate_closet_outfits(
         # Process through vision/parser pipeline
         description = describe_image(contents)
         base_item = parse_description(description)
-        embedding = embed_base_item(base_item)
+        embedding = embed_item_image(contents)
         image_hash = hashlib.sha256(contents).hexdigest()
         
         # Add to closet

@@ -20,7 +20,7 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 # Import the services
 from services.vision import describe_image
 from services.parser import parse_description
-from services.embedding import embed_base_item
+from services.embedding import embed_item_image
 
 
 def get_original_url(url: str) -> str:
@@ -75,9 +75,9 @@ def reclassify_all():
             
             print(f"  New: {new_name} ({new_category})")
             
-            # Re-generate embedding
-            print("  Generating embedding...")
-            embedding = embed_base_item(parsed)
+            # Re-generate FashionCLIP image embedding
+            print("  Generating FashionCLIP embedding...")
+            embedding = embed_item_image(contents)
             
             # Build new URL with transformations (chained for proper order)
             new_url = original_url.replace(

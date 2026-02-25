@@ -14,19 +14,20 @@ import httpx
 
 from services.vision import describe_image
 from services.parser import parse_description
-from services.embedding import embed_base_item
+from services.embedding import embed_item_image, embed_base_item
 
 logger = logging.getLogger(__name__)
 
 
 def process_item_from_image(image_bytes: bytes, item_name: str = "") -> tuple:
     """
-    Run the same vision -> parse -> embed pipeline as the non-Shopify app.
+    Run the vision -> parse -> embed pipeline.
+    Embedding uses FashionCLIP image encoder directly (no text intermediary).
     Returns (description, base_item, embedding).
     """
     description = describe_image(image_bytes)
     base_item = parse_description(description)
-    embedding = embed_base_item(base_item)
+    embedding = embed_item_image(image_bytes)
     if item_name:
         logger.info(f"Processed: {item_name} -> {base_item.get('category')}")
     return description, base_item, embedding

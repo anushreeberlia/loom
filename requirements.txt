@@ -12,3 +12,6 @@ authlib
 itsdangerous
 python-jose[cryptography]
 bcrypt
+transformers
+torch
+

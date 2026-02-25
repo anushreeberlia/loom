@@ -45,14 +45,14 @@ CREATE TABLE catalog_items (
     tagged_at TIMESTAMP,                   -- when LLM tagged this item
     tagging_error TEXT,                    -- error message if tagging failed
     
-    -- Vector embedding (1536 dims from OpenAI text-embedding-3-small)
-    embedding vector(1536),
+    -- Vector embedding (512 dims from FashionCLIP 2.0)
+    embedding vector(512),
     
     created_at TIMESTAMP DEFAULT NOW()
 );
 
--- Index for fast vector similarity search
-CREATE INDEX ON catalog_items USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
+-- Index for fast vector similarity search (HNSW for better recall)
+CREATE INDEX ON catalog_items USING hnsw (embedding vector_cosine_ops) WITH (m = 16, ef_construction = 64);
 
 -- outfit_generations: Tracks each generation request
 CREATE TABLE outfit_generations (
@@ -61,7 +61,7 @@ CREATE TABLE outfit_generations (
     input_image_hash TEXT,                 -- SHA-256 hash for caching
     input_description TEXT,                -- plain text description from vision
     parsed_tags JSONB,                     -- BaseItem JSON extracted from description
-    base_item_embedding vector(1536),      -- embedding for retrieval
+    base_item_embedding vector(512),       -- embedding for retrieval
     output_outfits JSONB,                  -- the 3 outfits returned
     input_type TEXT,                       -- image or text
     created_at TIMESTAMP DEFAULT NOW()
@@ -86,8 +86,8 @@ CREATE TABLE feedback_events (
 CREATE TABLE taste_vectors (
     id SERIAL PRIMARY KEY,
     session_id TEXT UNIQUE NOT NULL,
-    taste_embedding vector(1536),           -- Aggregated preference embedding (likes)
-    dislike_embedding vector(1536),         -- Aggregated dislike embedding (to penalize)
+    taste_embedding vector(512),            -- Aggregated preference embedding (likes)
+    dislike_embedding vector(512),          -- Aggregated dislike embedding (to penalize)
     like_count INTEGER DEFAULT 0,           -- Number of likes contributing to taste
     dislike_count INTEGER DEFAULT 0,        -- Number of dislikes
     created_at TIMESTAMP DEFAULT NOW(),
@@ -113,15 +113,15 @@ CREATE TABLE user_closet_items (
     material VARCHAR(100),
     fit VARCHAR(50),
     
-    -- Vector embedding for retrieval
-    embedding vector(1536),
+    -- Vector embedding for retrieval (512 dims from FashionCLIP 2.0)
+    embedding vector(512),
     
     created_at TIMESTAMP DEFAULT NOW()
 );
 
--- Index for vector similarity search on closet items
+-- Index for vector similarity search on closet items (HNSW for better recall)
 CREATE INDEX idx_closet_embedding ON user_closet_items 
-    USING ivfflat (embedding vector_cosine_ops) WITH (lists = 50);
+    USING hnsw (embedding vector_cosine_ops) WITH (m = 16, ef_construction = 64);
     
 -- Index for filtering by user
 CREATE INDEX idx_closet_user ON user_closet_items(user_id);
