@@ -1788,8 +1788,9 @@ async def retag_single_item(item_id: int, auth_token: Optional[str] = Cookie(Non
         # Generate new name
         name = f"{parsed.get('primary_color', '')} {parsed.get('category', 'item')}".strip().title()
         
-        # Generate new FashionCLIP image embedding
-        embedding = embed_item_image(response.content)
+        # Blended embedding: image + text metadata
+        from services.embedding import embed_item_blended
+        embedding = embed_item_blended(response.content, parsed)
         
         # Update database with tags AND embedding
         cursor.execute(
@@ -1831,6 +1832,63 @@ async def retag_single_item(item_id: int, auth_token: Optional[str] = Cookie(Non
         raise
     except Exception as e:
         logger.error(f"Retag error for item {item_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@app.post("/v1/admin/blend-embeddings")
+async def blend_all_embeddings(auth_token: Optional[str] = Cookie(None)):
+    """
+    One-time migration: blend existing image embeddings with text metadata.
+    Reads each item's stored embedding + tags, produces a blended vector,
+    and updates the embedding in-place. No image re-download needed.
+    """
+    from services.embedding import blend_existing_embedding
+    user_id = require_auth(auth_token)
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            """SELECT id, name, category, primary_color, style_tags,
+                      occasion_tags, season_tags, material, fit, embedding::text
+               FROM user_closet_items
+               WHERE user_id = %s AND embedding IS NOT NULL""",
+            (user_id,)
+        )
+        rows = cursor.fetchall()
+        updated = 0
+        for row in rows:
+            item_id = row[0]
+            base_item = {
+                "category": row[2],
+                "primary_color": row[3],
+                "style_tags": row[4],
+                "occasion_tags": row[5],
+                "season_tags": row[6],
+                "material": row[7],
+                "fit": row[8],
+            }
+            raw_emb = row[9]
+            if not raw_emb:
+                continue
+            image_embedding = [float(x) for x in raw_emb.strip("[]").split(",")]
+
+            blended = blend_existing_embedding(image_embedding, base_item)
+            cursor.execute(
+                "UPDATE user_closet_items SET embedding = %s WHERE id = %s AND user_id = %s",
+                (blended, item_id, user_id)
+            )
+            updated += 1
+
+        conn.commit()
+        logger.info(f"Blended embeddings for {updated} items (user {user_id})")
+        return {"updated": updated, "total": len(rows)}
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"Blend migration error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         cursor.close()

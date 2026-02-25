@@ -56,3 +56,54 @@ def embed_base_item(base_item: dict) -> list[float]:
 def embed_item_image(image_bytes: bytes) -> list[float]:
     """Generate image embedding directly from clothing photo (preferred over text embedding)."""
     return embed_image(image_bytes)
+
+
+IMAGE_WEIGHT = 0.7
+TEXT_WEIGHT = 0.3
+
+
+def embed_item_blended(image_bytes: bytes, base_item: dict) -> list[float]:
+    """
+    Blend image embedding with text metadata embedding.
+    
+    Image alone can't distinguish athletic from casual tops (similar on hangers).
+    Adding text ("sporty fitted polyester") gives the embedding semantic identity
+    that differentiates items at query time.
+    """
+    import numpy as np
+
+    img_emb = np.array(embed_image(image_bytes))
+
+    text = build_embedding_text(base_item)
+    if not text:
+        return img_emb.tolist()
+
+    txt_emb = np.array(embed_text(text))
+
+    blended = IMAGE_WEIGHT * img_emb + TEXT_WEIGHT * txt_emb
+    norm = np.linalg.norm(blended)
+    if norm > 0:
+        blended = blended / norm
+    return blended.tolist()
+
+
+def blend_existing_embedding(image_embedding: list[float], base_item: dict) -> list[float]:
+    """
+    Blend a pre-computed image embedding with text metadata.
+    Used for migration of existing items (no image bytes needed).
+    """
+    import numpy as np
+
+    img_emb = np.array(image_embedding)
+
+    text = build_embedding_text(base_item)
+    if not text:
+        return image_embedding
+
+    txt_emb = np.array(embed_text(text))
+
+    blended = IMAGE_WEIGHT * img_emb + TEXT_WEIGHT * txt_emb
+    norm = np.linalg.norm(blended)
+    if norm > 0:
+        blended = blended / norm
+    return blended.tolist()

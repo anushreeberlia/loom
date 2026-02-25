@@ -13,7 +13,7 @@ import logging
 import httpx
 
 from services.vision import analyze_image
-from services.embedding import embed_item_image
+from services.embedding import embed_item_blended
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +40,7 @@ def process_item_from_image(image_bytes: bytes, item_name: str = "") -> tuple:
     Returns (description, base_item, embedding) for backward compatibility.
     """
     base_item = analyze_image(image_bytes)
-    embedding = embed_item_image(image_bytes)
+    embedding = embed_item_blended(image_bytes, base_item)
     description = _build_description(base_item)
     if item_name:
         logger.info(f"Processed: {item_name} -> {base_item.get('category')}")
