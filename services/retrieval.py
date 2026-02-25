@@ -138,7 +138,7 @@ def get_mood_embedding(mood_text: str) -> list[float]:
 _direct_mood_cache: dict[str, list[float]] = {}
 
 def get_direct_mood_embedding(mood_text: str) -> list[float]:
-    """Raw mood text embedding without wrapper — used for text-to-text comparison."""
+    """Raw mood text embedding — used for tag-level scoring."""
     if mood_text in _direct_mood_cache:
         return _direct_mood_cache[mood_text]
     emb = get_batch_embeddings([mood_text])[0]
@@ -146,22 +146,39 @@ def get_direct_mood_embedding(mood_text: str) -> list[float]:
     return emb
 
 
-def compute_text_mood_score(item_text: str, mood_text: str) -> float:
+_tag_embedding_cache: dict[str, list[float]] = {}
+
+def _get_tag_embedding(tag: str) -> list[float]:
+    if tag not in _tag_embedding_cache:
+        _tag_embedding_cache[tag] = get_batch_embeddings([tag])[0]
+    return _tag_embedding_cache[tag]
+
+
+def compute_tag_mood_score(style_tags: list[str], mood_text: str) -> float:
     """
-    Direct text-to-text cosine similarity between item metadata and mood.
+    Best individual style-tag similarity to the mood.
     
-    Uses raw mood text (e.g. "workout") — NOT the wrapped version
-    ("outfit for workout - clothing style appropriate for this occasion")
-    because the wrapper dilutes the signal for text-to-text comparison.
+    Full item descriptions ("gray sporty fitted polyester top") all score the
+    same against moods because CLIP averages the signal away. But individual
+    tags separate cleanly: cosine("sporty","workout")=0.69 vs
+    cosine("casual","workout")=0.64 — enough gap to rank correctly.
     
-    "pink sporty fitted Dri-FIT top" vs "workout" scores higher than
-    "gray casual relaxed cotton top" vs "workout" in FashionCLIP text space.
+    Only uses style_tags (not occasion_tags like "everyday" which inflate
+    casual scores).
     """
     import numpy as np
 
-    item_emb = np.array(get_batch_embeddings([item_text])[0])
+    if not style_tags:
+        return 0.0
+
     mood_emb = np.array(get_direct_mood_embedding(mood_text))
-    return float(np.dot(item_emb, mood_emb) / (np.linalg.norm(item_emb) * np.linalg.norm(mood_emb)))
+    best_sim = 0.0
+    for tag in style_tags:
+        tag_emb = np.array(_get_tag_embedding(tag))
+        sim = float(np.dot(tag_emb, mood_emb) / (np.linalg.norm(tag_emb) * np.linalg.norm(mood_emb)))
+        if sim > best_sim:
+            best_sim = sim
+    return best_sim
 
 
 def compute_occasion_score(item_embedding: list[float], occasion: str = None, 

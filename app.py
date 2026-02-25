@@ -2552,15 +2552,13 @@ async def get_daily_outfits(
             )
             score += semantic_score * (50 if has_manual_mood else 15)
         
-        # Text-to-text similarity: item metadata vs mood (independent of stored embeddings)
-        # "sporty fitted Dri-FIT top" vs "workout" scores much higher than "casual relaxed cotton top"
+        # Tag-level mood scoring: compare each style tag individually against mood
+        # Full descriptions average away the signal, but individual tags separate cleanly:
+        # cosine("sporty","workout")=0.69 vs cosine("casual","workout")=0.64
         if has_manual_mood:
-            from services.embedding import build_embedding_text
-            from services.retrieval import compute_text_mood_score
-            item_text = build_embedding_text(item)
-            if item_text:
-                text_score = compute_text_mood_score(item_text, mood)
-                score += text_score * 50
+            from services.retrieval import compute_tag_mood_score
+            tag_score = compute_tag_mood_score(style_tags, mood)
+            score += tag_score * 50
         
         # Material scoring for weather
         if weather_adjustments:
@@ -2634,15 +2632,12 @@ async def get_daily_outfits(
         tags_str = ",".join((item.get("style_tags") or [])[:3])
         mat = item.get("material", "")
         fit = item.get("fit", "")
-        # Debug: show score components for mood requests
         debug = ""
         if has_manual_mood and item.get("embedding"):
-            from services.retrieval import compute_occasion_score as _cos, compute_text_mood_score as _ctms
-            from services.embedding import build_embedding_text as _bet
+            from services.retrieval import compute_occasion_score as _cos, compute_tag_mood_score as _ctms
             _emb_s = _cos(item["embedding"], mood_text=mood)
-            _txt = _bet(item)
-            _txt_s = _ctms(_txt, mood) if _txt else 0
-            debug = f" [emb={_emb_s:.3f} txt={_txt_s:.3f}]"
+            _tag_s = _ctms(item.get("style_tags") or [], mood)
+            debug = f" [emb={_emb_s:.3f} tag={_tag_s:.3f}]"
         logger.info(f"  Top candidate: {item['name']} score={score:.1f} tags=[{tags_str}] mat={mat} fit={fit}{debug}{recency_note}")
     
     selected_bases = []
