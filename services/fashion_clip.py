@@ -1,24 +1,22 @@
 """
-FashionCLIP 2.0 embedding service.
+FashionCLIP 2.0 embedding service using ONNX Runtime.
 
-Replaces OpenAI text-embedding-3-small with patrickjohncyh/fashion-clip,
-a CLIP model fine-tuned on 800K+ fashion products.
+Runs patrickjohncyh/fashion-clip locally without PyTorch.
+ONNX Runtime is ~50MB vs torch's ~2GB — suitable for Railway deployment.
 
-- Image encoder: photo → 512-dim vector  (replaces GPT-4o vision + OpenAI embed)
-- Text encoder:  text  → 512-dim vector  (replaces OpenAI embed for queries)
+- Image encoder: photo → 512-dim vector
+- Text encoder:  text  → 512-dim vector
+- Both share the same vector space for cross-modal search.
 
-Both encoders share the same vector space, so text queries find matching images
-via cosine similarity — no LLM needed at query time.
+Model files are downloaded from HuggingFace Hub on first use (~605MB, cached).
 """
 
 import io
+import os
 import logging
-from functools import lru_cache
 
 import numpy as np
-import torch
 from PIL import Image
-from transformers import CLIPModel, CLIPProcessor, CLIPTokenizerFast
 
 logger = logging.getLogger(__name__)
 
@@ -27,111 +25,162 @@ EMBEDDING_DIM = 512
 
 
 class FashionCLIPService:
-    """Lazy-loaded singleton for FashionCLIP inference."""
+    """Lazy-loaded singleton for FashionCLIP ONNX inference."""
 
     def __init__(self):
-        self._model = None
+        self._session = None
         self._processor = None
         self._tokenizer = None
-        self._device = None
+        self._input_names = None
+        self._output_names = None
 
     def _load(self):
-        if self._model is not None:
+        if self._session is not None:
             return
 
-        logger.info("Loading FashionCLIP model: %s", MODEL_NAME)
-        self._device = "cuda" if torch.cuda.is_available() else "cpu"
-        self._model = CLIPModel.from_pretrained(MODEL_NAME).to(self._device).eval()
-        self._processor = CLIPProcessor.from_pretrained(MODEL_NAME)
-        self._tokenizer = CLIPTokenizerFast.from_pretrained(MODEL_NAME)
-        logger.info("FashionCLIP loaded on %s", self._device)
+        import onnxruntime as ort
+        from huggingface_hub import hf_hub_download
+        from transformers import CLIPProcessor, CLIPTokenizerFast
 
-    @torch.no_grad()
+        logger.info("Downloading FashionCLIP ONNX model...")
+        model_path = hf_hub_download(MODEL_NAME, "onnx/model.onnx")
+
+        logger.info("Loading ONNX session...")
+        self._session = ort.InferenceSession(
+            model_path,
+            providers=["CPUExecutionProvider"]
+        )
+        self._input_names = {inp.name for inp in self._session.get_inputs()}
+        self._output_names = [out.name for out in self._session.get_outputs()]
+
+        self._processor = CLIPProcessor.from_pretrained(
+            MODEL_NAME, subfolder="onnx"
+        )
+        self._tokenizer = CLIPTokenizerFast.from_pretrained(
+            MODEL_NAME, subfolder="onnx"
+        )
+
+        logger.info(
+            "FashionCLIP loaded (ONNX). Inputs: %s, Outputs: %s",
+            self._input_names, self._output_names
+        )
+
+    def _normalize(self, vec: np.ndarray) -> list[float]:
+        norm = np.linalg.norm(vec)
+        if norm > 0:
+            vec = vec / norm
+        return vec.tolist()
+
+    def _get_dummy_text_inputs(self) -> dict:
+        """Create minimal dummy text inputs when only encoding images."""
+        self._load()
+        inputs = self._tokenizer("", return_tensors="np", padding="max_length", max_length=77)
+        return {k: v for k, v in inputs.items() if k in self._input_names}
+
+    def _get_dummy_image_inputs(self) -> dict:
+        """Create minimal dummy image inputs when only encoding text."""
+        self._load()
+        dummy_image = Image.new("RGB", (224, 224), (128, 128, 128))
+        inputs = self._processor(images=dummy_image, return_tensors="np")
+        return {k: v for k, v in inputs.items() if k in self._input_names}
+
     def embed_image(self, image_bytes: bytes) -> list[float]:
         """Encode a clothing image to a 512-dim vector."""
         self._load()
         image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-        inputs = self._processor(images=image, return_tensors="pt").to(self._device)
-        emb = self._model.get_image_features(**inputs)
-        emb = emb / emb.norm(dim=-1, keepdim=True)
-        return emb.squeeze().cpu().tolist()
+        image_inputs = self._processor(images=image, return_tensors="np")
 
-    @torch.no_grad()
+        feed = {k: v for k, v in image_inputs.items() if k in self._input_names}
+        # CLIP ONNX may require both modalities; provide dummy text if needed
+        if "input_ids" in self._input_names and "input_ids" not in feed:
+            feed.update(self._get_dummy_text_inputs())
+
+        outputs = self._session.run(None, feed)
+        output_map = dict(zip(self._output_names, outputs))
+
+        # Prefer projected image embeddings
+        for key in ["image_embeds", "image_features", "image_embed"]:
+            if key in output_map:
+                return self._normalize(output_map[key][0])
+
+        # Fallback: last output that's 512-dim
+        for out in reversed(outputs):
+            if out.ndim >= 1 and out.shape[-1] == EMBEDDING_DIM:
+                vec = out[0] if out.ndim > 1 else out
+                return self._normalize(vec)
+
+        raise RuntimeError(f"Could not find {EMBEDDING_DIM}-dim image embedding in outputs: {self._output_names}")
+
     def embed_text(self, text: str) -> list[float]:
-        """Encode a text string to a 512-dim vector."""
+        """Encode text to a 512-dim vector in the same space as images."""
         self._load()
-        inputs = self._tokenizer(text, return_tensors="pt", padding=True, truncation=True, max_length=77).to(self._device)
-        emb = self._model.get_text_features(**inputs)
-        emb = emb / emb.norm(dim=-1, keepdim=True)
-        return emb.squeeze().cpu().tolist()
+        text_inputs = self._tokenizer(
+            text, return_tensors="np", padding=True, truncation=True, max_length=77
+        )
 
-    @torch.no_grad()
+        feed = {k: v for k, v in text_inputs.items() if k in self._input_names}
+        if "pixel_values" in self._input_names and "pixel_values" not in feed:
+            feed.update(self._get_dummy_image_inputs())
+
+        outputs = self._session.run(None, feed)
+        output_map = dict(zip(self._output_names, outputs))
+
+        for key in ["text_embeds", "text_features", "text_embed"]:
+            if key in output_map:
+                return self._normalize(output_map[key][0])
+
+        for out in reversed(outputs):
+            if out.ndim >= 1 and out.shape[-1] == EMBEDDING_DIM:
+                vec = out[0] if out.ndim > 1 else out
+                return self._normalize(vec)
+
+        raise RuntimeError(f"Could not find {EMBEDDING_DIM}-dim text embedding in outputs: {self._output_names}")
+
     def embed_texts(self, texts: list[str]) -> list[list[float]]:
         """Batch-encode multiple text strings."""
-        self._load()
         if not texts:
             return []
-        inputs = self._tokenizer(texts, return_tensors="pt", padding=True, truncation=True, max_length=77).to(self._device)
-        emb = self._model.get_text_features(**inputs)
-        emb = emb / emb.norm(dim=-1, keepdim=True)
-        return emb.cpu().tolist()
+        # ONNX doesn't batch as cleanly as PyTorch, encode individually
+        return [self.embed_text(t) for t in texts]
 
-    @torch.no_grad()
     def embed_images(self, images_bytes: list[bytes]) -> list[list[float]]:
         """Batch-encode multiple images."""
-        self._load()
         if not images_bytes:
             return []
-        images = [Image.open(io.BytesIO(b)).convert("RGB") for b in images_bytes]
-        inputs = self._processor(images=images, return_tensors="pt").to(self._device)
-        emb = self._model.get_image_features(**inputs)
-        emb = emb / emb.norm(dim=-1, keepdim=True)
-        return emb.cpu().tolist()
+        return [self.embed_image(b) for b in images_bytes]
 
-    @torch.no_grad()
     def zero_shot_classify(self, image_bytes: bytes, labels: list[str]) -> dict[str, float]:
-        """
-        Zero-shot classification: compare image against text labels.
-        Returns {label: score} sorted by score descending.
-        """
-        self._load()
+        """Compare image against text labels. Returns {label: score} sorted descending."""
         image_emb = np.array(self.embed_image(image_bytes))
         label_embs = np.array(self.embed_texts(labels))
-
         similarities = label_embs @ image_emb
         scores = dict(zip(labels, similarities.tolist()))
         return dict(sorted(scores.items(), key=lambda x: -x[1]))
 
 
-# Module-level singleton — loaded on first use
+# Module-level singleton
 _service = FashionCLIPService()
 
 
 def embed_image(image_bytes: bytes) -> list[float]:
-    """Encode a clothing image to a 512-dim vector."""
     return _service.embed_image(image_bytes)
 
 
 def embed_text(text: str) -> list[float]:
-    """Encode text to a 512-dim vector in the same space as images."""
     return _service.embed_text(text)
 
 
 def embed_texts(texts: list[str]) -> list[list[float]]:
-    """Batch-encode text strings."""
     return _service.embed_texts(texts)
 
 
 def embed_images(images_bytes: list[bytes]) -> list[list[float]]:
-    """Batch-encode images."""
     return _service.embed_images(images_bytes)
 
 
 def zero_shot_classify(image_bytes: bytes, labels: list[str]) -> dict[str, float]:
-    """Zero-shot classification of an image against text labels."""
     return _service.zero_shot_classify(image_bytes, labels)
 
 
 def get_embedding_dim() -> int:
-    """Return the embedding dimension (512 for FashionCLIP)."""
     return EMBEDDING_DIM

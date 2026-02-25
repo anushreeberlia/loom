@@ -12,6 +12,6 @@ authlib
 itsdangerous
 python-jose[cryptography]
 bcrypt
+onnxruntime
 transformers
-torch
-
+huggingface_hub
