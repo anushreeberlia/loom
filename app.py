@@ -2519,54 +2519,50 @@ async def get_daily_outfits(
         from services.retrieval import compute_occasion_score
         score = 0
         
-        # Season scoring
-        season_tags = item.get("season_tags") or []
-        for s in preferred_seasons:
-            if s in season_tags or "all-season" in season_tags:
-                score += 1
-        for s in avoid_seasons:
-            if s in season_tags:
-                score -= 2
-        
-        # Occasion AND style scoring - check both tag types
         occasion_tags = item.get("occasion_tags") or []
         style_tags = item.get("style_tags") or []
         all_item_tags = set(occasion_tags + style_tags)
         
-        # When mood text is provided, rely on semantic embedding match (not tag matching)
-        # Tag matching fails for creative moods like "manual labor" or "circus"
-        if not has_manual_mood:
+        if has_manual_mood:
+            # Mood queries: tag-level + embedding scoring ONLY.
+            # Skip season/material — user chose a mood, honor it over weather.
+            from services.retrieval import compute_tag_mood_score
+            tag_score = compute_tag_mood_score(style_tags, mood)
+            score += tag_score * 50
+            
+            if item.get("embedding"):
+                semantic_score = compute_occasion_score(
+                    item["embedding"], mood_text=mood, item_tags=all_item_tags
+                )
+                score += semantic_score * 50
+        else:
+            # Auto occasion: use season, material, tag matching, and embeddings
+            season_tags = item.get("season_tags") or []
+            for s in preferred_seasons:
+                if s in season_tags or "all-season" in season_tags:
+                    score += 1
+            for s in avoid_seasons:
+                if s in season_tags:
+                    score -= 2
+            
             direct_matches = sum(1 for o in prefer_occasions if o in all_item_tags)
             score += direct_matches * 5
             for o in avoid_occasions:
                 if o in all_item_tags:
                     score -= 5
-        
-        # Semantic scoring using embeddings — primary signal for mood-based requests
-        if item.get("embedding") and (mood or occasion_name):
-            semantic_score = compute_occasion_score(
-                item["embedding"], 
-                occasion=occasion_name if not mood else None,
-                mood_text=mood if mood else None,
-                item_tags=all_item_tags
-            )
-            score += semantic_score * (50 if has_manual_mood else 15)
-        
-        # Tag-level mood scoring: compare each style tag individually against mood
-        # Full descriptions average away the signal, but individual tags separate cleanly:
-        # cosine("sporty","workout")=0.69 vs cosine("casual","workout")=0.64
-        if has_manual_mood:
-            from services.retrieval import compute_tag_mood_score
-            tag_score = compute_tag_mood_score(style_tags, mood)
-            score += tag_score * 50
-        
-        # Material scoring for weather
-        if weather_adjustments:
-            material = item.get("material") or ""
-            material_score = get_material_weather_score(material, weather_adjustments)
-            if item.get("category") == "layer":
-                material_score *= 2
-            score += material_score
+            
+            if item.get("embedding") and occasion_name:
+                semantic_score = compute_occasion_score(
+                    item["embedding"], occasion=occasion_name, item_tags=all_item_tags
+                )
+                score += semantic_score * 15
+            
+            if weather_adjustments:
+                material = item.get("material") or ""
+                material_score = get_material_weather_score(material, weather_adjustments)
+                if item.get("category") == "layer":
+                    material_score *= 2
+                score += material_score
         
         return score
     
