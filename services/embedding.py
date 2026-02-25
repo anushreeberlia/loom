@@ -15,31 +15,33 @@ EMBEDDING_DIM = get_embedding_dim()  # 512
 
 
 def build_embedding_text(item: dict) -> str:
-    """Build deterministic text string for embedding from BaseItem."""
-    parts = []
-
-    if item.get("category"):
-        parts.append(f"Category: {item['category']}")
+    """
+    Build a natural-language fashion description for CLIP text embedding.
+    
+    CLIP was trained on product descriptions like "gray sporty fitted polyester
+    workout top", NOT structured labels like "Category: top. Style: sporty."
+    """
+    words = []
 
     if item.get("primary_color"):
-        parts.append(f"Color: {item['primary_color']}")
+        words.append(item["primary_color"])
+
+    for tag in (item.get("style_tags") or []):
+        words.append(tag)
 
     if item.get("fit") and item["fit"] != "unknown":
-        parts.append(f"Fit: {item['fit']}")
+        words.append(item["fit"])
 
     if item.get("material"):
-        parts.append(f"Material: {item['material']}")
+        words.append(item["material"])
 
-    if item.get("style_tags"):
-        parts.append(f"Style: {', '.join(item['style_tags'])}")
+    if item.get("category"):
+        words.append(item["category"])
 
-    if item.get("occasion_tags"):
-        parts.append(f"Occasion: {', '.join(item['occasion_tags'])}")
+    for tag in (item.get("occasion_tags") or []):
+        words.append(tag)
 
-    if item.get("season_tags"):
-        parts.append(f"Season: {', '.join(item['season_tags'])}")
-
-    return ". ".join(parts) + "." if parts else ""
+    return " ".join(words) if words else ""
 
 
 def get_embedding(text: str) -> list[float]:
