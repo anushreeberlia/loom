@@ -135,21 +135,32 @@ def get_mood_embedding(mood_text: str) -> list[float]:
     return embeddings[0]
 
 
+_direct_mood_cache: dict[str, list[float]] = {}
+
+def get_direct_mood_embedding(mood_text: str) -> list[float]:
+    """Raw mood text embedding without wrapper — used for text-to-text comparison."""
+    if mood_text in _direct_mood_cache:
+        return _direct_mood_cache[mood_text]
+    emb = get_batch_embeddings([mood_text])[0]
+    _direct_mood_cache[mood_text] = emb
+    return emb
+
+
 def compute_text_mood_score(item_text: str, mood_text: str) -> float:
     """
     Direct text-to-text cosine similarity between item metadata and mood.
     
-    Bypasses stored embeddings entirely — compares FashionCLIP text encodings
-    of the item description ("gray sporty fitted polyester top") against the
-    mood query ("workout"). This catches material/fit signals that image
-    embeddings miss (athletic and casual tops look identical on hangers).
+    Uses raw mood text (e.g. "workout") — NOT the wrapped version
+    ("outfit for workout - clothing style appropriate for this occasion")
+    because the wrapper dilutes the signal for text-to-text comparison.
     
-    Results are LRU-cached via embed_text, so repeated item descriptions cost nothing.
+    "pink sporty fitted Dri-FIT top" vs "workout" scores higher than
+    "gray casual relaxed cotton top" vs "workout" in FashionCLIP text space.
     """
     import numpy as np
 
     item_emb = np.array(get_batch_embeddings([item_text])[0])
-    mood_emb = np.array(get_mood_embedding(mood_text))
+    mood_emb = np.array(get_direct_mood_embedding(mood_text))
     return float(np.dot(item_emb, mood_emb) / (np.linalg.norm(item_emb) * np.linalg.norm(mood_emb)))
 
 

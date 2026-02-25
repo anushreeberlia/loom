@@ -2553,14 +2553,14 @@ async def get_daily_outfits(
             score += semantic_score * (50 if has_manual_mood else 15)
         
         # Text-to-text similarity: item metadata vs mood (independent of stored embeddings)
-        # "fitted polyester top" vs "workout" scores higher than "relaxed cotton top"
+        # "sporty fitted Dri-FIT top" vs "workout" scores much higher than "casual relaxed cotton top"
         if has_manual_mood:
             from services.embedding import build_embedding_text
             from services.retrieval import compute_text_mood_score
             item_text = build_embedding_text(item)
             if item_text:
                 text_score = compute_text_mood_score(item_text, mood)
-                score += text_score * 25
+                score += text_score * 50
         
         # Material scoring for weather
         if weather_adjustments:
