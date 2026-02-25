@@ -2574,7 +2574,7 @@ async def get_daily_outfits(
                 mood_text=mood if mood else None,
                 item_tags=all_item_tags
             )
-            score += semantic_score * (25 if has_manual_mood else 15)
+            score += semantic_score * (50 if has_manual_mood else 15)
         
         # Material scoring for weather
         if weather_adjustments:
@@ -2640,13 +2640,13 @@ async def get_daily_outfits(
     scored_tops.sort(key=lambda x: x[1], reverse=True)
     
     logger.info(f"Scored {len(scored_tops)} tops for occasion: {occasion_name}")
-    # Log top 5 for debugging
-    for item, score in scored_tops[:5]:
+    for item, score in scored_tops[:8]:
         recency_note = ""
         if item["id"] in recent_suggestions:
             days = (datetime.now() - recent_suggestions[item["id"]]).days if recent_suggestions[item["id"]] else 0
             recency_note = f" (last: {days}d ago)"
-        logger.info(f"  Top candidate: {item['name']} score={score:.1f}{recency_note}")
+        tags_str = ",".join((item.get("style_tags") or [])[:3])
+        logger.info(f"  Top candidate: {item['name']} score={score:.1f} tags=[{tags_str}]{recency_note}")
     
     selected_bases = []
     used_ids = set()
@@ -2654,13 +2654,15 @@ async def get_daily_outfits(
     if scored_tops:
         best_score = scored_tops[0][1] if scored_tops else 0
         
-        # Get tops within 5 points of best score (wider window for more variety)
-        top_tier = [item for item, score in scored_tops if score >= best_score - 5]
-        logger.info(f"Top tier ({best_score:.1f} to {best_score-5:.1f}): {len(top_tier)} tops")
+        # Mood requests: tighter window + less jitter so semantic signal dominates
+        # Default: wider window + more jitter for daily variety
+        tier_window = 2 if has_manual_mood else 5
+        jitter_max = 1.0 if has_manual_mood else 3.0
         
-        # Add randomness to scoring to get different selections each time
-        # Each item gets a random boost of 0-3 points
-        randomized = [(item, score_with_recency(item) + random.uniform(0, 3)) for item in top_tier]
+        top_tier = [item for item, score in scored_tops if score >= best_score - tier_window]
+        logger.info(f"Top tier ({best_score:.1f} to {best_score-tier_window:.1f}): {len(top_tier)} tops")
+        
+        randomized = [(item, score_with_recency(item) + random.uniform(0, jitter_max)) for item in top_tier]
         randomized.sort(key=lambda x: x[1], reverse=True)
         
         for item, rand_score in randomized:
