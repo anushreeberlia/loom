@@ -1094,6 +1094,7 @@
 
             <div class="generate-section">
                 <div class="selection-preview" id="selection-preview"></div>
+                <input type="text" id="single-mood-input" placeholder="Occasion? (e.g., workout, date night...)" style="width: 100%; max-width: 320px; padding: 0.65rem 1rem; font-size: 0.9rem; border: 1px solid var(--border); border-radius: 6px; margin-bottom: 0.75rem; background: white;">
                 <button class="generate-btn" id="generate-btn" disabled>Generate Outfits</button>
             </div>
         </section>
@@ -1509,6 +1510,11 @@
             if (userLocation) {
                 formData.append('lat', userLocation.lat);
                 formData.append('lon', userLocation.lon);
+            }
+            
+            const singleMood = document.getElementById('single-mood-input').value.trim();
+            if (singleMood) {
+                formData.append('mood_text', singleMood);
             }
 
             try {
