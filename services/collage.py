@@ -6,6 +6,7 @@ import os
 import logging
 from io import BytesIO
 from functools import lru_cache
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 
@@ -146,6 +147,15 @@ LAYOUT_SLOTS = {
 }
 
 
+def _prefetch_images(urls: list[str]):
+    """Download all images in parallel so they're warm in the LRU cache."""
+    remote = [u for u in urls if u and u.startswith("http")]
+    if not remote:
+        return
+    with ThreadPoolExecutor(max_workers=min(len(remote), 6)) as pool:
+        list(pool.map(_fetch_url, remote))
+
+
 def create_grid_collage(
     items: list[dict],
     output_path: Path,
@@ -176,6 +186,12 @@ def create_grid_collage(
     """
     # Create output directory
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    # Pre-fetch all images in parallel (populates LRU cache)
+    all_urls = [item.get("image_url") for item in items]
+    if base_item:
+        all_urls.append(base_item.get("image_url"))
+    _prefetch_images(all_urls)
     
     # Create canvas
     canvas = Image.new("RGB", (CANVAS_SIZE, CANVAS_SIZE), BACKGROUND_COLOR)
