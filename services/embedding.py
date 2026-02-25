@@ -41,6 +41,9 @@ def build_embedding_text(item: dict) -> str:
     for tag in (item.get("occasion_tags") or []):
         words.append(tag)
 
+    if item.get("name"):
+        words.append(item["name"])
+
     return " ".join(words) if words else ""
 
 
@@ -89,23 +92,3 @@ def embed_item_blended(image_bytes: bytes, base_item: dict) -> list[float]:
     return blended.tolist()
 
 
-def blend_existing_embedding(image_embedding: list[float], base_item: dict) -> list[float]:
-    """
-    Blend a pre-computed image embedding with text metadata.
-    Used for migration of existing items (no image bytes needed).
-    """
-    import numpy as np
-
-    img_emb = np.array(image_embedding)
-
-    text = build_embedding_text(base_item)
-    if not text:
-        return image_embedding
-
-    txt_emb = np.array(embed_text(text))
-
-    blended = IMAGE_WEIGHT * img_emb + TEXT_WEIGHT * txt_emb
-    norm = np.linalg.norm(blended)
-    if norm > 0:
-        blended = blended / norm
-    return blended.tolist()

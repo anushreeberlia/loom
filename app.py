@@ -1838,14 +1838,18 @@ async def retag_single_item(item_id: int, auth_token: Optional[str] = Cookie(Non
         conn.close()
 
 
-@app.post("/v1/admin/blend-embeddings")
-async def blend_all_embeddings(auth_token: Optional[str] = Cookie(None)):
+@app.post("/v1/admin/recompute-embeddings")
+async def recompute_all_embeddings(auth_token: Optional[str] = Cookie(None)):
     """
-    One-time migration: blend existing image embeddings with text metadata.
-    Reads each item's stored embedding + tags, produces a blended vector,
-    and updates the embedding in-place. No image re-download needed.
+    Nuclear reset: re-download every item image from Cloudinary,
+    compute a fresh FashionCLIP image embedding, blend 70/30 with
+    text metadata, and store the result. Fixes any corruption from
+    previous double-blends.
     """
-    from services.embedding import blend_existing_embedding
+    from concurrent.futures import ThreadPoolExecutor
+    import httpx as _httpx
+    from services.embedding import embed_item_blended
+
     user_id = require_auth(auth_token)
 
     conn = get_db_connection()
@@ -1853,16 +1857,33 @@ async def blend_all_embeddings(auth_token: Optional[str] = Cookie(None)):
     try:
         cursor.execute(
             """SELECT id, name, category, primary_color, style_tags,
-                      occasion_tags, season_tags, material, fit, embedding::text
+                      occasion_tags, season_tags, material, fit, image_url
                FROM user_closet_items
-               WHERE user_id = %s AND embedding IS NOT NULL""",
+               WHERE user_id = %s AND image_url IS NOT NULL""",
             (user_id,)
         )
         rows = cursor.fetchall()
-        updated = 0
-        for row in rows:
+
+        def download(url: str) -> bytes | None:
+            try:
+                r = _httpx.get(url, timeout=15.0)
+                return r.content if r.status_code == 200 else None
+            except Exception:
+                return None
+
+        image_urls = [row[9] for row in rows]
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            image_data = list(pool.map(download, image_urls))
+
+        updated, skipped = 0, 0
+        for row, img_bytes in zip(rows, image_data):
+            if not img_bytes:
+                skipped += 1
+                continue
+
             item_id = row[0]
             base_item = {
+                "name": row[1],
                 "category": row[2],
                 "primary_color": row[3],
                 "style_tags": row[4],
@@ -1871,12 +1892,8 @@ async def blend_all_embeddings(auth_token: Optional[str] = Cookie(None)):
                 "material": row[7],
                 "fit": row[8],
             }
-            raw_emb = row[9]
-            if not raw_emb:
-                continue
-            image_embedding = [float(x) for x in raw_emb.strip("[]").split(",")]
 
-            blended = blend_existing_embedding(image_embedding, base_item)
+            blended = embed_item_blended(img_bytes, base_item)
             cursor.execute(
                 "UPDATE user_closet_items SET embedding = %s WHERE id = %s AND user_id = %s",
                 (blended, item_id, user_id)
@@ -1884,11 +1901,11 @@ async def blend_all_embeddings(auth_token: Optional[str] = Cookie(None)):
             updated += 1
 
         conn.commit()
-        logger.info(f"Blended embeddings for {updated} items (user {user_id})")
-        return {"updated": updated, "total": len(rows)}
+        logger.info(f"Recomputed embeddings for {updated} items, skipped {skipped} (user {user_id})")
+        return {"updated": updated, "skipped": skipped, "total": len(rows)}
     except Exception as e:
         conn.rollback()
-        logger.error(f"Blend migration error: {e}")
+        logger.error(f"Recompute embeddings error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         cursor.close()
@@ -2535,6 +2552,16 @@ async def get_daily_outfits(
             )
             score += semantic_score * (50 if has_manual_mood else 15)
         
+        # Text-to-text similarity: item metadata vs mood (independent of stored embeddings)
+        # "fitted polyester top" vs "workout" scores higher than "relaxed cotton top"
+        if has_manual_mood:
+            from services.embedding import build_embedding_text
+            from services.retrieval import compute_text_mood_score
+            item_text = build_embedding_text(item)
+            if item_text:
+                text_score = compute_text_mood_score(item_text, mood)
+                score += text_score * 25
+        
         # Material scoring for weather
         if weather_adjustments:
             material = item.get("material") or ""
@@ -2605,7 +2632,9 @@ async def get_daily_outfits(
             days = (datetime.now() - recent_suggestions[item["id"]]).days if recent_suggestions[item["id"]] else 0
             recency_note = f" (last: {days}d ago)"
         tags_str = ",".join((item.get("style_tags") or [])[:3])
-        logger.info(f"  Top candidate: {item['name']} score={score:.1f} tags=[{tags_str}]{recency_note}")
+        mat = item.get("material", "")
+        fit = item.get("fit", "")
+        logger.info(f"  Top candidate: {item['name']} score={score:.1f} tags=[{tags_str}] mat={mat} fit={fit}{recency_note}")
     
     selected_bases = []
     used_ids = set()

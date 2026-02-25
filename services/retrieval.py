@@ -135,6 +135,24 @@ def get_mood_embedding(mood_text: str) -> list[float]:
     return embeddings[0]
 
 
+def compute_text_mood_score(item_text: str, mood_text: str) -> float:
+    """
+    Direct text-to-text cosine similarity between item metadata and mood.
+    
+    Bypasses stored embeddings entirely — compares FashionCLIP text encodings
+    of the item description ("gray sporty fitted polyester top") against the
+    mood query ("workout"). This catches material/fit signals that image
+    embeddings miss (athletic and casual tops look identical on hangers).
+    
+    Results are LRU-cached via embed_text, so repeated item descriptions cost nothing.
+    """
+    import numpy as np
+
+    item_emb = np.array(get_batch_embeddings([item_text])[0])
+    mood_emb = np.array(get_mood_embedding(mood_text))
+    return float(np.dot(item_emb, mood_emb) / (np.linalg.norm(item_emb) * np.linalg.norm(mood_emb)))
+
+
 def compute_occasion_score(item_embedding: list[float], occasion: str = None, 
                           mood_text: str = None, item_tags: set = None) -> float:
     """
