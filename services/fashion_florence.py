@@ -184,6 +184,28 @@ def expand_florence_output(raw: dict) -> dict:
     }
 
 
+_COLOR_LABELS = [
+    "black", "white", "gray", "beige", "brown", "blue", "navy",
+    "green", "yellow", "orange", "red", "pink", "purple",
+]
+
+
+def _classify_color(image_bytes: bytes) -> str:
+    """Use FashionCLIP zero-shot classification as a color fallback."""
+    try:
+        from services.fashion_clip import zero_shot_classify
+        scores = zero_shot_classify(
+            image_bytes,
+            [f"a photo of a {c} piece of clothing" for c in _COLOR_LABELS],
+        )
+        best = next(iter(scores))
+        color = best.replace("a photo of a ", "").replace(" piece of clothing", "")
+        return color
+    except Exception as e:
+        logger.warning("FashionCLIP color fallback failed: %s", e)
+        return "unknown"
+
+
 def analyze_image(image_bytes: bytes) -> dict:
     """
     Analyze a clothing image via the Fashion Florence HF Space.
@@ -193,13 +215,12 @@ def analyze_image(image_bytes: bytes) -> dict:
 
     raw = _call_florence_api(image_bytes)
     logger.info("Florence raw output: %s", raw)
-    raw_color = raw.get("primary_color", "unknown")
     expanded = expand_florence_output(raw)
     validated = validate_tags(expanded, include_category=True)
 
-    # Preserve Florence's color even if it's outside the standard palette
-    if validated["primary_color"] == "unknown" and raw_color.lower().strip() != "unknown":
-        validated["primary_color"] = raw_color.lower().strip()
+    if validated["primary_color"] == "unknown":
+        validated["primary_color"] = _classify_color(image_bytes)
+        logger.info("Color from FashionCLIP fallback: %s", validated["primary_color"])
 
     logger.info("Florence final output: %s", validated)
     return validated

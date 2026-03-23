@@ -5,9 +5,9 @@ Used by both catalog tagging and user upload parsing.
 
 # Allowed values for validation
 ALLOWED_COLORS = {"black", "white", "gray", "beige", "brown", "blue", "navy", "green", "yellow", "orange", "red", "pink", "purple", "metallic", "multi", "unknown"}
-ALLOWED_FIT = {"fitted", "slim", "straight", "relaxed", "oversized", "wide", "cropped", "loose", "unknown"}
-ALLOWED_STYLE = {"minimalist", "classic", "edgy", "romantic", "sporty", "bohemian", "streetwear", "preppy", "elegant", "casual", "chic", "vintage", "statement", "workwear"}
-ALLOWED_OCCASION = {"everyday", "casual", "work", "dinner", "party", "formal", "vacation", "lounge", "wedding_guest"}
+ALLOWED_FIT = {"fitted", "bodycon", "slim", "straight", "relaxed", "oversized", "wide", "cropped", "loose", "unknown"}
+ALLOWED_STYLE = {"minimalist", "classic", "edgy", "romantic", "sporty", "athletic", "activewear", "bohemian", "streetwear", "preppy", "elegant", "casual", "chic", "vintage", "statement", "workwear", "sexy", "glamorous", "trendy"}
+ALLOWED_OCCASION = {"everyday", "casual", "work", "dinner", "party", "formal", "vacation", "lounge", "wedding_guest", "going-out", "clubbing", "gym", "workout", "date", "night-out", "brunch"}
 ALLOWED_SEASON = {"spring", "summer", "fall", "winter", "all_season"}
 ALLOWED_CATEGORY = {"top", "bottom", "dress", "layer", "shoes", "accessory"}
 
