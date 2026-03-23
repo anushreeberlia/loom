@@ -132,7 +132,8 @@ def process_single_item(shop_domain: str, item: dict) -> bool:
     for attempt in range(max_retries):
         try:
             description, base_item, embedding = process_item_from_image_url(
-                item["image_url"], item_name=item.get("name", "")
+                item["image_url"], item_name=item.get("name", ""),
+                backend="openai",
             )
             save_processed_item(
                 item_id=item["id"],

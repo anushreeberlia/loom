@@ -1,9 +1,11 @@
 """
-Vision service — single GPT-4o-mini call to extract structured fashion metadata from images.
+Vision service — structured fashion metadata extraction from clothing images.
 
-Replaces the previous 2-call pipeline:
-  OLD: GPT-4o vision (describe) → GPT-4o-mini (parse JSON)
-  NEW: GPT-4o-mini vision → structured JSON directly
+Backends:
+  - "florence" (default): Fashion Florence model, zero-cost local inference
+  - "openai": GPT-4o-mini via API (fallback)
+
+Set VISION_BACKEND env var to choose. Defaults to "florence".
 """
 
 import os
@@ -21,6 +23,7 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
+VISION_BACKEND = os.getenv("VISION_BACKEND", "florence").lower()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 MAX_IMAGE_SIZE = 512
 
@@ -45,11 +48,30 @@ def resize_image_for_vision(image_bytes: bytes) -> bytes:
         return image_bytes
 
 
-def analyze_image(image_bytes: bytes) -> dict:
+def analyze_image(image_bytes: bytes, backend: str = None) -> dict:
     """
-    Single-call image analysis: extract structured fashion metadata from a clothing photo.
-    Returns validated BaseItem dict with category, colors, material, fit, tags.
+    Extract structured fashion metadata from a clothing photo.
+
+    Args:
+        backend: "florence", "openai", or None (uses VISION_BACKEND env var).
     """
+    chosen = (backend or VISION_BACKEND).lower()
+
+    if chosen == "florence":
+        try:
+            from services.fashion_florence import analyze_image as florence_analyze
+            return florence_analyze(image_bytes)
+        except Exception as e:
+            if not OPENAI_API_KEY:
+                raise
+            logger.warning("Florence failed (%s), falling back to OpenAI", e)
+            return _analyze_openai(image_bytes)
+
+    return _analyze_openai(image_bytes)
+
+
+def _analyze_openai(image_bytes: bytes) -> dict:
+    """GPT-4o-mini vision analysis — original implementation, used as fallback."""
     if not OPENAI_API_KEY:
         raise ValueError("OPENAI_API_KEY not set")
 

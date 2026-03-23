@@ -34,12 +34,12 @@ def _build_description(base_item: dict) -> str:
     return " ".join(parts) if parts else "clothing item"
 
 
-def process_item_from_image(image_bytes: bytes, item_name: str = "") -> tuple:
+def process_item_from_image(image_bytes: bytes, item_name: str = "", backend: str = None) -> tuple:
     """
     Single-call vision analysis + FashionCLIP image embedding.
     Returns (description, base_item, embedding) for backward compatibility.
     """
-    base_item = analyze_image(image_bytes)
+    base_item = analyze_image(image_bytes, backend=backend)
     embedding = embed_item_blended(image_bytes, base_item)
     description = _build_description(base_item)
     if item_name:
@@ -47,9 +47,9 @@ def process_item_from_image(image_bytes: bytes, item_name: str = "") -> tuple:
     return description, base_item, embedding
 
 
-def process_item_from_image_url(image_url: str, item_name: str = "") -> tuple:
+def process_item_from_image_url(image_url: str, item_name: str = "", backend: str = None) -> tuple:
     """Download image from URL, then run same pipeline. Returns (description, base_item, embedding)."""
     response = httpx.get(image_url, timeout=20.0)
     if response.status_code != 200:
         raise Exception(f"Image download failed: {response.status_code}")
-    return process_item_from_image(response.content, item_name=item_name)
+    return process_item_from_image(response.content, item_name=item_name, backend=backend)
