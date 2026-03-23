@@ -192,6 +192,7 @@ def analyze_image(image_bytes: bytes) -> dict:
     from services.tagging import validate_tags
 
     raw = _call_florence_api(image_bytes)
+    logger.info("Florence raw output: %s", raw)
     raw_color = raw.get("primary_color", "unknown")
     expanded = expand_florence_output(raw)
     validated = validate_tags(expanded, include_category=True)
@@ -200,4 +201,5 @@ def analyze_image(image_bytes: bytes) -> dict:
     if validated["primary_color"] == "unknown" and raw_color.lower().strip() != "unknown":
         validated["primary_color"] = raw_color.lower().strip()
 
+    logger.info("Florence final output: %s", validated)
     return validated
