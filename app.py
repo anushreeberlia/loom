@@ -78,6 +78,9 @@ class LoginRequest(BaseModel):
 
 app = FastAPI(title="AI Outfit Styler")
 
+from shopify_app import app as shopify_app_instance
+app.mount("/", shopify_app_instance)
+
 
 @app.on_event("startup")
 async def _startup():

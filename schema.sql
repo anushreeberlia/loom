@@ -171,3 +171,70 @@ CREATE TABLE IF NOT EXISTS daily_outfit_cache (
 );
 
 CREATE INDEX IF NOT EXISTS idx_daily_cache_user_date ON daily_outfit_cache(user_id, cache_date);
+
+-- ══════════════════════════════════════════════════════════════════════════════
+-- Shopify App Tables
+-- ══════════════════════════════════════════════════════════════════════════════
+
+-- shopify_stores: One row per installed merchant
+CREATE TABLE IF NOT EXISTS shopify_stores (
+    id SERIAL PRIMARY KEY,
+    shop_domain VARCHAR(255) UNIQUE NOT NULL,
+    access_token TEXT NOT NULL,
+    scope TEXT DEFAULT '',
+    product_count INTEGER DEFAULT 0,
+    outfit_count INTEGER DEFAULT 0,
+    catalog_synced_at TIMESTAMP,
+    installed_at TIMESTAMP DEFAULT NOW(),
+    uninstalled_at TIMESTAMP
+);
+
+-- shopify_catalog_items: Merchant product catalog (vision + embedding processed)
+CREATE TABLE IF NOT EXISTS shopify_catalog_items (
+    id SERIAL PRIMARY KEY,
+    shop_domain VARCHAR(255) NOT NULL REFERENCES shopify_stores(shop_domain),
+    shopify_product_id TEXT NOT NULL,
+    shopify_variant_id TEXT,
+    name VARCHAR(255),
+    category VARCHAR(50),
+    description TEXT,
+    image_url TEXT,
+    product_url TEXT,
+    price NUMERIC(10,2),
+
+    primary_color TEXT,
+    secondary_colors TEXT[],
+    style_tags TEXT[],
+    season_tags TEXT[],
+    occasion_tags TEXT[],
+    material VARCHAR(100),
+    fit VARCHAR(50),
+
+    embedding vector(512),
+
+    processed_at TIMESTAMP,
+    processing_error TEXT,
+    created_at TIMESTAMP DEFAULT NOW(),
+    UNIQUE(shop_domain, shopify_product_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_shopify_catalog_shop ON shopify_catalog_items(shop_domain);
+CREATE INDEX IF NOT EXISTS idx_shopify_catalog_embedding
+    ON shopify_catalog_items USING hnsw (embedding vector_cosine_ops)
+    WITH (m = 16, ef_construction = 64);
+
+-- shopify_generated_outfits: Pre-generated outfit cache per product × direction
+CREATE TABLE IF NOT EXISTS shopify_generated_outfits (
+    id SERIAL PRIMARY KEY,
+    shop_domain VARCHAR(255) NOT NULL,
+    shopify_product_id TEXT NOT NULL,
+    direction VARCHAR(50) NOT NULL,
+    outfit_items JSONB NOT NULL,
+    collage_url TEXT,
+    explanation TEXT,
+    generated_at TIMESTAMP DEFAULT NOW(),
+    UNIQUE(shop_domain, shopify_product_id, direction)
+);
+
+CREATE INDEX IF NOT EXISTS idx_shopify_outfits_lookup
+    ON shopify_generated_outfits(shop_domain, shopify_product_id);

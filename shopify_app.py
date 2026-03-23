@@ -1,13 +1,23 @@
 """
 Shopify App FastAPI backend.
 
+Mounted into the main app at "/" so all /shopify/* routes are served
+from the same Railway process.  Can also run standalone for local dev:
+    uvicorn shopify_app:app --port 8001
+
 Endpoints:
-  POST /shopify/install          - Store access token after OAuth
-  POST /shopify/catalog/sync     - Fetch + process merchant's catalog
-  POST /shopify/catalog/process  - Process next batch of unprocessed items
-  GET  /shopify/outfits          - Get pre-generated outfits for a product
-  POST /shopify/webhooks/product_created  - New product added to store
-  POST /shopify/webhooks/app_uninstalled  - Clean up on uninstall
+  GET  /shopify/health                       - Health check
+  POST /shopify/install                      - Store access token after OAuth
+  POST /shopify/catalog/sync                 - Full catalog fetch + process (token in body)
+  POST /shopify/catalog/resync               - Full re-sync using stored token
+  POST /shopify/catalog/reprocess            - Re-run vision+embed for all items + regenerate outfits
+  DELETE /shopify/catalog/item               - Remove item + purge related outfits
+  GET  /shopify/catalog/status               - Product/outfit counts + pending
+  POST /shopify/outfits/generate             - Trigger outfit generation for all products
+  POST /shopify/outfits/regenerate-product   - Regenerate outfits for one product
+  GET  /shopify/outfits                      - Get cached/on-demand outfits for a product page
+  POST /shopify/webhooks/product_created     - Webhook: new product → process + generate
+  POST /shopify/webhooks/app_uninstalled     - Webhook: mark store uninstalled
 """
 
 import asyncio
@@ -110,11 +120,10 @@ def get_store(shop_domain: str) -> dict | None:
 def verify_shopify_webhook(data: bytes, hmac_header: str) -> bool:
     if not SHOPIFY_API_SECRET:
         return True  # Skip in dev
-    digest = hmac.new(
-        SHOPIFY_API_SECRET.encode("utf-8"), data, hashlib.sha256
-    ).hexdigest()
     import base64
-    computed = base64.b64encode(digest.encode()).decode()
+    computed = base64.b64encode(
+        hmac.new(SHOPIFY_API_SECRET.encode("utf-8"), data, hashlib.sha256).digest()
+    ).decode()
     return hmac.compare_digest(computed, hmac_header or "")
 
 
