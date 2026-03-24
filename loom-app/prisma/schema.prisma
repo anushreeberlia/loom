@@ -5,11 +5,12 @@ generator client {
   provider = "prisma-client-js"
 }
 
-// Production: PostgreSQL (Railway, Neon, etc.). Local: docker-compose postgres or cloud URL.
-// See .env.example and docker-compose.yml.
+// Production: PostgreSQL (Railway, Neon, etc.). Session lives in schema `shopify` so `public`
+// can hold Python/pgvector tables without collisions. See prisma/BASELINE.md if migrate deploy fails (P3005).
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+  schemas  = ["shopify"]
 }
 
 model Session {
@@ -30,4 +31,6 @@ model Session {
   emailVerified Boolean?  @default(false)
   refreshToken        String?
   refreshTokenExpires DateTime?
+
+  @@schema("shopify")
 }

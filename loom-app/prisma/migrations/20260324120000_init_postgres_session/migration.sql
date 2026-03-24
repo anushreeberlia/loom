@@ -1,5 +1,8 @@
+-- Shopify OAuth/session storage — isolated from `public` (Python + pgvector).
+CREATE SCHEMA IF NOT EXISTS "shopify";
+
 -- CreateTable
-CREATE TABLE "Session" (
+CREATE TABLE "shopify"."Session" (
     "id" TEXT NOT NULL,
     "shop" TEXT NOT NULL,
     "state" TEXT NOT NULL,

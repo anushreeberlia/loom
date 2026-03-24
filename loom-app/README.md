@@ -41,7 +41,7 @@ Uses a **native HTML form + `fetcher.submit(FormData)`** and the action **must n
 
 1. Host **this Node app** on its **own** stable `https://` origin (second service if Python is already on Railway).
 2. Set **`SHOPIFY_APP_URL`** and Partners **`application_url`** / **`redirect_urls`** to that origin.
-3. Provision **PostgreSQL** (e.g. Railway Postgres) and set **`DATABASE_URL`**, **`LOOM_BACKEND_URL`**, **`SCOPES`**, **`SHOPIFY_API_KEY`**, **`SHOPIFY_API_SECRET`**. Run **`npm run setup`** on deploy (migrate). Local DB: `docker compose up -d` then use the URL in **`.env.example`**.
+3. Provision **PostgreSQL** (e.g. Railway Postgres) and set **`DATABASE_URL`**, **`LOOM_BACKEND_URL`**, **`SCOPES`**, **`SHOPIFY_API_KEY`**, **`SHOPIFY_API_SECRET`**. Run **`npm run setup`** on deploy (migrate). Session tables live in the **`shopify`** schema so they can share a Postgres instance with other apps. If the DB already has tables and **`migrate deploy`** fails with **P3005**, follow **`prisma/BASELINE.md`** once. Local DB: `docker compose up -d` then use the URL in **`.env.example`**.
 4. Optional: set your host **health check** to **`GET /health`**.
 5. **`shopify app deploy`** to push config + extension.
 
@@ -60,6 +60,10 @@ Below is the upstream troubleshooting section (still useful).
 ### Database tables don't exist
 
 Run `npm run setup` (Prisma generate + migrate).
+
+### `migrate deploy` fails with P3005 (non-empty database)
+
+Use **`prisma/BASELINE.md`**: apply the migration SQL once, then `npx prisma migrate resolve --applied 20260324120000_init_postgres_session` (or `npm run migrate:resolve-baseline` with `DATABASE_URL` set).
 
 ### Navigating/redirecting breaks an embedded app
 
