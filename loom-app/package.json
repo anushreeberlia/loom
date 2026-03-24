@@ -12,7 +12,7 @@
     "start": "react-router-serve ./build/server/index.js",
     "docker-start": "npm run setup && npm run start",
     "setup": "prisma generate && prisma migrate deploy",
-    "migrate:resolve-baseline": "prisma migrate resolve --applied 20260324120000_init_postgres_session",
+    "migrate:resolve-baseline": "prisma migrate resolve --applied 20260324120000_init_postgres_session && prisma migrate resolve --applied 20260324161000_move_session_to_public",
     "db:up": "docker compose up -d",
     "db:down": "docker compose down",
     "lint": "eslint --ignore-path .gitignore --cache --cache-location ./node_modules/.cache/eslint .",
