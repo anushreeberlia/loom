@@ -1,6 +1,15 @@
 import { reactRouter } from "@react-router/dev/vite";
-import { defineConfig, type UserConfig } from "vite";
+import { defineConfig, loadEnv } from "vite";
 import tsconfigPaths from "vite-tsconfig-paths";
+
+// Load loom-app/.env into process.env so server loaders see LOOM_BACKEND_URL etc.
+// (Shopify CLI sets SHOPIFY_*; custom keys are otherwise easy to miss in SSR.)
+function mergeEnvFromFiles(mode: string) {
+  const fromFiles = loadEnv(mode, process.cwd(), "");
+  for (const key of Object.keys(fromFiles)) {
+    if (process.env[key] === undefined) process.env[key] = fromFiles[key];
+  }
+}
 
 // Related: https://github.com/remix-run/remix/issues/2835#issuecomment-1144102176
 // Replace the HOST env var with SHOPIFY_APP_URL so that it doesn't break the Vite server.
@@ -14,6 +23,8 @@ if (
   process.env.SHOPIFY_APP_URL = process.env.HOST;
   delete process.env.HOST;
 }
+
+mergeEnvFromFiles(process.env.NODE_ENV ?? "development");
 
 const host = new URL(process.env.SHOPIFY_APP_URL || "http://localhost")
   .hostname;
@@ -35,7 +46,9 @@ if (host === "localhost") {
   };
 }
 
-export default defineConfig({
+export default defineConfig(({ mode }) => {
+  mergeEnvFromFiles(mode);
+  return {
   server: {
     allowedHosts: [host],
     cors: {
@@ -58,4 +71,5 @@ export default defineConfig({
   optimizeDeps: {
     include: ["@shopify/app-bridge-react"],
   },
-}) satisfies UserConfig;
+  };
+});
