@@ -4,6 +4,7 @@ RUN apk add --no-cache openssl
 WORKDIR /app
 
 COPY package.json package-lock.json* ./
+COPY patches ./patches
 RUN npm ci
 
 COPY . .
@@ -20,6 +21,7 @@ ENV NODE_ENV=production
 ENV PORT=8080
 
 COPY package.json package-lock.json* ./
+COPY patches ./patches
 RUN npm ci --omit=dev && npm cache clean --force
 
 COPY prisma ./prisma

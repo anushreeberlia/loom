@@ -1,0 +1,54 @@
+diff --git a/node_modules/@shopify/shopify-app-react-router/dist/cjs/server/authenticate/helpers/reject-bot-request.js b/node_modules/@shopify/shopify-app-react-router/dist/cjs/server/authenticate/helpers/reject-bot-request.js
+index f446a29..6800f73 100644
+--- a/node_modules/@shopify/shopify-app-react-router/dist/cjs/server/authenticate/helpers/reject-bot-request.js
++++ b/node_modules/@shopify/shopify-app-react-router/dist/cjs/server/authenticate/helpers/reject-bot-request.js
+@@ -13,6 +13,22 @@ function respondToBotRequest({ logger }, request) {
+         logger.debug('Request is from a Shopify agent, allow');
+         return;
+     }
++    // Embedded Admin / session-token traffic: never treat as crawlers (isbot false positives → 410 Gone in iframe).
++    let url;
++    try {
++        url = new URL(request.url);
++    } catch {
++        url = undefined;
++    }
++    if (url?.searchParams?.get('embedded') === '1') {
++        return;
++    }
++    if (request.headers.get('Sec-Fetch-Dest') === 'iframe') {
++        return;
++    }
++    if (request.headers.get('Authorization')?.startsWith('Bearer ')) {
++        return;
++    }
+     if (isbot.isbot(userAgent)) {
+         logger.debug('Request is from a bot, skipping auth');
+         throw new Response(undefined, { status: 410, statusText: 'Gone' });
+diff --git a/node_modules/@shopify/shopify-app-react-router/dist/esm/server/authenticate/helpers/reject-bot-request.mjs b/node_modules/@shopify/shopify-app-react-router/dist/esm/server/authenticate/helpers/reject-bot-request.mjs
+index 0da30b7..3f5ce82 100644
+--- a/node_modules/@shopify/shopify-app-react-router/dist/esm/server/authenticate/helpers/reject-bot-request.mjs
++++ b/node_modules/@shopify/shopify-app-react-router/dist/esm/server/authenticate/helpers/reject-bot-request.mjs
+@@ -11,6 +11,22 @@ function respondToBotRequest({ logger }, request) {
+         logger.debug('Request is from a Shopify agent, allow');
+         return;
+     }
++    // Embedded Admin / session-token traffic: never treat as crawlers (isbot false positives → 410 Gone in iframe).
++    let url;
++    try {
++        url = new URL(request.url);
++    } catch {
++        url = undefined;
++    }
++    if (url?.searchParams.get('embedded') === '1') {
++        return;
++    }
++    if (request.headers.get('Sec-Fetch-Dest') === 'iframe') {
++        return;
++    }
++    if (request.headers.get('Authorization')?.startsWith('Bearer ')) {
++        return;
++    }
+     if (isbot(userAgent)) {
+         logger.debug('Request is from a bot, skipping auth');
+         throw new Response(undefined, { status: 410, statusText: 'Gone' });
