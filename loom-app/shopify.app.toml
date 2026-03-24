@@ -4,14 +4,14 @@
 # Partners still has example.com — run `shopify app dev` (Update URLs: Yes) or set App URL in
 # Partners → App setup to your CLI tunnel (e.g. https://xxxx.trycloudflare.com).
 #
-# Production shape (example):
-#   application_url = "https://app.yourdomain.com"
-#   Same host must be SHOPIFY_APP_URL on the server + LOOM_BACKEND_URL → your Python API.
+# Production shape:
+#   application_url = full URL Admin loads in the iframe (often …/app for embedded home).
+#   SHOPIFY_APP_URL on the server = origin only, e.g. https://app.yourdomain.com
 
 client_id = "4ece48486b41429087fcd48fbe73ea83"
 name = "loom-app"
-# Production: must match SHOPIFY_APP_URL on Railway and Partners "App URL" (iframe loads this host).
-application_url = "https://loom-production-6857.up.railway.app"
+# Iframe opens this URL directly — use /app so Admin skips a / → /app redirect chain.
+application_url = "https://loom-production-6857.up.railway.app/app"
 embedded = true
 
 [build]

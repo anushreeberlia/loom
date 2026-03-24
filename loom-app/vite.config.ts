@@ -49,10 +49,6 @@ if (host === "localhost") {
 export default defineConfig(({ mode }) => {
   mergeEnvFromFiles(mode);
   return {
-  define: {
-    // Public Shopify app API key — required in document head for Polaris web components on /auth/login.
-    __SHOPIFY_API_KEY__: JSON.stringify(process.env.SHOPIFY_API_KEY ?? ""),
-  },
   server: {
     allowedHosts: [host],
     cors: {

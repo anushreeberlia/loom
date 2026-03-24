@@ -29,6 +29,19 @@ export default async function handleRequest(
   }
 
   addDocumentResponseHeaders(request, responseHeaders);
+  // Shopify's helper only sets frame-ancestors when `shop` is in the query. Some embedded
+  // navigations send `embedded=1` without `shop` yet — ensure Admin can still frame the app.
+  const reqUrl = new URL(request.url);
+  if (
+    reqUrl.searchParams.get("embedded") === "1" &&
+    !reqUrl.searchParams.get("shop") &&
+    !responseHeaders.get("Content-Security-Policy")
+  ) {
+    responseHeaders.set(
+      "Content-Security-Policy",
+      "frame-ancestors https://admin.shopify.com https://*.spin.dev https://admin.myshopify.io https://admin.shop.dev;",
+    );
+  }
   const userAgent = request.headers.get("user-agent");
   const callbackName = isbot(userAgent ?? '')
     ? "onAllReady"

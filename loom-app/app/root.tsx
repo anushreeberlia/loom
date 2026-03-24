@@ -1,6 +1,20 @@
-import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
+import type { LoaderFunctionArgs } from "react-router";
+import {
+  Links,
+  Meta,
+  Outlet,
+  Scripts,
+  ScrollRestoration,
+  useLoaderData,
+} from "react-router";
+
+/** Runtime env (Railway/Docker): Vite `define` is build-time only and often left empty in CI images. */
+export async function loader(_args: LoaderFunctionArgs) {
+  return { apiKey: process.env.SHOPIFY_API_KEY ?? "" };
+}
 
 export default function App() {
+  const { apiKey } = useLoaderData<typeof loader>();
   return (
     <html lang="en">
       <head>
@@ -11,7 +25,7 @@ export default function App() {
           rel="stylesheet"
           href="https://cdn.shopify.com/static/fonts/inter/v4/styles.css"
         />
-        <meta name="shopify-api-key" content={__SHOPIFY_API_KEY__} />
+        <meta name="shopify-api-key" content={apiKey} />
         <script src="https://cdn.shopify.com/shopifycloud/polaris.js" />
         <Meta />
         <Links />
