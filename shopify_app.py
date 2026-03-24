@@ -18,6 +18,7 @@ Endpoints:
   GET  /shopify/outfits                      - Get cached/on-demand outfits for a product page
   POST /shopify/webhooks/product_created     - Webhook: new product → process + generate
   POST /shopify/webhooks/app_uninstalled     - Webhook: mark store uninstalled
+  POST /shopify/notify-uninstall             - Internal: Node forwards app/uninstalled (optional Bearer secret)
 """
 
 import asyncio
@@ -92,6 +93,10 @@ class InstallRequest(BaseModel):
 class SyncRequest(BaseModel):
     shop_domain: str
     access_token: str
+
+
+class UninstallNotify(BaseModel):
+    shop_domain: str
 
 
 # ── DB helpers ────────────────────────────────────────────────────────────────
@@ -815,4 +820,31 @@ async def webhook_app_uninstalled(
         cur.close()
         conn.close()
 
+    return {"status": "uninstalled"}
+
+
+@app.post("/shopify/notify-uninstall")
+async def notify_uninstall(
+    req: UninstallNotify,
+    authorization: str | None = Header(None),
+):
+    """
+    Called by the embedded app after Shopify sends app/uninstalled (forwarded from Node).
+    Not signed by Shopify; protect with LOOM_BACKEND_SHARED_SECRET in production.
+    """
+    secret = os.getenv("LOOM_BACKEND_SHARED_SECRET", "").strip()
+    if secret:
+        if (authorization or "").strip() != f"Bearer {secret}":
+            raise HTTPException(status_code=401, detail="Unauthorized")
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            "UPDATE shopify_stores SET uninstalled_at = NOW() WHERE shop_domain = %s",
+            (req.shop_domain,),
+        )
+        conn.commit()
+    finally:
+        cur.close()
+        conn.close()
     return {"status": "uninstalled"}

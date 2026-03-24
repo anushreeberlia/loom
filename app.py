@@ -79,7 +79,6 @@ class LoginRequest(BaseModel):
 app = FastAPI(title="AI Outfit Styler")
 
 from shopify_app import app as shopify_app_instance
-app.mount("/", shopify_app_instance)
 
 
 @app.on_event("startup")
@@ -3198,6 +3197,10 @@ async def regenerate_single_outfit(
         logger.info("Skipping cache update for manual mood outfit")
     
     return outfit
+
+
+# Mount Shopify API last so it does not shadow /, /health, /static, or /v1/* routes.
+app.mount("/", shopify_app_instance)
 
 
 if __name__ == "__main__":
