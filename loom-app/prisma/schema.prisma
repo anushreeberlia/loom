@@ -10,7 +10,8 @@ generator client {
 // See https://www.prisma.io/docs/orm/reference/prisma-schema-reference#string for more information
 datasource db {
   provider = "sqlite"
-  url      = "file:dev.sqlite"
+  // Single connection reduces "database is locked" when Shopify fires parallel /app requests in dev.
+  url      = "file:./dev.sqlite?connection_limit=1"
 }
 
 model Session {

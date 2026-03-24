@@ -6,7 +6,8 @@ import { type EntryContext } from "react-router";
 import { isbot } from "isbot";
 import { addDocumentResponseHeaders } from "./shopify.server";
 
-export const streamTimeout = 5000;
+/** Shell streaming budget (ms); dev tunnels / cold starts can be slow. */
+export const streamTimeout = 25000;
 
 export default async function handleRequest(
   request: Request,
@@ -14,6 +15,19 @@ export default async function handleRequest(
   responseHeaders: Headers,
   reactRouterContext: EntryContext
 ) {
+  if (process.env.NODE_ENV === "development") {
+    const u = new URL(request.url);
+    if (
+      u.pathname.startsWith("/app") ||
+      u.pathname.startsWith("/auth") ||
+      u.pathname.startsWith("/webhooks")
+    ) {
+      console.log(
+        `[loom-app] [http] ${request.method} ${u.pathname}${u.search ? u.search : ""}`,
+      );
+    }
+  }
+
   addDocumentResponseHeaders(request, responseHeaders);
   const userAgent = request.headers.get("user-agent");
   const callbackName = isbot(userAgent ?? '')

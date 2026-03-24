@@ -29,8 +29,14 @@ export default function App() {
           <Form className={styles.form} method="post" action="/auth/login">
             <label className={styles.label}>
               <span>Shop domain</span>
-              <input className={styles.input} type="text" name="shop" />
-              <span>e.g: my-shop-domain.myshopify.com</span>
+              <input
+                className={styles.input}
+                type="text"
+                name="shop"
+                placeholder="loom.myshopify.com"
+                autoComplete="on"
+              />
+              <span>Use your .myshopify.com domain (short name like &quot;loom&quot; works too).</span>
             </label>
             <button className={styles.button} type="submit">
               Log in

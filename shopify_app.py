@@ -539,11 +539,26 @@ async def catalog_status(shop_domain: str):
         row = cur.fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Store not found")
+        cur.execute(
+            """
+            SELECT name, shopify_product_id, product_url
+            FROM shopify_catalog_items
+            WHERE shop_domain = %s AND processed_at IS NOT NULL
+            ORDER BY processed_at DESC
+            LIMIT 12
+            """,
+            (shop_domain,),
+        )
+        recent_rows = cur.fetchall()
+        recent_products = [
+            {"name": r[0], "shopify_product_id": r[1], "product_url": r[2]} for r in recent_rows
+        ]
         return {
             "product_count": row[0],
             "outfit_count": row[1],
             "synced_at": row[2].isoformat() if row[2] else None,
             "pending_processing": row[3],
+            "recent_products": recent_products,
         }
     finally:
         cur.close()

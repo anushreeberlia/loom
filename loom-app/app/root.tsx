@@ -11,6 +11,8 @@ export default function App() {
           rel="stylesheet"
           href="https://cdn.shopify.com/static/fonts/inter/v4/styles.css"
         />
+        <meta name="shopify-api-key" content={__SHOPIFY_API_KEY__} />
+        <script src="https://cdn.shopify.com/shopifycloud/polaris.js" />
         <Meta />
         <Links />
       </head>

@@ -2,6 +2,7 @@ import "@shopify/shopify-app-react-router/adapters/node";
 import {
   ApiVersion,
   AppDistribution,
+  LogSeverity,
   shopifyApp,
 } from "@shopify/shopify-app-react-router/server";
 import { PrismaSessionStorage } from "@shopify/shopify-app-session-storage-prisma";
@@ -17,8 +18,15 @@ const shopify = shopifyApp({
   sessionStorage: new PrismaSessionStorage(prisma),
   distribution: AppDistribution.AppStore,
   future: {
-    expiringOfflineAccessTokens: true,
+    // Dev: token refresh can call Shopify and appear to hang; production keeps expiring tokens.
+    expiringOfflineAccessTokens: process.env.NODE_ENV === "production",
   },
+  ...(process.env.NODE_ENV !== "production"
+    ? {
+        // Surfaces real auth/session errors in the terminal; "Handling response" in Admin often hides them.
+        logger: { level: LogSeverity.Debug, timestamps: true },
+      }
+    : {}),
   ...(process.env.SHOP_CUSTOM_DOMAIN
     ? { customShopDomains: [process.env.SHOP_CUSTOM_DOMAIN] }
     : {}),

@@ -16,7 +16,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Config
-DB_URL = os.getenv("DATABASE_URL", "postgres://postgres:~1eEQeCzn4cNvsKnN6kEYHQICalVId6D@shinkansen.proxy.rlwy.net:38559/railway")
+DB_URL = os.getenv("DATABASE_URL", "postgresql://localhost:5432/outfit_styler")
 
 cloudinary.config(
     cloud_name=os.getenv("CLOUDINARY_CLOUD_NAME", "dfvwi4mqd"),

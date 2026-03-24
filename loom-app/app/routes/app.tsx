@@ -4,16 +4,33 @@ import { boundary } from "@shopify/shopify-app-react-router/server";
 import { AppProvider } from "@shopify/shopify-app-react-router/react";
 
 import { authenticate } from "../shopify.server";
+import { loomLog } from "../loomLog";
 
+/** Single auth + session read per /app request (avoids parallel loaders both hitting Prisma/SQLite). */
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  await authenticate.admin(request);
+  const t0 = Date.now();
+  const path = new URL(request.url).pathname;
+  loomLog("app.loader", "authenticate.admin start", { path });
 
-  // eslint-disable-next-line no-undef
-  return { apiKey: process.env.SHOPIFY_API_KEY || "" };
+  const { session } = await authenticate.admin(request);
+  const loomBackendUrl = process.env.LOOM_BACKEND_URL || "http://127.0.0.1:8001";
+
+  loomLog("app.loader", "authenticate.admin ok", {
+    ms: Date.now() - t0,
+    shop: session.shop,
+    loomBackendHost: new URL(loomBackendUrl).hostname,
+  });
+
+  return {
+    // eslint-disable-next-line no-undef
+    apiKey: process.env.SHOPIFY_API_KEY || "",
+    shop: session.shop,
+    loomBackendUrl,
+  };
 };
 
 export default function App() {
-  const { apiKey } = useLoaderData<typeof loader>();
+  const { apiKey, shop, loomBackendUrl } = useLoaderData<typeof loader>();
 
   return (
     <AppProvider embedded apiKey={apiKey}>
@@ -21,7 +38,7 @@ export default function App() {
         <s-link href="/app">Home</s-link>
         <s-link href="/app/additional">Additional page</s-link>
       </s-app-nav>
-      <Outlet />
+      <Outlet context={{ shop, loomBackendUrl }} />
     </AppProvider>
   );
 }

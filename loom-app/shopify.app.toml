@@ -1,4 +1,12 @@
 # Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
+#
+# application_url is a placeholder. The iframe loads this URL in Admin. If you see "Example Domain",
+# Partners still has example.com — run `shopify app dev` (Update URLs: Yes) or set App URL in
+# Partners → App setup to your CLI tunnel (e.g. https://xxxx.trycloudflare.com).
+#
+# Production shape (example):
+#   application_url = "https://app.yourdomain.com"
+#   Same host must be SHOPIFY_APP_URL on the server + LOOM_BACKEND_URL → your Python API.
 
 client_id = "4ece48486b41429087fcd48fbe73ea83"
 name = "loom-app"
@@ -29,5 +37,7 @@ api_version = "2026-04"
 scopes = "read_products,write_products"
 
 [auth]
-redirect_urls = [ "https://example.com/api/auth" ]
+# Must match authPathPrefix "/auth" in app/shopify.server.ts (not /api/auth).
+# Production: https://app.yourdomain.com/auth/callback (same origin as application_url)
+redirect_urls = [ "https://example.com/auth/callback" ]
 

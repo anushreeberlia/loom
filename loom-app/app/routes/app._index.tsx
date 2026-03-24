@@ -1,19 +1,29 @@
 import { useEffect, useMemo } from "react";
-import type { HeadersFunction, LoaderFunctionArgs, ActionFunctionArgs } from "react-router";
-import { useFetcher, useLoaderData } from "react-router";
+import type { HeadersFunction, ActionFunctionArgs } from "react-router";
+import { useFetcher, useOutletContext } from "react-router";
 import { useAppBridge } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
+import { loomError, loomLog } from "../loomLog";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 
 const LOOM_BACKEND = process.env.LOOM_BACKEND_URL || "http://127.0.0.1:8001";
 
 const BACKEND_FETCH_MS = 8_000;
 
-const DEFAULT_STATUS = {
+type CatalogStatus = {
+  product_count: number;
+  outfit_count: number;
+  synced_at: string | null;
+  pending_processing: number;
+  recent_products?: { name: string; shopify_product_id: string; product_url: string | null }[];
+};
+
+const DEFAULT_STATUS: CatalogStatus = {
   product_count: 0,
   outfit_count: 0,
-  synced_at: null as string | null,
+  synced_at: null,
   pending_processing: 0,
+  recent_products: [],
 };
 
 async function fetchWithTimeout(
@@ -30,25 +40,26 @@ async function fetchWithTimeout(
   }
 }
 
-// ── Loader: auth only — no external HTTP, so the iframe gets HTML immediately ─
-
-export const loader = async ({ request }: LoaderFunctionArgs) => {
-  const { session } = await authenticate.admin(request);
-  return { shop: session.shop, loomBackendUrl: LOOM_BACKEND };
-};
-
 // ── Action: Loom calls run here after the shell loads (bootstrap + sync) ─────
 
 export const action = async ({ request }: ActionFunctionArgs) => {
+  const t0 = Date.now();
   const { session } = await authenticate.admin(request);
   const { shop, accessToken } = session;
   const formData = await request.formData();
   const intent = String(formData.get("intent") ?? "sync");
 
+  loomLog("app._index.action", "start", {
+    intent,
+    shop,
+    msAuth: Date.now() - t0,
+  });
+
   if (intent === "bootstrap") {
     let backendUnreachable = false;
-    let status = { ...DEFAULT_STATUS };
+    let status: CatalogStatus = { ...DEFAULT_STATUS };
 
+    const tInstall = Date.now();
     try {
       const res = await fetchWithTimeout(`${LOOM_BACKEND}/shopify/install`, {
         method: "POST",
@@ -59,22 +70,39 @@ export const action = async ({ request }: ActionFunctionArgs) => {
           scope: session.scope ?? "",
         }),
       });
+      loomLog("app._index.action", "POST /shopify/install", {
+        ok: res.ok,
+        status: res.status,
+        ms: Date.now() - tInstall,
+      });
       if (!res.ok) backendUnreachable = true;
     } catch (e) {
       backendUnreachable = true;
-      console.error("Failed to register install with Loom backend:", e);
+      loomError("app._index.action", "POST /shopify/install failed", e);
     }
 
+    const tStatus = Date.now();
     try {
       const res = await fetchWithTimeout(
         `${LOOM_BACKEND}/shopify/catalog/status?shop_domain=${encodeURIComponent(shop)}`,
       );
       if (res.ok) status = await res.json();
       else backendUnreachable = true;
+      loomLog("app._index.action", "GET /shopify/catalog/status", {
+        ok: res.ok,
+        status: res.status,
+        ms: Date.now() - tStatus,
+      });
     } catch (e) {
       backendUnreachable = true;
-      console.error("Failed to fetch status:", e);
+      loomError("app._index.action", "GET /shopify/catalog/status failed", e);
     }
+
+    loomLog("app._index.action", "bootstrap done", {
+      backendUnreachable,
+      totalMs: Date.now() - t0,
+      products: status.product_count,
+    });
 
     return {
       intent: "bootstrap" as const,
@@ -84,29 +112,49 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     };
   }
 
+  const tSync = Date.now();
   try {
     const res = await fetchWithTimeout(`${LOOM_BACKEND}/shopify/catalog/sync`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ shop_domain: shop, access_token: accessToken }),
     });
-    if (!res.ok) console.error("catalog/sync failed:", res.status);
+    loomLog("app._index.action", "POST /shopify/catalog/sync", {
+      ok: res.ok,
+      status: res.status,
+      ms: Date.now() - tSync,
+    });
+    if (!res.ok) loomError("app._index.action", "catalog/sync non-OK", res.status);
   } catch (e) {
-    console.error("catalog/sync request failed:", e);
+    loomError("app._index.action", "catalog/sync request failed", e);
   }
+
+  loomLog("app._index.action", "sync intent done", { totalMs: Date.now() - t0 });
 
   return { intent: "sync" as const, syncing: true };
 };
 
 // ── UI ────────────────────────────────────────────────────────────────────────
 
+type AppOutletContext = { shop: string; loomBackendUrl: string };
+
+function adminProductUrl(shop: string, shopifyGid: string): string | null {
+  const handle = shop.replace(/\.myshopify\.com$/i, "");
+  const id = shopifyGid.includes("/") ? shopifyGid.split("/").pop() : shopifyGid;
+  if (!handle || !id) return null;
+  return `https://admin.shopify.com/store/${handle}/products/${id}`;
+}
+
 export default function Index() {
-  const { shop, loomBackendUrl } = useLoaderData<typeof loader>();
+  const { shop, loomBackendUrl } = useOutletContext<AppOutletContext>();
   const bootstrap = useFetcher<typeof action>();
   const syncFetcher = useFetcher<typeof action>();
   const shopify = useAppBridge();
 
   useEffect(() => {
+    if (import.meta.env.DEV) {
+      console.log("[loom-app] [client] submitting bootstrap action");
+    }
     bootstrap.submit({ intent: "bootstrap" }, { method: "POST" });
     // One-time bootstrap after shell load; install + status stay on the server.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -184,6 +232,39 @@ export default function Index() {
           </s-paragraph>
         )}
       </s-section>
+
+      {(status.recent_products?.length ?? 0) > 0 && (
+        <s-section heading="Sample products in Loom">
+          <s-paragraph>
+            These are the latest items processed in your catalog (for testing in Admin). Shoppers only
+            see outfits after you add the theme block (Setup step 2).
+          </s-paragraph>
+          <s-unordered-list>
+            {(status.recent_products ?? []).map((p) => {
+              const adminUrl = adminProductUrl(shop, p.shopify_product_id);
+              return (
+                <s-list-item key={p.shopify_product_id}>
+                  {adminUrl ? (
+                    <s-link href={adminUrl} target="_blank">
+                      {p.name || p.shopify_product_id}
+                    </s-link>
+                  ) : (
+                    <span>{p.name || p.shopify_product_id}</span>
+                  )}
+                  {p.product_url ? (
+                    <>
+                      {" · "}
+                      <s-link href={p.product_url} target="_blank">
+                        Storefront
+                      </s-link>
+                    </>
+                  ) : null}
+                </s-list-item>
+              );
+            })}
+          </s-unordered-list>
+        </s-section>
+      )}
 
       <s-section heading="How it works">
         <s-paragraph>
