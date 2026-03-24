@@ -4,6 +4,7 @@ import { boundary } from "@shopify/shopify-app-react-router/server";
 import { AppProvider } from "@shopify/shopify-app-react-router/react";
 
 import { authenticate } from "../shopify.server";
+import { getLoomBackendUrl } from "../loomBackend.server";
 import { loomLog } from "../loomLog";
 
 /** Single auth + session read per /app request (avoids parallel loaders both hitting Prisma/SQLite). */
@@ -13,7 +14,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   loomLog("app.loader", "authenticate.admin start", { path });
 
   const { session } = await authenticate.admin(request);
-  const loomBackendUrl = process.env.LOOM_BACKEND_URL || "http://127.0.0.1:8001";
+  const loomBackendUrl = getLoomBackendUrl();
 
   loomLog("app.loader", "authenticate.admin ok", {
     ms: Date.now() - t0,

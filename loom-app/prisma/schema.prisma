@@ -5,13 +5,11 @@ generator client {
   provider = "prisma-client-js"
 }
 
-// Note that some adapters may set a maximum length for the String type by default, please ensure your strings are long
-// enough when changing adapters.
-// See https://www.prisma.io/docs/orm/reference/prisma-schema-reference#string for more information
+// Production: PostgreSQL (Railway, Neon, etc.). Local: docker-compose postgres or cloud URL.
+// See .env.example and docker-compose.yml.
 datasource db {
-  provider = "sqlite"
-  // Single connection reduces "database is locked" when Shopify fires parallel /app requests in dev.
-  url      = "file:./dev.sqlite?connection_limit=1"
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
 model Session {

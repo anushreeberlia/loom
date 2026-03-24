@@ -1,0 +1,23 @@
+# Local PostgreSQL for Prisma Session storage (matches production).
+# Usage: docker compose up -d
+# Then set DATABASE_URL in .env — see .env.example
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: loom
+      POSTGRES_PASSWORD: loom
+      POSTGRES_DB: loom_session
+    ports:
+      - "5432:5432"
+    volumes:
+      - loom_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U loom -d loom_session"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  loom_pg_data:

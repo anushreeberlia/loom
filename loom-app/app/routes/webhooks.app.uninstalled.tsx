@@ -1,8 +1,7 @@
 import type { ActionFunctionArgs } from "react-router";
 import { authenticate } from "../shopify.server";
 import db from "../db.server";
-
-const LOOM_BACKEND = process.env.LOOM_BACKEND_URL || "http://127.0.0.1:8001";
+import { getLoomBackendUrl } from "../loomBackend.server";
 
 export const action = async ({ request }: ActionFunctionArgs) => {
   const { shop, session, topic } = await authenticate.webhook(request);
@@ -16,10 +15,11 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   }
 
   try {
+    const loomBackend = getLoomBackendUrl();
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     const shared = process.env.LOOM_BACKEND_SHARED_SECRET;
     if (shared) headers["Authorization"] = `Bearer ${shared}`;
-    await fetch(`${LOOM_BACKEND}/shopify/notify-uninstall`, {
+    await fetch(`${loomBackend}/shopify/notify-uninstall`, {
       method: "POST",
       headers,
       body: JSON.stringify({ shop_domain: shop }),

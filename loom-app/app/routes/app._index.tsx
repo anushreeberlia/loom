@@ -3,10 +3,9 @@ import type { HeadersFunction, ActionFunctionArgs } from "react-router";
 import { useFetcher, useOutletContext } from "react-router";
 import { useAppBridge } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
+import { getLoomBackendUrl } from "../loomBackend.server";
 import { loomError, loomLog } from "../loomLog";
 import { boundary } from "@shopify/shopify-app-react-router/server";
-
-const LOOM_BACKEND = process.env.LOOM_BACKEND_URL || "http://127.0.0.1:8001";
 
 const BACKEND_FETCH_MS = 8_000;
 
@@ -45,6 +44,7 @@ async function fetchWithTimeout(
 export const action = async ({ request }: ActionFunctionArgs) => {
   const t0 = Date.now();
   const { session } = await authenticate.admin(request);
+  const loomBackend = getLoomBackendUrl();
   const { shop, accessToken } = session;
   const formData = await request.formData();
   const intent = String(formData.get("intent") ?? "sync");
@@ -61,7 +61,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
     const tInstall = Date.now();
     try {
-      const res = await fetchWithTimeout(`${LOOM_BACKEND}/shopify/install`, {
+      const res = await fetchWithTimeout(`${loomBackend}/shopify/install`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -84,7 +84,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     const tStatus = Date.now();
     try {
       const res = await fetchWithTimeout(
-        `${LOOM_BACKEND}/shopify/catalog/status?shop_domain=${encodeURIComponent(shop)}`,
+        `${loomBackend}/shopify/catalog/status?shop_domain=${encodeURIComponent(shop)}`,
       );
       if (res.ok) status = await res.json();
       else backendUnreachable = true;
@@ -108,13 +108,13 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       intent: "bootstrap" as const,
       status,
       backendUnreachable,
-      loomBackendUrl: LOOM_BACKEND,
+      loomBackendUrl: loomBackend,
     };
   }
 
   const tSync = Date.now();
   try {
-    const res = await fetchWithTimeout(`${LOOM_BACKEND}/shopify/catalog/sync`, {
+    const res = await fetchWithTimeout(`${loomBackend}/shopify/catalog/sync`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ shop_domain: shop, access_token: accessToken }),
@@ -196,8 +196,8 @@ export default function Index() {
         <s-section heading="Backend connection">
           <s-paragraph>
             Could not reach the Loom API at {loomBackendUrl} within a few seconds. Check
-            LOOM_BACKEND_URL and that https://loom-style.com/shopify/health responds, then
-            reload.
+            LOOM_BACKEND_URL in hosting env and that {loomBackendUrl}/shopify/health responds,
+            then reload.
           </s-paragraph>
         </s-section>
       )}
