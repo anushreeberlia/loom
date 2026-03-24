@@ -261,4 +261,6 @@ JWT_SECRET=...
 
 ## License
 
-MIT
+[MIT](LICENSE). This project is not affiliated with Loom (Atlassian) or other unrelated products using the name “Loom.”
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for dev setup and PR notes.
