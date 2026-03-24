@@ -10,7 +10,8 @@
 
 client_id = "4ece48486b41429087fcd48fbe73ea83"
 name = "loom-app"
-application_url = "https://example.com"
+# Production: must match SHOPIFY_APP_URL on Railway and Partners "App URL" (iframe loads this host).
+application_url = "https://loom-production-6857.up.railway.app"
 embedded = true
 
 [build]
@@ -38,6 +39,5 @@ scopes = "read_products,write_products"
 
 [auth]
 # Must match authPathPrefix "/auth" in app/shopify.server.ts (not /api/auth).
-# Production: https://app.yourdomain.com/auth/callback (same origin as application_url)
-redirect_urls = [ "https://example.com/auth/callback" ]
+redirect_urls = [ "https://loom-production-6857.up.railway.app/auth/callback" ]
 
