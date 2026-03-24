@@ -8,6 +8,8 @@ import {
   useLoaderData,
 } from "react-router";
 
+import "./root.css";
+
 /** Runtime env (Railway/Docker): Vite `define` is build-time only and often left empty in CI images. */
 export async function loader(_args: LoaderFunctionArgs) {
   return { apiKey: process.env.SHOPIFY_API_KEY ?? "" };

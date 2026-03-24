@@ -1,0 +1,4 @@
+/* Minimal reset — full-bleed landing and consistent box sizing for app shell */
+body {
+  margin: 0;
+}
