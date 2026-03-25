@@ -1,266 +1,208 @@
-# Loom — Outfit Builder & Shopify “Shop the Look”
+# Loom Style
 
-Your personal AI-powered wardrobe assistant **plus** a **Shopify app** that ingests a merchant’s catalog and shows **AI outfit suggestions** on product pages (“Shop the Look”).
+AI-powered outfit engine that analyzes clothing images, generates complete outfit suggestions, and learns your style preferences over time.
 
----
+Two modes: a **personal wardrobe assistant** (upload your closet, get daily outfits) and a **Shopify app** that generates "Shop the Look" outfit suggestions on product pages from a merchant's catalog.
 
-## What lives in this repository
-
-| Part | Folder / entrypoint | Who uses it | Role |
-|------|---------------------|-------------|------|
-| **Consumer web app** | `app.py`, `static/` | You (signed-in user) | Closet, daily outfits, weather, feedback |
-| **Shopify API backend** | `shopify_app.py` (mounted from `app.py`) | Merchant’s **storefront theme** + **loom-app** server | Catalog sync, `/shopify/outfits`, webhooks |
-| **Shopify Admin app** | `loom-app/` (Node, React Router) | **Merchant staff** in Shopify Admin | OAuth, sessions, “Sync catalog,” status UI |
-| **Theme extension** | `loom-app/extensions/shop-the-look/` | **Shoppers** on product pages | Renders outfits; calls your **Python** API URL |
-
-There are **two different “apps”** in the Shopify sense:
-
-1. **Python on Railway** (e.g. `https://loom-style.com`) — the **outfit + catalog engine** the theme talks to.
-2. **`loom-app` (Node)** — the **embedded Admin UI** Shopify opens in an iframe; it needs its **own** stable `https://` URL in production (often a **second** Railway service).
-
----
-
-## Architecture (literal diagrams)
-
-### A) Merchant opens “Loom” in Shopify Admin
-
-Staff work **inside Shopify**. Shopify loads **your Node app** in an iframe. That Node server then calls **your Python API** (server-to-server) for install/sync/status.
+## How It Works
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│  Browser: merchant.shopify.com (Shopify Admin)               │
-│  ┌───────────────────────────────────────────────────────┐ │
-│  │  iframe: your NODE app (loom-app)                      │ │
-│  │  e.g. https://app.example.com/app?embedded=1&shop=…     │ │
-│  │  • OAuth / session stored in Prisma (DB)                 │ │
-│  │  • “Sync catalog” → HTTP POST to Python                   │ │
-│  └───────────────────────────────────────────────────────┘ │
-└─────────────────────────────────────────────────────────────┘
-         │                                    │
-         │ iframe URL = SHOPIFY_APP_URL       │ server-side fetch
-         ▼                                    ▼
-┌──────────────────┐              ┌──────────────────────────┐
-│  NODE (loom-app) │ ──────────►  │  PYTHON (e.g. loom-style) │
-│  React Router    │  LOOM_       │  FastAPI shopify_app      │
-│  Prisma sessions │  BACKEND_URL │  catalog + outfits DB     │
-└──────────────────┘              └──────────────────────────┘
+Upload image → Fashion Florence (vision) → structured tags (category, color, material, style)
+                                         → FashionCLIP embedding (512-dim)
+                                         → pgvector similarity search
+                                         → outfit assembly (Classic / Trendy / Bold)
+                                         → collage generation
 ```
 
-### B) Shopper views a product page (storefront)
+1. **Vision analysis** — Fashion Florence (fine-tuned Florence-2) extracts category, color, material, and style tags from clothing images. Falls back to GPT-4o-mini if Florence is unavailable. FashionCLIP provides zero-shot color classification when Florence returns unknown.
 
-The **theme block** runs on the **store**. It fetches outfits from **Python only** — shoppers **do not** load the Node Admin app.
+2. **Embedding** — FashionCLIP 2.0 (ONNX, 512-dim) generates embeddings that capture visual style, not just category labels. Embeddings blend image features with text metadata for richer retrieval.
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│  Browser: customer on mystore.com/products/some-shirt        │
-│  Theme section “Shop the Look”                                │
-│       │                                                       │
-│       │  JavaScript: fetch(PYTHON_URL + "/shopify/outfits?…")   │
-│       ▼                                                       │
-└─────────────────────────────────────────────────────────────┘
-         │
-         ▼
-┌──────────────────────────┐
-│  PYTHON API              │
-│  (theme setting:         │
-│   “Loom backend URL”)    │
-└──────────────────────────┘
-```
+3. **Retrieval** — pgvector HNSW index finds complementary items by cosine similarity, filtered by category slots (top + bottom + shoes + optional layer/accessory).
 
-### C) Development (typical)
+4. **Scoring** — Candidates are ranked by color harmony, style coherence, occasion match, season/weather fit, and user taste vectors (learned from like/dislike feedback).
 
-```
-Shopify CLI tunnel (*.trycloudflare.com)  ──►  NODE (loom-app)  local/Vite
-                                                      │
-                                                      │ LOOM_BACKEND_URL
-                                                      ▼
-                                              PYTHON (Railway or local)
-```
+5. **Assembly** — Three style directions (Classic, Trendy, Bold) are generated per input item. Each direction uses different scoring weights to produce distinct outfit aesthetics.
 
-### D) Production (typical)
+## Features
 
-```mermaid
-flowchart LR
-  subgraph admin [Merchant / Shopify Admin]
-    A[Browser iframe]
-  end
-  subgraph store [Customer / Storefront]
-    S[Product page theme]
-  end
-  subgraph your_infra [Your hosting]
-    N[loom-app Node HTTPS]
-    P[Python API HTTPS]
-    DB1[(Postgres Prisma sessions)]
-    DB2[(Postgres Loom catalog)]
-  end
-  A --> N
-  N --> DB1
-  N -->|install sync status| P
-  S -->|outfits JSON| P
-  P --> DB2
-```
+### Personal App
 
----
+- **Closet management** — Upload items with automatic AI tagging and background removal
+- **Daily outfits** — 3 weather-aware, occasion-appropriate outfit suggestions per day
+- **Mood input** — Type any mood ("cozy brunch", "job interview", "date night") and get matching outfits
+- **Style learning** — Like/dislike feedback builds a personal taste vector that improves suggestions
+- **Top rotation** — FIFO queue prevents showing the same items repeatedly
+- **Save and track** — Bookmark outfits and log what you've worn
 
-## Repository layout (high level)
+### Shopify App
 
-```
-loom/
-├── app.py                 # FastAPI: consumer routes + mounts shopify_app
-├── shopify_app.py         # Shopify REST: install, sync, outfits, webhooks
-├── services/              # Vision, embeddings, retrieval, shopify_catalog, …
-├── env.example            # Python env template
-├── loom-app/              # Shopify embedded app + theme extension (see below)
-│   ├── app/               # React Router routes, shopify.server.ts
-│   ├── extensions/shop-the-look/
-│   ├── prisma/            # Session storage (SQLite dev; use Postgres in prod)
-│   ├── shopify.app.toml   # Partners config, scopes, webhooks
-│   └── .env.example       # Node env template
-└── README.md              # This file
-```
+- **Catalog sync** — Imports all products via Shopify GraphQL API, processes through the same vision+embedding pipeline
+- **Pre-generated outfits** — Every product gets 3 outfit directions cached with Cloudinary collages
+- **Theme extension** — "Shop the Look" Liquid block renders outfit cards on any product page
+- **Incremental updates** — New products trigger smart invalidation: only regenerates outfits for categories affected by the new item
+- **Webhook-driven** — `products/create` automatically processes new items in the background
 
----
+## Tech Stack
 
-## Shopify: `loom-app` quick start
+| Layer | Technology |
+|-------|-----------|
+| Backend | FastAPI, Python 3.10+ |
+| Database | PostgreSQL 15+ with pgvector (HNSW, cosine) |
+| Vision | Fashion Florence (fine-tuned Florence-2) via HuggingFace Space |
+| Embeddings | FashionCLIP 2.0 (ONNX runtime, 512-dim) |
+| Fallback vision | GPT-4o-mini (OpenAI) |
+| Images | Cloudinary |
+| Weather | OpenWeatherMap API |
+| Auth | Google OAuth + email/password with JWT |
+| Shopify admin UI | React Router + Shopify App Bridge (`loom-app/`) |
+| Hosting | Railway |
 
-1. Install [Shopify CLI](https://shopify.dev/docs/apps/tools/cli).
-2. From `loom-app/`:
-
-   ```bash
-   cd loom-app
-   npm install
-   npm run dev
-   ```
-
-3. Use **Preview (`p`)** in the CLI to open the app in Admin (avoids manual tunnel login when possible).
-4. Theme editor: add **Shop the Look** block; set **Loom backend URL** to your **Python** API (e.g. `https://loom-style.com`).
-
-More detail, deploy notes, and Shopify troubleshooting: **`loom-app/README.md`**.
-
-**Important auth/login fix:** the `auth.login` action must **not** forward the incoming `Content-Type` / `Content-Length` headers when rebuilding the `Request` passed to Shopify’s `login()` (see `loom-app/app/routes/auth.login/route.tsx`), or `shop` is dropped from the body.
-
----
-
-## Features (consumer app)
-
-- **Personal Closet** - Upload and manage your wardrobe items with automatic tagging
-- **Daily Outfits** - Get 3 curated outfit suggestions each day
-- **Weather-Aware** - Recommendations adapt to local weather conditions
-- **Occasion Detection** - Auto-detects work hours, evenings, weekends for appropriate styling
-- **Custom Moods** - Type any mood/occasion for personalized suggestions
-- **Style Learning** - Like/dislike feedback improves recommendations over time
-- **Top Rotation** - FIFO queue ensures variety in outfit suggestions
-- **Save & Track** - Bookmark outfits and track what you've worn
-- **Background Removal** - Client-side AI removes backgrounds from item photos
-
-## Tech stack
-
-- **Backend**: FastAPI + Python (`app.py`, `shopify_app.py`)
-- **Shopify Admin UI**: React Router + `@shopify/shopify-app-react-router` (`loom-app/`)
-- **Database**: PostgreSQL + pgvector (consumer + Shopify catalog); Prisma (Shopify **sessions** in `loom-app`, SQLite in dev)
-- **AI**: OpenAI / Florence / Fashion CLIP (see `services/`)
-- **Images**: Cloudinary
-- **Weather**: OpenWeatherMap API
-- **Auth (consumer)**: Google OAuth + email/password + JWT
-- **Hosting**: Railway (common setup: **Python** service + separate **Node** service for `loom-app` in production)
-
-## Quick Start (Python consumer API)
+## Quick Start
 
 ### Prerequisites
 
 - Python 3.10+
 - PostgreSQL 15+ with pgvector extension
 - Cloudinary account
-- OpenAI API key
-- OpenWeatherMap API key (free tier works)
+- OpenAI API key (for Shopify app and Florence fallback)
 
 ### Setup
 
 ```bash
-# Clone
 git clone https://github.com/anushreeberlia/loom.git
 cd loom
 
-# Virtual environment
 python3 -m venv venv
 source venv/bin/activate
-
-# Dependencies
 pip install -r requirements.txt
 
-# Environment variables
 cp env.example .env
 # Edit .env with your API keys
 
-# Database
 createdb loom
 psql loom -f schema.sql
 
-# Run
 uvicorn app:app --reload --port 8080
 ```
 
 Visit http://localhost:8080
 
-## Environment Variables (Python)
+### Using the Personal App
 
-See `env.example` for Shopify-related keys (`SHOPIFY_API_SECRET`, optional shared secret for uninstall notify, etc.).
+1. **Sign up** — Google OAuth or email/password at `/login`
+2. **Upload items** — Go to `/inventory`, photograph or upload your clothing. Background removal runs client-side. The AI tags each item automatically (category, color, material, style, occasion, season).
+3. **Get daily outfits** — Visit `/closet` for 3 daily suggestions. They adapt to your local weather and time of day (work hours → work outfits, evenings → going-out).
+4. **Try a mood** — Type anything in the mood box: "casual friday", "beach vacation", "all black". The system embeds your text with FashionCLIP and matches it semantically.
+5. **Give feedback** — Like or dislike outfits. This trains your personal taste vector, which re-ranks future suggestions.
+6. **Generate from an item** — Click any closet item to generate 3 outfits built around it.
+
+### Setting Up the Shopify App
+
+Requires Node.js 20+ and [Shopify CLI](https://shopify.dev/docs/apps/tools/cli).
+
+```bash
+cd loom-app
+npm install
+npm run dev
+```
+
+This starts the embedded admin app with a Cloudflare tunnel. The theme extension (`shop-the-look`) deploys to Shopify via `shopify app deploy`.
+
+The Shopify backend routes (`/shopify/*`) are mounted into the main FastAPI app — no separate deployment needed for the API. The Node admin UI (`loom-app/`) needs its own hosting in production (e.g. a second Railway service).
+
+Set `LOOM_BACKEND_URL` in the Node app's environment to point at your Python API.
+
+## Environment Variables
+
+See `env.example` for the full list:
 
 ```
 DATABASE_URL=postgresql://user:pass@localhost/loom
+VISION_BACKEND=florence              # or "openai"
+FLORENCE_API_URL=https://your-florence-space.hf.space
 OPENAI_API_KEY=sk-...
 CLOUDINARY_CLOUD_NAME=...
 CLOUDINARY_API_KEY=...
 CLOUDINARY_API_SECRET=...
-OPENWEATHERMAP_API_KEY=...
+JWT_SECRET=change-me
 GOOGLE_CLIENT_ID=...
 GOOGLE_CLIENT_SECRET=...
-JWT_SECRET=...
+OPENWEATHERMAP_API_KEY=...
+SHOPIFY_API_SECRET=shpss_...         # only for Shopify webhook verification
 ```
 
-## API Endpoints (selection)
+## API Endpoints
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/` | GET | Landing page |
-| `/closet` | GET | Daily outfits page |
-| `/inventory` | GET | Manage closet items |
-| `/v1/closet/items` | GET/POST | List/add closet items |
-| `/v1/closet/daily` | GET | Get daily outfit recommendations |
-| `/v1/closet/outfits:generate` | POST | Generate outfits from a specific item |
-| `/v1/closet/feedback` | POST | Submit like/dislike feedback |
-| `/v1/closet/outfits/save` | POST | Save outfit for later |
-| `/v1/closet/outfits/saved` | GET | List saved outfits |
-| `/v1/closet/outfits/worn` | GET | List worn outfit history |
-| `/auth/google` | GET | Google OAuth login |
-| `/auth/register` | POST | Email/password registration |
-| `/auth/login` | POST | Email/password login |
-| `/shopify/*` | various | Shopify integration (install, catalog sync, outfits, webhooks) — see `shopify_app.py` |
+### Personal App
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/closet` | Daily outfits page |
+| GET | `/inventory` | Closet management page |
+| GET | `/v1/closet/items` | List closet items |
+| POST | `/v1/closet/items` | Upload a new item (image + auto-tag) |
+| DELETE | `/v1/closet/items/{id}` | Remove an item |
+| GET | `/v1/closet/daily` | Get daily outfit recommendations |
+| POST | `/v1/closet/outfits:generate` | Generate outfits from a specific item |
+| POST | `/v1/closet/feedback` | Submit like/dislike feedback |
+| POST | `/v1/closet/outfits/save` | Bookmark an outfit |
+| GET | `/v1/closet/outfits/saved` | List saved outfits |
+| GET | `/v1/closet/outfits/worn` | Outfit wear history |
+| GET | `/v1/weather` | Current weather data |
+
+### Shopify
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/shopify/install` | Store access token after OAuth |
+| POST | `/shopify/catalog/sync` | Full catalog fetch + process |
+| POST | `/shopify/catalog/resync` | Re-sync using stored token |
+| POST | `/shopify/catalog/reprocess` | Re-run vision+embed on all items |
+| GET | `/shopify/catalog/status` | Product/outfit counts |
+| GET | `/shopify/outfits` | Get outfits for a product page |
+| POST | `/shopify/outfits/generate` | Trigger outfit generation |
+| POST | `/shopify/webhooks/product_created` | New product webhook |
 
 ## Project Structure
 
 ```
-├── app.py              # Main FastAPI application
-├── shopify_app.py      # Shopify FastAPI sub-app
-├── schema.sql          # Database schema
-├── requirements.txt    # Python dependencies
+loom/
+├── app.py                    # Main FastAPI app (personal routes + mounts shopify_app)
+├── shopify_app.py            # Shopify API backend (catalog, outfits, webhooks)
+├── schema.sql                # Full database schema (personal + Shopify tables)
+├── requirements.txt          # Python dependencies
+├── env.example               # Environment variable template
 ├── services/
-│   ├── retrieval.py    # Outfit retrieval & assembly
-│   ├── collage.py      # Outfit image generation
-│   ├── weather.py      # Weather API integration
-│   ├── auth.py         # Authentication
-│   ├── shopify_catalog.py
-│   └── ...
-├── loom-app/           # Shopify Admin app + theme extension
-└── static/
-    ├── closet.html     # Daily outfits UI
-    ├── inventory.html  # Closet management UI
-    ├── index.html      # Demo page
-    └── login.html      # Auth page
+│   ├── fashion_florence.py   # Florence vision API client + FashionCLIP color fallback
+│   ├── fashion_clip.py       # FashionCLIP 2.0 ONNX embeddings + zero-shot classify
+│   ├── vision.py             # Vision router (Florence vs OpenAI)
+│   ├── tagging.py            # Tag validation and normalization
+│   ├── item_processor.py     # Unified vision + embedding pipeline
+│   ├── outfit_generator.py   # Outfit generation orchestrator
+│   ├── retrieval.py          # pgvector similarity search + scoring
+│   ├── collage.py            # Outfit image collage generation
+│   ├── weather.py            # OpenWeatherMap integration
+│   ├── auth.py               # JWT + Google OAuth
+│   └── shopify_catalog.py    # Shopify GraphQL product fetch + DB helpers
+├── static/
+│   ├── closet.html           # Daily outfits UI
+│   ├── inventory.html        # Closet management UI
+│   ├── index.html            # Demo / single-item generation
+│   ├── landing.html          # Landing page
+│   └── login.html            # Auth page
+├── space/                    # HuggingFace Space for Fashion Florence API
+│   ├── app.py                # FastAPI: loads model, /analyze endpoint
+│   ├── Dockerfile
+│   └── requirements.txt
+├── loom-app/                 # Shopify embedded admin app (Node.js)
+│   ├── app/routes/           # React Router routes (admin UI, webhooks)
+│   ├── extensions/shop-the-look/  # Theme extension (Liquid block)
+│   └── shopify.app.toml      # Shopify Partners config
+├── training/                 # Florence-2 fine-tuning scripts
+└── scripts/                  # Data import and maintenance utilities
 ```
 
 ## License
 
-[MIT](LICENSE). This project is not affiliated with Loom (Atlassian) or other unrelated products using the name “Loom.”
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for dev setup and PR notes.
+MIT
