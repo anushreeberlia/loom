@@ -8,6 +8,10 @@ Thanks for your interest. This repo is the **consumer outfit app** (Python/FastA
 - In **`loom-app/`**, copy **`.env.example`** → **`.env`** (Shopify CLI also injects `SHOPIFY_*` in dev).
 - Never commit real API keys, `SHOPIFY_API_SECRET`, database URLs with passwords, or JWT secrets.
 
+## Shopify development store
+
+To try **Shop the Look** end-to-end, create a [development store](https://help.shopify.com/en/partners/dashboard/development-stores) in **Shopify Partners**, install the app on that store, then follow **Getting started** in the embedded app Home (sync catalog, copy backend URL, add the theme block). See **`loom-app/README.md`** (“Test with a Partner development store”).
+
 ## Local development
 
 **Python API** (from repo root):

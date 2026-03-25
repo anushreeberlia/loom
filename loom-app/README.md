@@ -49,6 +49,19 @@ Official Shopify hosting docs: [Deploy a Shopify app](https://shopify.dev/docs/a
 
 ---
 
+## Test with a Partner development store
+
+You do **not** need a separate “test account” for Shopify: use a **[development store](https://help.shopify.com/en/partners/dashboard/development-stores)** under your [Shopify Partners](https://partners.shopify.com) account.
+
+1. **Partners** → **Stores** → **Add store** → **Create development store** (fill in store name, purpose).
+2. **Partners** → **Apps** → select **loom-app** → **Test on development store** (or use the app install URL from the app’s **Overview**).
+3. Open the app in Admin — the **Home** page has a **Getting started** checklist: sync catalog, **copy Loom backend URL**, **open theme editor**, add the **Shop the Look** block, paste the URL in block settings.
+4. Your Python API (`LOOM_BACKEND_URL`) must be **public HTTPS** (e.g. Railway) so the **theme block** on the storefront can call `/shopify/outfits`.
+
+Local dev: run **`npm run dev`** in `loom-app/` and use the CLI tunnel URL; set **`LOOM_BACKEND_URL`** to your tunneled or deployed Python API.
+
+---
+
 ## Template reference
 
 Scaffolded from [Shopify’s React Router app template](https://github.com/Shopify/shopify-app-template-react-router). Package docs: [@shopify/shopify-app-react-router](https://shopify.dev/docs/api/shopify-app-react-router).

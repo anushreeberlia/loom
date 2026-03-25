@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import type { HeadersFunction, ActionFunctionArgs } from "react-router";
 import { useFetcher, useOutletContext } from "react-router";
 import { useAppBridge } from "@shopify/app-bridge-react";
@@ -145,6 +145,17 @@ function adminProductUrl(shop: string, shopifyGid: string): string | null {
   return `https://admin.shopify.com/store/${handle}/products/${id}`;
 }
 
+/** Store handle for admin.shopify.com URLs (e.g. `loom-10146` from `loom-10146.myshopify.com`). */
+function shopifyAdminStoreHandle(shop: string): string {
+  return shop.replace(/\.myshopify\.com$/i, "").trim();
+}
+
+/** Deep-link to the theme editor on the default product template (add “Shop the Look” block here). */
+function themeEditorProductTemplateUrl(shop: string): string {
+  const h = shopifyAdminStoreHandle(shop);
+  return `https://admin.shopify.com/store/${encodeURIComponent(h)}/themes/current/editor?template=product`;
+}
+
 export default function Index() {
   const { shop, loomBackendUrl } = useOutletContext<AppOutletContext>();
   const bootstrap = useFetcher<typeof action>();
@@ -185,6 +196,19 @@ export default function Index() {
   const triggerSync = () =>
     syncFetcher.submit({ intent: "sync" }, { method: "POST" });
 
+  const copyBackendUrl = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(loomBackendUrl);
+      shopify.toast.show(
+        "Loom backend URL copied — paste it into the theme block field “Loom backend URL”.",
+      );
+    } catch {
+      shopify.toast.show("Could not copy automatically — select the URL below in “Store”.");
+    }
+  }, [loomBackendUrl, shopify]);
+
+  const themeEditorUrl = themeEditorProductTemplateUrl(shop);
+
   return (
     <s-page heading="Loom — AI Outfit Generation">
       {catalogLoading && (
@@ -199,6 +223,39 @@ export default function Index() {
             LOOM_BACKEND_URL in hosting env and that {loomBackendUrl}/shopify/health responds,
             then reload.
           </s-paragraph>
+        </s-section>
+      )}
+      {!backendUnreachable && (
+        <s-section heading="Getting started">
+          <s-paragraph>
+            Finish these once per store so shoppers see &quot;Shop the Look&quot; on product pages.
+          </s-paragraph>
+          <s-unordered-list>
+            <s-list-item>
+              <s-text type="strong">1. Sync your catalog</s-text> — Use &quot;Sync Catalog&quot;
+              (top right). Wait until products show below.
+            </s-list-item>
+            <s-list-item>
+              <s-text type="strong">2. Copy your Loom API URL</s-text> — Theme blocks call this
+              URL directly.{" "}
+              <s-button variant="secondary" onClick={copyBackendUrl}>
+                Copy Loom backend URL
+              </s-button>
+            </s-list-item>
+            <s-list-item>
+              <s-text type="strong">3. Add the theme block</s-text> —{" "}
+              <s-link href={themeEditorUrl} target="_blank">
+                Open theme editor (product template)
+              </s-link>
+              . In the left sidebar, add block <s-text type="strong">Shop the Look</s-text> to the
+              product template. Paste the URL from step 2 into{" "}
+              <s-text type="strong">Loom backend URL</s-text> in the block settings, then save.
+            </s-list-item>
+            <s-list-item>
+              <s-text type="strong">4. Preview</s-text> — Open a product on your storefront and
+              confirm outfits load (use a product that finished processing in Loom).
+            </s-list-item>
+          </s-unordered-list>
         </s-section>
       )}
       <s-button
@@ -280,19 +337,17 @@ export default function Index() {
         </s-unordered-list>
       </s-section>
 
-      <s-section slot="aside" heading="Setup">
+      <s-section slot="aside" heading="Loom backend URL">
         <s-paragraph>
-          <s-text type="strong">Step 1</s-text> — Click &quot;Sync Catalog&quot; to process your
-          products. This runs in the background.
+          Paste this into the theme block setting <s-text type="strong">Loom backend URL</s-text>{" "}
+          (storefront calls this URL; it must be publicly reachable HTTPS).
         </s-paragraph>
         <s-paragraph>
-          <s-text type="strong">Step 2</s-text> — Add the &quot;Shop the Look by Loom&quot; block
-          to your product pages in the theme editor.
+          <s-text tone="neutral">{loomBackendUrl}</s-text>
         </s-paragraph>
-        <s-paragraph>
-          <s-text type="strong">Step 3</s-text> — Shoppers will see AI-generated outfit
-          suggestions on every product page.
-        </s-paragraph>
+        <s-button variant="secondary" onClick={copyBackendUrl}>
+          Copy URL
+        </s-button>
       </s-section>
 
       <s-section slot="aside" heading="Store">
