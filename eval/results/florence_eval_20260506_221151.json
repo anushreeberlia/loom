@@ -1,0 +1,45 @@
+{
+  "timestamp": "20260506_221151",
+  "results": [
+    {
+      "model": "openai",
+      "n": 461,
+      "json_valid": 460,
+      "json_valid_pct": 99.8,
+      "category_acc": 89.6,
+      "material_acc": 43.9,
+      "style_f1": 0.401,
+      "occasion_f1": 0.542,
+      "mean_ms": 2514.1,
+      "p95_ms": 3595.5,
+      "n_errors": 1,
+      "per_category": {
+        "bottom": {
+          "n": 91,
+          "cat_acc": 85.7,
+          "mat_acc": 48.4
+        },
+        "dress": {
+          "n": 145,
+          "cat_acc": 91.7,
+          "mat_acc": 31.0
+        },
+        "layer": {
+          "n": 58,
+          "cat_acc": 87.9,
+          "mat_acc": 32.8
+        },
+        "shoes": {
+          "n": 5,
+          "cat_acc": 60.0,
+          "mat_acc": 40.0
+        },
+        "top": {
+          "n": 161,
+          "cat_acc": 91.3,
+          "mat_acc": 57.1
+        }
+      }
+    }
+  ]
+}

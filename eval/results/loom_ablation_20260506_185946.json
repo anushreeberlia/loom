@@ -1,0 +1,18 @@
+{
+  "timestamp": "20260506_185946",
+  "n_anchors": 2,
+  "ablations": [
+    "full"
+  ],
+  "metrics": {
+    "full": {
+      "n_anchors": 2,
+      "total_outfits": 6,
+      "outfits_per_anchor": 3.0,
+      "mean_latency_ms": 16973.0,
+      "p95_latency_ms": 29129.4,
+      "mean_color_spread": 9.0,
+      "ablation": "full"
+    }
+  }
+}

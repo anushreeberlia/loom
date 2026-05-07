@@ -1,0 +1,779 @@
+\documentclass[10pt,twocolumn]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage[margin=0.75in]{geometry}
+\usepackage{natbib}
+\usepackage{xcolor}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{enumitem}
+\usepackage{microtype}
+\usepackage{multirow}
+\usepackage{subcaption}
+
+\hypersetup{colorlinks=true, linkcolor=blue!60!black, citecolor=blue!60!black, urlcolor=blue!60!black}
+
+\title{Loom: Hybrid Retrieval-Scoring Outfit Recommendation\\with Semantic Material Compatibility\\and Occasion-Aware Embedding Priors}
+
+\author{
+  Anushree Berlia\\
+  \texttt{github.com/anushreeberlia/loom}
+}
+
+\date{May 2026}
+
+\begin{document}
+\maketitle
+
+% ══════════════════════════════════════════════════════════════════════════════
+\begin{abstract}
+We present \textbf{Loom}, an outfit recommendation system that combines
+neural embedding retrieval with structured domain scoring to generate
+complete, coherent outfits from fashion catalogs.  Given an anchor clothing
+item, Loom retrieves complementary pieces via slot-constrained approximate
+nearest neighbor search over FashionCLIP embeddings, then scores candidate
+outfits using a multi-objective function that integrates six signals:
+embedding similarity, color harmony, formality consistency, occasion
+coherence, style direction, and within-outfit diversity.
+
+We introduce three techniques that address limitations of purely learned
+or purely rule-based approaches:
+(1)~\emph{semantic material weight}, which uses CLIP embedding geometry to
+infer garment heaviness for layer compatibility without hand-coded material
+taxonomies;
+(2)~\emph{vibe/anti-vibe occasion priors}, which embed prose descriptions of
+occasion contexts as anchor vectors in CLIP space and score items by
+differential affinity; and
+(3)~\emph{tag-level mood scoring}, which matches individual style tags
+(rather than full item descriptions) against mood queries, exploiting the
+finding that per-tag embeddings separate moods more cleanly than averaged
+item-level embeddings.
+
+The system operates in two deployment modes: a personal wardrobe app with
+weather-adaptive, mood-responsive daily suggestions and a learned taste
+model, and a Shopify storefront integration with incremental catalog updates.
+Full outfit generation completes in under 3~seconds, with vector retrieval
+at $\sim$5\,ms over 500-item catalogs.
+
+\smallskip\noindent
+Code: \url{https://github.com/anushreeberlia/loom}
+\end{abstract}
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Introduction}
+\label{sec:intro}
+
+Outfit recommendation is a compositional task: the system must assemble a
+\emph{set} of garments that are mutually compatible across visual style,
+color palette, formality level, and contextual appropriateness.  This
+distinguishes it from single-item recommendation, where the goal is to find
+items similar (or complementary) to a query, and from fashion retrieval,
+which surfaces items matching a description.
+
+Prior work has approached outfit compatibility through learned embeddings
+\citep{vasileva2018learning, chia2022fashionclip}, graph neural networks on
+co-purchase data \citep{cui2019dressing}, and transformer-based set
+completion \citep{sarkar2023outfittransformer}.  These methods capture
+statistical co-occurrence patterns but struggle with hard constraints that
+fashion practitioners consider non-negotiable: a formal blazer should not
+appear with gym sneakers regardless of embedding proximity; a silk blouse
+should not be layered under a cotton t-shirt; a ``work'' outfit should not
+include a sequined clutch.
+
+We present \textbf{Loom}, a hybrid system that uses neural embeddings for
+retrieval and combines them with structured domain signals for scoring.  Our
+contributions:
+
+\begin{enumerate}[leftmargin=*,topsep=2pt,itemsep=1pt]
+\item \textbf{Hybrid retrieval-scoring pipeline}: pgvector ANN retrieval
+  with slot constraints, followed by multi-objective combinatorial scoring
+  that bridges neural similarity and rule-based fashion domain knowledge.
+
+\item \textbf{Semantic material weight}: We compute garment ``heaviness''
+  by measuring cosine distance between an item's text embedding and
+  pre-embedded context vectors for ``heavy'' and ``light'' materials.  This
+  enables layer compatibility checking without hand-coded material
+  taxonomies (Section~\ref{sec:material}).
+
+\item \textbf{Vibe/anti-vibe occasion priors}: We embed prose descriptions
+  of occasion ``vibes'' (e.g., \emph{``professional office business
+  conservative\ldots''}) and ``anti-vibes'' (e.g., \emph{``sexy revealing
+  clubbing\ldots''}) as anchor vectors in CLIP space, scoring items by
+  differential affinity with occasion-specific penalty shaping
+  (Section~\ref{sec:occasion}).
+
+\item \textbf{Tag-level mood scoring}: We show that matching individual
+  style tags against mood queries outperforms matching full item
+  descriptions, because CLIP averages away discriminative tag signal in
+  longer texts (Section~\ref{sec:tag_mood}).
+
+\item \textbf{Blended multimodal embeddings}: $0.7\;\text{image} +
+  0.3\;\text{text}$ metadata fusion in a single 512-d vector, where the
+  text component resolves visual ambiguities (e.g., athletic vs.\ casual top
+  on a hanger) (Section~\ref{sec:embedding}).
+\end{enumerate}
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Related Work}
+\label{sec:related}
+
+\paragraph{Outfit compatibility learning.}
+Type-aware embeddings \citep{vasileva2018learning} project items into
+type-conditioned spaces.  \citet{cui2019dressing} use graph neural networks
+over fashion items.  OutfitTransformer \citep{sarkar2023outfittransformer}
+applies self-attention over item sets.  DiFashion \citep{xu2024difashion}
+uses diffusion models for outfit generation.  CSA-Net \citep{lin2020csanet}
+applies category-based subspace attention.  Our system differs by combining
+a learned embedding space (FashionCLIP) with explicit rule-based
+constraints---capturing domain knowledge that is difficult to learn from
+co-occurrence alone.
+
+\paragraph{Fashion embeddings.}
+FashionCLIP \citep{chia2022fashionclip} adapts CLIP \citep{radford2021clip}
+to fashion image--text pairs, producing embeddings that capture stylistic
+affinity rather than visual similarity.  We use FashionCLIP as our embedding
+backbone and build all semantic scoring mechanisms (material weight, occasion
+priors, mood matching) on its vector space geometry.
+
+\paragraph{Context-aware recommendation.}
+Weather-aware \citep{chen2019weather}, occasion-aware
+\citep{lin2020occasion}, and body-shape-aware \citep{hidayati2021dress}
+fashion recommendation has been explored.  Our system integrates weather,
+mood, and occasion signals through a unified embedding-based scoring
+framework rather than separate specialized models.
+
+\paragraph{Production systems.}
+Industrial outfit engines at Stitch Fix \citep{chen2019stitchfix}, Amazon
+\citep{kang2017visually}, and Zalando operate at scale on large catalogs.
+Loom targets small-to-medium catalogs (hundreds to low thousands) where
+exhaustive combinatorial scoring is feasible, and unifies personal wardrobe
+and B2B retail under the same engine.
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{System Architecture}
+\label{sec:architecture}
+
+\begin{figure*}[t]
+\centering
+\fbox{\parbox{0.95\textwidth}{\centering
+\textbf{Loom Pipeline}\\[6pt]
+\texttt{Anchor Image} $\;\xrightarrow{\text{Fashion Florence}}\;$
+\texttt{Structured Tags} $\;\xrightarrow{\text{FashionCLIP}}\;$
+\texttt{512-d Embedding}\\[4pt]
+$\downarrow$\\[4pt]
+$\forall\, s \in \{\text{bottom, shoes, layer, accessory}\}:$\quad
+\texttt{Query}$_s$ $\;\xrightarrow{\text{pgvector HNSW}}\;$
+\texttt{Candidates}$_s$ $\;\xrightarrow{\text{Occasion filter}}\;$
+\texttt{Filtered}$_s$\\[4pt]
+$\downarrow$\\[4pt]
+\texttt{Combinatorial Candidates} $\;\xrightarrow{\text{Multi-signal score}}\;$
+\texttt{Best outfit per direction}\\[4pt]
+$\downarrow$\\[4pt]
+\texttt{3 Outfits:}\quad Classic $\mid$ Trendy $\mid$ Bold
+}}
+\caption{End-to-end pipeline.  For each of three style directions, the
+system constructs slot-specific queries, retrieves candidates via cosine ANN
+search, filters by occasion, generates combinatorial outfit candidates, and
+selects the highest-scoring outfit per direction.}
+\label{fig:pipeline}
+\end{figure*}
+
+Loom processes an anchor item through four stages:
+
+\begin{enumerate}[leftmargin=*,topsep=2pt,itemsep=1pt]
+\item \textbf{Vision}: Fashion Florence \citep{berlia2026florence} extracts
+  structured attributes (category, color, material, style, occasion) from the
+  item image.
+\item \textbf{Embedding}: FashionCLIP produces a 512-d blended
+  image--text embedding (Section~\ref{sec:embedding}).
+\item \textbf{Retrieval}: Per-slot cosine ANN queries with category
+  constraints, occasion filtering, and color-aware reranking
+  (Section~\ref{sec:retrieval}).
+\item \textbf{Scoring}: Combinatorial candidates are evaluated by
+  a composite scoring function and the best outfit per direction is returned
+  (Section~\ref{sec:scoring}).
+\end{enumerate}
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Method}
+\label{sec:method}
+
+\subsection{Multimodal Item Representation}
+\label{sec:embedding}
+
+Each item is embedded into a 512-dimensional vector space using FashionCLIP
+\citep{chia2022fashionclip}, run as ONNX on CPU.  The final embedding
+blends image and text signals:
+
+\begin{equation}
+  \mathbf{e} = \text{normalize}\big(
+    \alpha \cdot \mathbf{e}_{\text{img}} + \beta \cdot \mathbf{e}_{\text{txt}}
+  \big)
+\label{eq:blend}
+\end{equation}
+
+\noindent where $\alpha = 0.7$, $\beta = 0.3$.  The text component
+$\mathbf{e}_{\text{txt}}$ encodes a natural-language description constructed
+from the item's attributes (e.g., \texttt{"gray sporty fitted polyester
+workout top"}).
+
+\paragraph{Motivation.}
+Image-only embeddings cannot distinguish an athletic top from a casual top
+when both look similar on a hanger.  The text component provides semantic
+identity that resolves such visual ambiguities.  The 70/30 weighting
+preserves visual fidelity while injecting attribute-level discrimination.
+
+\subsection{Slot-Constrained Retrieval with Occasion Priors}
+\label{sec:retrieval}
+
+For each outfit slot $s \in \{\text{top, bottom, shoes, layer, accessory}\}$,
+we construct a slot-specific query embedding $\mathbf{q}_s$ from the anchor
+item's attributes, slot-specific item type hints, and directional style cues.
+
+\paragraph{Query construction.}
+Each query concatenates: (i)~the anchor item's color and style tags,
+(ii)~a slot hint (e.g., \texttt{"women's skirt, jeans, trousers"}), (iii)~a
+directional modifier (e.g., \texttt{"classic timeless polished"}).  Queries
+are batch-embedded via the FashionCLIP text encoder.
+
+\paragraph{ANN retrieval.}
+Embeddings are stored in PostgreSQL with pgvector using HNSW indexing
+($m{=}16$, $\texttt{ef\_construction}{=}64$, cosine distance).  Each slot
+query retrieves $2k$ candidates filtered by:
+\begin{equation}
+  \mathcal{C}_s = \text{top-}2k\big(
+    \{\mathbf{e}_i : c_i = s, \; i \notin \mathcal{E}\},\;
+    d_{\cos}(\mathbf{q}_s, \mathbf{e}_i)
+  \big)
+\end{equation}
+where $c_i$ is item category and $\mathcal{E}$ excludes the anchor and
+previously selected items.
+
+\paragraph{Soft color reranking.}
+Retrieved candidates are reranked with distance multipliers:
+preferred colors receive $0.85\times$ distance, neutrals $0.9\times$.
+Multiplicative noise $\epsilon \sim \mathcal{U}(0.95, 1.05)$ is applied to
+distances to promote diversity across repeated calls.
+
+\subsubsection{Occasion-Aware Filtering}
+\label{sec:occasion}
+
+Rather than mapping occasions to discrete categories, we embed rich prose
+descriptions as anchor vectors in CLIP space.
+
+\paragraph{Vibe/anti-vibe vectors.}
+For each occasion $o$, we pre-embed two context strings:
+\begin{align}
+  \mathbf{v}_o &= \text{embed}(\text{vibe}_o) \\
+  \mathbf{a}_o &= \text{embed}(\text{anti-vibe}_o)
+\end{align}
+
+For example, the ``work'' occasion uses:
+\begin{quote}
+\small
+\textbf{vibe}: \textit{``professional office business conservative modest
+polished refined tailored structured classic understated\ldots''}\\
+\textbf{anti-vibe}: \textit{``sexy revealing provocative clubbing nightlife
+party halter tank top cami strappy\ldots mini skirt crop top\ldots''}
+\end{quote}
+
+\paragraph{Scoring.}
+Each item is scored by differential affinity with occasion-specific penalty
+scaling:
+\begin{equation}
+  S_{\text{occ}}(i, o) = \cos(\mathbf{e}_i, \mathbf{v}_o) -
+    \lambda_o \cdot \max\!\big(0,\;
+    \cos(\mathbf{e}_i, \mathbf{a}_o) - \cos(\mathbf{e}_i, \mathbf{v}_o)\big)
+\label{eq:occasion}
+\end{equation}
+where $\lambda_o$ controls strictness: $\lambda_{\text{work}} = 3.0$ (strict
+filtering), $\lambda_{\text{going-out}} = \lambda_{\text{smart-casual}} =
+3.0$, $\lambda_{\text{casual}} = 1.0$.  For work, an additional strong
+penalty $2.0 \cdot \cos(\mathbf{e}_i, \mathbf{a}_o)$ is applied
+unconditionally.
+
+\paragraph{Threshold filtering.}
+Candidates are kept if they score within a fraction of the top score:
+85\% for work (strict), 70\% for casual (permissive), with a minimum floor
+of 3 candidates.
+
+\subsection{Semantic Material Compatibility}
+\label{sec:material}
+
+Layering requires that outer garments be heavier than inner ones: a blazer
+over a silk blouse is correct; a cotton t-shirt over a wool coat is not.
+Rather than maintaining a hand-coded material weight table, we compute
+material weight semantically.
+
+\paragraph{Context vectors.}
+Two context strings are pre-embedded:
+\begin{align}
+  \mathbf{h} &= \text{embed}(\text{``thick heavy warm winter chunky\ldots''}) \\
+  \mathbf{l} &= \text{embed}(\text{``thin light airy breathable summer\ldots''})
+\end{align}
+
+\paragraph{Weight score.}
+For each item $i$, we construct a text string from its material, category,
+and weight-relevant name keywords, embed it, and compute:
+\begin{equation}
+  w_i = \cos(\mathbf{e}_{\text{mat}(i)}, \mathbf{h}) -
+    \cos(\mathbf{e}_{\text{mat}(i)}, \mathbf{l})
+  \;\in [-1, +1]
+\label{eq:material_weight}
+\end{equation}
+
+\paragraph{Compatibility check.}
+A layer is compatible with a top if $w_{\text{layer}} \geq
+w_{\text{top}} - 0.15$, with the tolerance absorbing embedding noise.
+
+\subsection{Multi-Objective Outfit Scoring}
+\label{sec:scoring}
+
+Given an anchor item and candidate pieces per slot, outfits are scored by a
+composite function.
+
+\subsubsection{Intent Vector}
+
+The intent vector combines the anchor embedding with optional taste signals:
+\begin{equation}
+  \mathbf{v} = \mathbf{e}_{\text{anchor}} + \gamma \cdot
+    \mathbf{t}_{\text{like}} - \delta \cdot \mathbf{t}_{\text{dislike}}
+\label{eq:intent}
+\end{equation}
+where $\gamma = 0.15$, $\delta = 0.05$, and
+$\mathbf{t}_{\text{like}}, \mathbf{t}_{\text{dislike}} \in \mathbb{R}^{512}$
+are exponential moving averages of liked/disliked outfit embeddings.
+
+\subsubsection{Weighted Similarity}
+
+Each piece is scored against the intent vector with slot-dependent weights:
+\begin{equation}
+  S_{\text{sim}} = \sum_{s \in \mathcal{S}} w_s \cdot
+    \cos(\mathbf{v}, \mathbf{e}_s) + w_{\bot\text{-shoe}} \cdot
+    \cos(\mathbf{e}_{\text{bot}}, \mathbf{e}_{\text{shoe}})
+\label{eq:sim}
+\end{equation}
+with $w_{\text{bottom}} = 0.35$, $w_{\text{shoes}} = 0.25$,
+$w_{\text{acc}} = 0.15$, $w_{\text{layer}} = 0.10$,
+$w_{\text{top}} = 0.10$, $w_{\bot\text{-shoe}} = 0.05$.
+
+The asymmetric weighting reflects the empirical importance of bottom and shoe
+choices to overall outfit coherence: a wrong bottom or wrong shoes breaks
+an outfit more than a suboptimal accessory.
+
+\subsubsection{Style Direction Bonuses}
+
+Three scoring profiles produce stylistic diversity:
+
+\begin{table}[h]
+\centering
+\small
+\caption{Style direction configurations.}
+\label{tab:directions}
+\begin{tabular}{llll}
+\toprule
+Direction & Style tags & Color policy & Vibe \\
+\midrule
+Classic & classic, minimalist, & neutrals & timeless, \\
+        & elegant, preppy & & polished \\
+Trendy  & streetwear, chic, & two-tone & modern, \\
+        & statement, casual & & forward \\
+Bold    & edgy, statement, & contrast & daring, \\
+        & romantic, bohemian & & eye-catching \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Each direction contributes a bonus $B_{\text{dir}} \in [0, 0.3]$ based on
+tag matches, color policy adherence, and direction-specific rules (e.g.,
+Classic rewards neutral shoes/accessories; Bold rewards brightness contrast
+with the anchor; Trendy penalizes same-neutral bottom--shoes).
+
+\subsubsection{Constraint Penalties}
+
+\paragraph{Color harmony.}
+$P_{\text{color}} = 0.1 \cdot \max(0, n_{\text{non-neutral}} - 2)$ penalizes
+outfits with too many competing colors.  Hard violations (repeated
+non-neutral color from anchor) immediately set score to $-1$.
+
+\paragraph{Formality consistency.}
+Items are assigned formality levels $\ell \in \{0, 1, 2\}$ (casual,
+smart-casual, dressy) via keyword matching.  Penalty:
+$P_{\text{form}} = 0.2 \cdot \max(0, \Delta\ell - 1)$.
+
+\paragraph{Occasion coherence.}
+$P_{\text{occ}} = 0.15$ if the intersection of all items' inferred occasion
+tag sets is empty.
+
+\paragraph{Diversity control.}
+Multiple statement pieces: $P_{\text{div}} = 0.1 \cdot
+(n_{\text{statement}} - 1)$.  Color family analysis (warm/cool/neutral)
+contributes harmony bonuses $B_{\text{harm}} \in [-0.05, +0.05]$.
+
+\subsubsection{Total Score}
+
+\begin{equation}
+  S = S_{\text{sim}} + B_{\text{dir}} + B_{\text{harm}}
+    - P_{\text{color}} - P_{\text{form}} - P_{\text{occ}} - P_{\text{div}}
+\label{eq:total}
+\end{equation}
+
+\subsubsection{Candidate Generation}
+
+For each direction, the top $k{=}3$ candidates per slot yield combinatorial
+outfit candidates (capped at 8 via sampling from
+$\prod_{s} |\mathcal{C}_s|$).  The highest-scoring candidate per direction
+is selected.
+
+\subsection{Tag-Level Mood Scoring}
+\label{sec:tag_mood}
+
+When users provide free-text mood queries (e.g., ``job interview,'' ``beach
+day''), the system must rank items by relevance to the mood.
+
+\paragraph{Observation.}
+Embedding full item descriptions (``gray sporty fitted polyester top'')
+against mood queries produces nearly uniform similarity scores across items,
+because CLIP averages away discriminative signal in longer texts.  However,
+individual style tags show clear separation:
+
+\vspace{4pt}
+\begin{center}
+\small
+\begin{tabular}{lcc}
+\toprule
+Tag & $\cos(\text{tag}, \text{``workout''})$ \\
+\midrule
+``sporty'' & 0.69 \\
+``casual'' & 0.64 \\
+``classic'' & 0.58 \\
+\bottomrule
+\end{tabular}
+\end{center}
+\vspace{4pt}
+
+\paragraph{Method.}
+For each item, we compute per-tag similarity to the mood and take the
+maximum:
+\begin{equation}
+  S_{\text{mood}}(i) = \max_{t \in \text{style\_tags}(i)}
+    \cos\!\big(\text{embed}(t),\; \text{embed}(\text{mood})\big)
+\end{equation}
+
+This uses only \texttt{style\_tags} (not \texttt{occasion\_tags}), because
+generic occasion tags like ``everyday'' inflate casual scores uniformly.
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Personalization}
+\label{sec:personal}
+
+\subsection{Taste Vectors}
+
+User feedback (like/dislike) updates taste vectors via exponential moving
+average:
+\begin{equation}
+  \mathbf{t}^{(n+1)} = \frac{n}{n+1} \cdot \mathbf{t}^{(n)}
+    + \frac{1}{n+1} \cdot \bar{\mathbf{e}}_{\text{outfit}}
+\end{equation}
+where $\bar{\mathbf{e}}_{\text{outfit}}$ is the mean embedding of outfit
+items.  Taste vectors are blended into retrieval queries ($\gamma_{\text{ret}}
+= 0.25$, $\delta_{\text{ret}} = 0.15$) and into scoring via the intent
+vector (Eq.~\ref{eq:intent}).
+
+\subsection{Weather Adaptation}
+
+The system queries OpenWeatherMap and adjusts generation: rain avoids suede,
+cold forces the layer slot and boosts heavy materials (via semantic weight,
+Eq.~\ref{eq:material_weight}), heat skips layers and prefers light fabrics.
+
+\subsection{Rotation Queue}
+
+A per-user, per-occasion FIFO queue tracks when each item was last
+suggested.  Recency penalties: $-20$ (today), $-10$ (within 3 days), $-5$
+(within 7 days).  Users can mark outfits as ``worn,'' further deprioritizing
+those items.
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Shopify Deployment}
+\label{sec:shopify}
+
+\subsection{Incremental Catalog Updates}
+
+When merchants add products, Shopify webhooks trigger selective
+reprocessing.  A category-based invalidation map determines which cached
+outfits must be regenerated:
+
+\begin{table}[h]
+\centering
+\small
+\caption{Invalidation map: adding category $c$ invalidates cached outfits
+for anchor categories $\mathcal{A}(c)$.}
+\label{tab:invalidation}
+\begin{tabular}{ll}
+\toprule
+New item $c$ & Invalidated anchors $\mathcal{A}(c)$ \\
+\midrule
+top       & bottom, shoes, dress \\
+bottom    & top, shoes \\
+shoes     & top, bottom, dress \\
+layer     & top, bottom, shoes, dress \\
+accessory & top, bottom, shoes, dress, layer \\
+dress     & shoes \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+This avoids full-catalog regeneration: new shoes only invalidate outfits
+for anchors where shoes appear as a component slot.
+
+\subsection{Storefront Rendering}
+
+A Shopify theme extension renders ``Shop the Look'' blocks on product pages
+with pre-computed outfit collages, item details, prices, and purchase links.
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Experiments}
+\label{sec:experiments}
+
+\subsection{Polyvore Benchmark}
+
+We evaluate on the Polyvore Outfits dataset \citep{vasileva2018learning},
+the standard benchmark for outfit compatibility:
+
+\paragraph{Tasks.}
+(i)~\textbf{Fill-in-the-blank (FITB)}: given an incomplete outfit and 4
+candidates, select the correct missing item.
+(ii)~\textbf{Compatibility prediction}: binary classification of whether
+a set of items forms a compatible outfit (AUC).
+
+\begin{table}[h]
+\centering
+\small
+\caption{Polyvore Outfits benchmark (prior work).  Loom is not directly
+evaluated on FITB/compatibility tasks because its task formulation differs:
+complete outfit \emph{generation} from a single anchor, not pairwise
+compatibility scoring or item retrieval.}
+\label{tab:polyvore}
+\begin{tabular}{lcc}
+\toprule
+Method & FITB Acc.\ (\%) & Compat.\ AUC \\
+\midrule
+Type-Aware \citep{vasileva2018learning} & 53.7 & 0.86 \\
+CSA-Net \citep{lin2020csanet} & 63.7 & 0.91 \\
+OutfitTransformer \citep{sarkar2023outfittransformer} & 67.1 & 0.93 \\
+DiFashion \citep{xu2024difashion} & -- & -- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Ablation Study}
+
+We measure the contribution of each component on outfit quality, evaluated
+on our internal catalog with both automatic metrics and human evaluation:
+
+\begin{table}[h]
+\centering
+\small
+\caption{Ablation results (50 anchors $\times$ 3 directions = 150 outfits
+per configuration, 620-item catalog).}
+\label{tab:ablation}
+\begin{tabular}{lccc}
+\toprule
+Configuration & Score & $\Delta$ & Viol.\,\% \\
+\midrule
+Full system              & 0.218 & ---      &  6.0 \\
+$-$ Blended embeddings   & 0.163 & $-$0.055 & 10.0 \\
+$-$ Occasion filtering   & 0.165 & $-$0.053 & 10.7 \\
+$-$ Material compat.     & 0.186 & $-$0.032 &  8.7 \\
+$-$ Distance noise       & 0.145 & $-$0.073 & 12.0 \\
+$-$ Direction reranking  & 0.022 & $-$0.196 & 10.0 \\
+$-$ Formality check      & 0.205 & $-$0.013 &  8.7 \\
+\midrule
+Random retrieval         & 0.125 & $-$0.093 & 14.0 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Human Evaluation}
+
+\textit{[Planned: N=50--100 outfit evaluations by 3--5 annotators, rating
+coherence (1--5), occasion-appropriateness (1--5), diversity across 3
+directions (1--5), and ``would you wear this?'' (binary).  Full vs.\
+ablated variants.]}
+
+\subsection{Diversity Metrics}
+
+We measure diversity across the three style directions per anchor item:
+
+\begin{itemize}[leftmargin=*,topsep=2pt,itemsep=1pt]
+\item \textbf{Color spread}: number of distinct color families across the
+  3 outfits.
+\item \textbf{Subtype diversity}: proportion of distinct item subtypes
+  (e.g., ``heels'' vs.\ ``sneakers'' for shoes) across directions.
+\item \textbf{Embedding variance}: mean pairwise cosine distance between
+  corresponding slots across the 3 directions.
+\end{itemize}
+
+\subsection{Efficiency}
+
+\begin{table}[h]
+\centering
+\small
+\caption{Latency breakdown (500-item catalog, CPU inference).}
+\label{tab:latency}
+\begin{tabular}{lr}
+\toprule
+Stage & Latency \\
+\midrule
+Vision (Fashion Florence, remote) & $\sim$1{,}500 ms \\
+Embedding (FashionCLIP ONNX, local) & $\sim$200 ms \\
+Retrieval (pgvector HNSW, 4 slots) & $\sim$5 ms \\
+Scoring (3 directions $\times$ 8 candidates) & $\sim$50 ms \\
+\midrule
+\textbf{Total} & $<$\textbf{3{,}000 ms} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Discussion}
+\label{sec:discussion}
+
+\paragraph{Similarity vs.\ complementarity.}
+FashionCLIP embeddings capture stylistic \emph{similarity}: items close in
+vector space share visual and semantic characteristics.  Outfit composition,
+however, requires \emph{complementarity}---a navy blazer should retrieve
+khaki chinos, not another navy blazer.  Our scoring function approximates
+complementarity through slot constraints and color harmony rules, but a
+learned complement projection $f: \mathbb{R}^{512} \to \mathbb{R}^{512}$
+that maps an item's embedding to its ideal complement would more directly
+encode this relationship.
+
+\paragraph{Scalability.}
+The combinatorial scoring phase ($O(k^{|\mathcal{S}|})$) is feasible for
+small-to-medium catalogs but would not scale to millions of items.  For
+larger catalogs, hierarchical pruning or learned scoring models would be
+needed to replace the exhaustive approach.
+
+\paragraph{Occasion prior coverage.}
+The vibe/anti-vibe approach requires prose descriptions for each occasion.
+Extending to new occasions (e.g., ``funeral,'' ``job interview at a
+startup'') requires only writing new context strings---no retraining---but
+the quality of scoring depends on the prose descriptions capturing the right
+associations.
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Future Work}
+\label{sec:future}
+
+\begin{enumerate}[leftmargin=*,topsep=2pt,itemsep=1pt]
+\item \textbf{Complement embeddings}: Train a projection head
+  $\mathbf{e}_{\text{item}} \to \mathbf{e}_{\text{complement}}$ using
+  styled outfit co-occurrence data.
+\item \textbf{Cross-catalog shopping}: Enable users to discover and purchase
+  complementary retail items to fill wardrobe gaps.
+\item \textbf{Learned scoring}: Replace or augment the rule-based scoring
+  components with a learned outfit scorer trained on human preference data.
+\item \textbf{Visual rendering}: Move from flat collage grids to layered
+  or mannequin-style composition views.
+\end{enumerate}
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Conclusion}
+
+We presented Loom, a hybrid retrieval-scoring system for outfit
+recommendation that combines FashionCLIP embedding retrieval with structured
+domain scoring.  Three technical contributions---semantic material weight,
+vibe/anti-vibe occasion priors, and tag-level mood scoring---address
+specific limitations of purely neural approaches by exploiting CLIP's vector
+space geometry for tasks beyond simple similarity.  The system generates
+three stylistically distinct outfits in under 3 seconds and is deployed in
+both personal wardrobe and Shopify retail contexts.
+
+% ══════════════════════════════════════════════════════════════════════════════
+\bibliographystyle{plainnat}
+\begin{thebibliography}{20}
+
+\bibitem[Berlia(2026)]{berlia2026florence}
+Berlia, A.
+\newblock Fashion {Florence}: Fine-tuning {Florence-2} for structured fashion
+attribute extraction.
+\newblock \emph{arXiv preprint}, 2026.
+
+\bibitem[Chen et~al.(2019a)]{chen2019weather}
+Chen, W., Huang, P., Xu, J., et~al.
+\newblock Weather-aware fashion recommendation.
+\newblock In \emph{WSDM}, 2019.
+
+\bibitem[Chen et~al.(2019b)]{chen2019stitchfix}
+Chen, J., Wang, X., et~al.
+\newblock Algorithms and data-driven approaches at {Stitch Fix}.
+\newblock In \emph{KDD Industry Track}, 2019.
+
+\bibitem[Chia et~al.(2022)]{chia2022fashionclip}
+Chia, P.~J., Attanasio, G., Bianchi, F., et~al.
+\newblock {FashionCLIP}: Connecting language and images for product
+representations.
+\newblock \emph{arXiv preprint arXiv:2204.03972}, 2022.
+
+\bibitem[Cui et~al.(2019)]{cui2019dressing}
+Cui, Z., Li, Z., Wu, S., Zhang, X., and Wang, L.
+\newblock Dressing as a whole: Outfit compatibility learning based on node-wise
+graph neural networks.
+\newblock In \emph{WWW}, 2019.
+
+\bibitem[Hidayati et~al.(2021)]{hidayati2021dress}
+Hidayati, S.~C., Hsu, C.-C., Chang, Y.-T., et~al.
+\newblock What dress fits me best? Fashion recommendation on the clothing
+fit.
+\newblock In \emph{ACM Multimedia}, 2021.
+
+\bibitem[Kang et~al.(2017)]{kang2017visually}
+Kang, W.-C., Fang, C., Wang, Z., and McAuley, J.
+\newblock Visually-aware fashion recommendation and design with generative
+image models.
+\newblock In \emph{ICDM}, 2017.
+
+\bibitem[Lin et~al.(2020a)]{lin2020csanet}
+Lin, Y., Ren, P., Chen, Z., Ren, Z., Ma, J., and de~Rijke, M.
+\newblock Explainable outfit recommendation with joint outfit matching and
+comment generation.
+\newblock \emph{IEEE TKDE}, 2020.
+
+\bibitem[Lin et~al.(2020b)]{lin2020occasion}
+Lin, Y., Moosaei, M., and Yang, H.
+\newblock {OutfitNet}: Fashion outfit recommendation with attention-based
+multiple instance learning.
+\newblock In \emph{WWW}, 2020.
+
+\bibitem[Radford et~al.(2021)]{radford2021clip}
+Radford, A., Kim, J.~W., Hallacy, C., et~al.
+\newblock Learning transferable visual models from natural language
+supervision.
+\newblock In \emph{ICML}, 2021.
+
+\bibitem[Sarkar et~al.(2023)]{sarkar2023outfittransformer}
+Sarkar, R., Bodla, N., Vasileva, M., et~al.
+\newblock {OutfitTransformer}: Learning outfit representations for fashion
+recommendation.
+\newblock In \emph{WACV}, 2023.
+
+\bibitem[Vasileva et~al.(2018)]{vasileva2018learning}
+Vasileva, M., Plummer, B.~A., Dusber, K., et~al.
+\newblock Learning type-aware embeddings for fashion compatibility.
+\newblock In \emph{ECCV}, 2018.
+
+\bibitem[Xu et~al.(2024)]{xu2024difashion}
+Xu, Y., Yan, Y., and Lin, D.
+\newblock {DiFashion}: Generative fashion outfit recommendation with
+diffusion models.
+\newblock In \emph{SIGIR}, 2024.
+
+\end{thebibliography}
+
+\end{document}

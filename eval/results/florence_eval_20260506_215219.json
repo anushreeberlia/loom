@@ -1,0 +1,30 @@
+{
+  "timestamp": "20260506_215219",
+  "results": [
+    {
+      "model": "openai",
+      "n": 3,
+      "json_valid": 3,
+      "json_valid_pct": 100.0,
+      "category_acc": 33.3,
+      "material_acc": 0.0,
+      "style_f1": 0.522,
+      "occasion_f1": 0.222,
+      "mean_ms": 3485.8,
+      "p95_ms": 4357.1,
+      "n_errors": 0,
+      "per_category": {
+        "layer": {
+          "n": 1,
+          "cat_acc": 100.0,
+          "mat_acc": 0.0
+        },
+        "top": {
+          "n": 2,
+          "cat_acc": 0.0,
+          "mat_acc": 0.0
+        }
+      }
+    }
+  ]
+}

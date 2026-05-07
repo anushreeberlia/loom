@@ -1,0 +1,46 @@
+{
+  "timestamp": "20260506_201936",
+  "results": [
+    {
+      "model": "florence",
+      "n": 461,
+      "json_valid": 457,
+      "json_valid_pct": 99.1,
+      "category_acc": 94.5,
+      "color_acc": 11.6,
+      "material_acc": 62.8,
+      "style_f1": 0.751,
+      "occasion_f1": 0.59,
+      "mean_ms": 10527.0,
+      "p95_ms": 11887.9,
+      "n_errors": 4,
+      "per_category": {
+        "bottom": {
+          "n": 89,
+          "cat_acc": 92.1,
+          "color_acc": 5.6
+        },
+        "dress": {
+          "n": 144,
+          "cat_acc": 95.8,
+          "color_acc": 16.0
+        },
+        "layer": {
+          "n": 58,
+          "cat_acc": 93.1,
+          "color_acc": 3.4
+        },
+        "shoes": {
+          "n": 5,
+          "cat_acc": 80.0,
+          "color_acc": 20.0
+        },
+        "top": {
+          "n": 161,
+          "cat_acc": 95.7,
+          "color_acc": 13.7
+        }
+      }
+    }
+  ]
+}

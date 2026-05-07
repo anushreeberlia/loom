@@ -1,0 +1,78 @@
+{
+  "timestamp": "20260506_192649",
+  "n_anchors": 50,
+  "ablations": [
+    "full",
+    "no_blend",
+    "no_occasion",
+    "no_material",
+    "no_noise",
+    "no_direction",
+    "no_formality"
+  ],
+  "metrics": {
+    "full": {
+      "n_anchors": 50,
+      "total_outfits": 150,
+      "outfits_per_anchor": 3.0,
+      "mean_latency_ms": 4407.6,
+      "p95_latency_ms": 5374.9,
+      "mean_color_spread": 7.6,
+      "ablation": "full"
+    },
+    "no_blend": {
+      "n_anchors": 50,
+      "total_outfits": 150,
+      "outfits_per_anchor": 3.0,
+      "mean_latency_ms": 4254.2,
+      "p95_latency_ms": 5257.3,
+      "mean_color_spread": 7.52,
+      "ablation": "no_blend"
+    },
+    "no_occasion": {
+      "n_anchors": 50,
+      "total_outfits": 150,
+      "outfits_per_anchor": 3.0,
+      "mean_latency_ms": 4154.2,
+      "p95_latency_ms": 4830.2,
+      "mean_color_spread": 7.62,
+      "ablation": "no_occasion"
+    },
+    "no_material": {
+      "n_anchors": 50,
+      "total_outfits": 150,
+      "outfits_per_anchor": 3.0,
+      "mean_latency_ms": 5451.4,
+      "p95_latency_ms": 9509.9,
+      "mean_color_spread": 7.18,
+      "ablation": "no_material"
+    },
+    "no_noise": {
+      "n_anchors": 50,
+      "total_outfits": 150,
+      "outfits_per_anchor": 3.0,
+      "mean_latency_ms": 5044.5,
+      "p95_latency_ms": 9493.5,
+      "mean_color_spread": 7.88,
+      "ablation": "no_noise"
+    },
+    "no_direction": {
+      "n_anchors": 50,
+      "total_outfits": 150,
+      "outfits_per_anchor": 3.0,
+      "mean_latency_ms": 4364.4,
+      "p95_latency_ms": 5713.2,
+      "mean_color_spread": 7.66,
+      "ablation": "no_direction"
+    },
+    "no_formality": {
+      "n_anchors": 50,
+      "total_outfits": 150,
+      "outfits_per_anchor": 3.0,
+      "mean_latency_ms": 4615.5,
+      "p95_latency_ms": 5950.0,
+      "mean_color_spread": 8.0,
+      "ablation": "no_formality"
+    }
+  }
+}

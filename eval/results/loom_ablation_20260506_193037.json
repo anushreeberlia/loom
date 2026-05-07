@@ -1,0 +1,36 @@
+{
+  "timestamp": "20260506_193037",
+  "n_anchors": 5,
+  "ablations": [
+    "full",
+    "no_blend"
+  ],
+  "metrics": {
+    "full": {
+      "n_anchors": 5,
+      "total_outfits": 15,
+      "outfits_per_anchor": 3.0,
+      "mean_score": 0.257,
+      "mean_similarity": 0,
+      "hard_violation_pct": 0.0,
+      "mean_latency_ms": 7474.7,
+      "p95_latency_ms": 14813.6,
+      "mean_color_spread": 7.0,
+      "mean_slot_diversity": 5.0,
+      "ablation": "full"
+    },
+    "no_blend": {
+      "n_anchors": 5,
+      "total_outfits": 15,
+      "outfits_per_anchor": 3.0,
+      "mean_score": 0.17,
+      "mean_similarity": 0,
+      "hard_violation_pct": 6.7,
+      "mean_latency_ms": 4024.2,
+      "p95_latency_ms": 4652.5,
+      "mean_color_spread": 7.6,
+      "mean_slot_diversity": 5.0,
+      "ablation": "no_blend"
+    }
+  }
+}

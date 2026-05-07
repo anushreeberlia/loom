@@ -1,0 +1,31 @@
+{
+  "timestamp": "20260506_185734",
+  "results": [
+    {
+      "model": "florence",
+      "n": 3,
+      "json_valid": 3,
+      "json_valid_pct": 100.0,
+      "category_acc": 66.7,
+      "color_acc": 33.3,
+      "material_acc": 33.3,
+      "style_f1": 0.889,
+      "occasion_f1": 0.0,
+      "mean_ms": 52080.2,
+      "p95_ms": 133427.1,
+      "n_errors": 0,
+      "per_category": {
+        "layer": {
+          "n": 1,
+          "cat_acc": 100.0,
+          "color_acc": 0.0
+        },
+        "top": {
+          "n": 2,
+          "cat_acc": 50.0,
+          "color_acc": 50.0
+        }
+      }
+    }
+  ]
+}

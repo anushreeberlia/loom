@@ -1,0 +1,85 @@
+{
+  "timestamp": "20260506_222920",
+  "results": [
+    {
+      "model": "florence",
+      "n": 461,
+      "json_valid": 460,
+      "json_valid_pct": 99.8,
+      "category_acc": 94.6,
+      "material_acc": 63.0,
+      "style_f1": 0.753,
+      "occasion_f1": 0.591,
+      "mean_ms": 10837.2,
+      "p95_ms": 12547.9,
+      "n_errors": 1,
+      "per_category": {
+        "bottom": {
+          "n": 91,
+          "cat_acc": 92.3,
+          "mat_acc": 65.9
+        },
+        "dress": {
+          "n": 145,
+          "cat_acc": 95.9,
+          "mat_acc": 55.9
+        },
+        "layer": {
+          "n": 58,
+          "cat_acc": 93.1,
+          "mat_acc": 63.8
+        },
+        "shoes": {
+          "n": 5,
+          "cat_acc": 80.0,
+          "mat_acc": 60.0
+        },
+        "top": {
+          "n": 161,
+          "cat_acc": 95.7,
+          "mat_acc": 67.7
+        }
+      }
+    },
+    {
+      "model": "openai",
+      "n": 461,
+      "json_valid": 460,
+      "json_valid_pct": 99.8,
+      "category_acc": 89.3,
+      "material_acc": 43.3,
+      "style_f1": 0.398,
+      "occasion_f1": 0.553,
+      "mean_ms": 2457.4,
+      "p95_ms": 3404.1,
+      "n_errors": 1,
+      "per_category": {
+        "bottom": {
+          "n": 91,
+          "cat_acc": 84.6,
+          "mat_acc": 47.3
+        },
+        "dress": {
+          "n": 146,
+          "cat_acc": 91.1,
+          "mat_acc": 31.5
+        },
+        "layer": {
+          "n": 58,
+          "cat_acc": 87.9,
+          "mat_acc": 34.5
+        },
+        "shoes": {
+          "n": 5,
+          "cat_acc": 60.0,
+          "mat_acc": 40.0
+        },
+        "top": {
+          "n": 160,
+          "cat_acc": 91.9,
+          "mat_acc": 55.0
+        }
+      }
+    }
+  ]
+}

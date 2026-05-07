@@ -1,0 +1,592 @@
+\documentclass[10pt,twocolumn]{article}
+
+% ── packages ──────────────────────────────────────────────────────────────────
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage[margin=0.75in]{geometry}
+\usepackage{natbib}
+\usepackage{xcolor}
+\usepackage{enumitem}
+\usepackage{microtype}
+\usepackage{multirow}
+
+\hypersetup{colorlinks=true, linkcolor=blue!60!black, citecolor=blue!60!black, urlcolor=blue!60!black}
+
+\title{Fashion Florence: Fine-Tuning Florence-2 for\\Structured Fashion Attribute Extraction}
+
+\author{
+  Anushree Berlia\\
+  \texttt{github.com/anushreeberlia/loom}
+}
+
+\date{May 2026}
+
+\begin{document}
+\maketitle
+
+% ══════════════════════════════════════════════════════════════════════════════
+\begin{abstract}
+We present \textbf{Fashion Florence}, a Florence-2 vision--language model
+fine-tuned with LoRA to extract structured fashion attributes from clothing
+images.  Given a single photograph, the model generates a JSON object
+containing category, color, material, style tags, and occasion
+tags---structured output suitable for direct programmatic consumption by
+downstream recommendation and retrieval systems.
+
+Fine-tuning data is derived from the iMaterialist Fashion dataset (228
+labels), where we collapse fine-grained annotations into a compact 6-category,
+16-color, 19-style schema via rule-based label engineering.  We apply LoRA
+($r{=}16$, $\alpha{=}32$) to all decoder linear layers, training for 3 epochs
+on 3,688 examples.
+
+On a held-out test set of 461 images, Fashion Florence achieves
+\textbf{94.6\%} category accuracy and \textbf{63.0\%} material accuracy,
+compared to \textbf{89.3\%} / \textbf{43.3\%} for GPT-4o-mini.
+Fashion Florence produces valid JSON in \textbf{99.8\%} of outputs,
+matching GPT-4o-mini, while running at 0.77B parameters on a single GPU at
+zero marginal inference cost.  Style tag F1 reaches \textbf{0.753}
+vs.\ \textbf{0.398} for GPT-4o-mini, an 89\% relative improvement.  When the model returns \texttt{"unknown"} for color, a
+FashionCLIP zero-shot fallback resolves it with negligible additional
+latency.
+
+The model is deployed as a Hugging Face Space and integrated into Loom, an
+open-source outfit recommendation system.
+
+\smallskip\noindent
+Model: \url{https://huggingface.co/anushreeberlia/fashion-florence}\\
+Code: \url{https://github.com/anushreeberlia/loom}
+\end{abstract}
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Introduction}
+\label{sec:intro}
+
+Fashion attribute extraction---automatically identifying the category, color,
+material, and style of a garment from its image---is a foundational task for
+fashion recommendation, search, and catalog management.  Downstream systems
+require structured, schema-valid outputs: an outfit recommendation engine
+needs to know that an item is a ``navy wool blazer'' with style tags
+``classic'' and ``workwear,'' not a free-text caption that must be parsed.
+
+Prior approaches to fashion attribute recognition have used multi-label CNNs
+\citep{liu2016deepfashion, guo2019imaterialist}, which require separate
+classifiers per attribute and cannot generalize to new schema fields.
+General-purpose multimodal models like GPT-4V/4o can produce structured
+output via careful prompting, but are expensive (\$0.01--0.03 per image),
+rate-limited, and introduce latency and reliability concerns for production
+pipelines.
+
+We present \textbf{Fashion Florence}, which occupies a middle ground: a
+vision--language model (0.77B parameters) fine-tuned to emit
+constrained, schema-valid JSON from fashion images.  Our contributions:
+
+\begin{enumerate}[leftmargin=*,topsep=2pt,itemsep=1pt]
+\item \textbf{Structured generation framing}: We formulate fashion attribute
+  extraction as conditional text generation where the target is a compact
+  JSON string, allowing a single model to produce all attributes
+  simultaneously in a schema the downstream system can directly parse.
+
+\item \textbf{Label engineering from iMaterialist}: We develop a mapping
+  layer that collapses 228 fine-grained iMaterialist labels into a compact,
+  application-oriented schema (6 categories, 16 colors, 19 style tags, 15
+  occasion tags), deriving style and occasion signals from granular category
+  names.
+
+\item \textbf{Practical deployment}: The fine-tuned model runs on a single
+  GPU with sub-second inference, is deployed as a Hugging Face Space, and
+  includes a FashionCLIP zero-shot color fallback for ambiguous cases.
+\end{enumerate}
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Related Work}
+\label{sec:related}
+
+\paragraph{Fashion attribute recognition.}
+DeepFashion \citep{liu2016deepfashion} introduced large-scale benchmarks for
+clothing recognition with attribute annotations.  The iMaterialist Fashion
+dataset \citep{guo2019imaterialist} provides 228 fine-grained labels across
+multiple attribute groups.  Traditional approaches train multi-label CNNs,
+requiring separate classification heads per attribute type.
+
+\paragraph{Vision--language models for fashion.}
+FashionVLP \citep{goenka2022fashionvlp} learns joint vision--language
+representations for fashion retrieval.  FashionCLIP
+\citep{chia2022fashionclip} adapts CLIP \citep{radford2021clip} to fashion
+image--text pairs.  These models produce embeddings rather than structured
+attributes, making them complementary to our approach.
+
+\paragraph{Structured output from VLMs.}
+Florence-2 \citep{xiao2024florence2} supports multiple vision tasks through
+a unified sequence-to-sequence interface.  LoRA \citep{hu2022lora} enables
+parameter-efficient fine-tuning.  Recent work has explored structured output
+generation from VLMs for document understanding and chart parsing; we apply
+this pattern to fashion attribute extraction.
+
+\paragraph{LLM-based attribute extraction.}
+GPT-4V and GPT-4o-mini can produce structured fashion descriptions via
+careful system prompting.  However, API costs (\$0.01--0.03/image), rate
+limits, and non-deterministic output formatting make them impractical as the
+sole vision backend for high-throughput catalog processing.  Our approach
+provides a self-hosted alternative with deterministic schema compliance.
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Method}
+\label{sec:method}
+
+\subsection{Task Formulation}
+
+We frame fashion attribute tagging as conditional text generation.  Given an
+image $I$ and a fixed prompt $p$ = \texttt{"Analyze this clothing item image
+and return structured fashion tags as JSON."}, the model generates:
+
+\begin{equation}
+  \hat{y} = \arg\max_y \; P(y \mid I, p; \theta)
+\end{equation}
+
+\noindent where $\hat{y}$ is a compact JSON string with fields:
+\texttt{category}, \texttt{primary\_color}, \texttt{material},
+\texttt{style\_tags} (list), and \texttt{occasion\_tags} (list).
+
+The target is serialized with \texttt{json.dumps(separators=(",",":"))} so
+the model learns single-line, compact JSON without whitespace variation.
+
+\subsection{Base Model}
+
+Fashion Florence builds on Florence-2-large \citep{xiao2024florence2}, a
+0.77B parameter vision--language model with a DaViT vision encoder and an
+autoregressive text decoder.  Florence-2's unified sequence-to-sequence
+interface---where different vision tasks are distinguished by the input
+prompt rather than separate heads---makes it well-suited for generating
+structured text conditioned on images.
+
+\subsection{Training Data and Label Engineering}
+\label{sec:labels}
+
+We derive training data from the iMaterialist Fashion dataset
+\citep{guo2019imaterialist}, accessed via \texttt{Marqo/iMaterialist} on the
+Hugging Face Hub.  The original dataset provides 228 fine-grained labels
+across groups: category (105 types), color (19), material (30), style,
+pattern, sleeve, neckline, and gender.
+
+A rule-based mapping layer collapses these into our target schema:
+
+\begin{itemize}[leftmargin=*,topsep=2pt,itemsep=1pt]
+\item \textbf{Categories (6)}: top, bottom, dress, layer, shoes, accessory.
+  Approximately 105 iMaterialist categories are mapped; items with no valid
+  mapping (swimwear, underwear, costumes) are discarded.
+\item \textbf{Colors (16)}: black, white, gray, beige, brown, blue, navy,
+  green, yellow, orange, red, pink, purple, metallic, multi, unknown.
+\item \textbf{Materials}: Direct mapping from iMaterialist material labels
+  (cotton, silk, denim, etc.), used as-is.
+\item \textbf{Style tags (19)}: Derived from granular category names and
+  iMaterialist style labels.  For example, ``Suits \& Blazers'' $\to$
+  \{classic, workwear\}; ``Clubbing Dresses'' $\to$ \{sexy, glamorous\};
+  ``Bodycon'' style label $\to$ \{sexy, glamorous\}.
+\item \textbf{Occasion tags (15)}: Derived similarly from categories.
+  ``Athletic Shirts'' $\to$ \{gym, workout\}; ``Dress Shirts'' $\to$
+  \{work\}.  Default: \texttt{["everyday"]} when no rules match.
+\end{itemize}
+
+From 10,000 sampled rows, 4,610 pass validation (non-null category mapping)
+and are split 80/10/10 into 3,688 / 461 / 461 for train / validation / test.
+
+\begin{table}[h]
+\centering
+\caption{Category distribution in the training set.}
+\label{tab:data}
+\begin{tabular}{lrr}
+\toprule
+Category & Count & \% \\
+\midrule
+Dress     & 1,684 & 36.5 \\
+Top       & 1,450 & 31.5 \\
+Bottom    &    917 & 19.9 \\
+Layer     &    489 & 10.6 \\
+Shoes     &     68 &  1.5 \\
+Accessory &      2 &  0.04 \\
+\midrule
+Total     & 4,610 & 100.0 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Fine-Tuning with LoRA}
+
+We apply Low-Rank Adaptation (LoRA) \citep{hu2022lora} to all linear layers
+of the Florence-2 decoder via the PEFT library.
+
+\begin{table}[h]
+\centering
+\caption{Training configuration.}
+\label{tab:hyperparams}
+\begin{tabular}{ll}
+\toprule
+Parameter & Value \\
+\midrule
+LoRA rank $r$ & 16 \\
+LoRA $\alpha$ & 32 \\
+LoRA dropout & 0.05 \\
+Target modules & all linear \\
+Learning rate & $2 \times 10^{-4}$ \\
+Weight decay & 0.01 \\
+Warmup ratio & 0.05 \\
+Batch size (per device) & 2 \\
+Gradient accumulation & 8 \\
+Effective batch size & 16 \\
+Epochs & 3 \\
+Max target length & 256 tokens \\
+Precision & FP16 (mixed) \\
+Checkpoint selection & lowest eval loss \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The loss is standard causal language modeling cross-entropy with padding
+tokens masked.
+
+\subsection{Zero-Shot Color Fallback}
+
+Fashion Florence occasionally returns \texttt{"unknown"} for
+\texttt{primary\_color}, particularly for muted or ambiguous tones.  When
+this occurs, we fall back to FashionCLIP \citep{chia2022fashionclip}
+zero-shot classification: the image embedding is compared against text
+embeddings of \texttt{"a photo of a \{color\} piece of clothing"} for each
+of the 16 color labels, and the highest-cosine label is selected.
+
+Since FashionCLIP is already loaded in our downstream pipeline for item
+embedding, this adds negligible latency ($<$10\,ms).
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Experiments}
+\label{sec:experiments}
+
+We evaluate Fashion Florence against GPT-4o-mini on the held-out test set
+(461 images).  GPT-4o-mini receives the same detailed system prompt used in
+our production fallback path, specifying the exact output schema with
+per-field instructions and examples.  We additionally contextualize against
+Gemini 2.0 Flash results from \citet{kumar2025fashion}, who report macro F1
+scores on 18 fashion attributes from DeepFashion-MultiModal using zero-shot
+prompting.
+
+\paragraph{Baseline scope.}
+We do not include a base (unfine-tuned) Florence-2 baseline because the
+pretrained model was not trained to produce structured JSON output in our
+schema; without fine-tuning, it generates free-form captions that fail JSON
+parsing entirely.  The relevant comparison is therefore against the strongest
+available alternative that \emph{can} produce structured output---GPT-4o-mini
+with schema-constrained prompting.  An ablation isolating the contribution
+of LoRA fine-tuning versus zero-shot Florence-2 with structured prompting is
+an important direction for future work.
+
+\subsection{Metrics}
+
+\begin{itemize}[leftmargin=*,topsep=2pt,itemsep=1pt]
+\item \textbf{JSON validity}: Percentage of outputs that parse as valid JSON
+  with all required fields present.
+\item \textbf{Category accuracy}: Exact match on the 6-class category field.
+\item \textbf{Material accuracy}: Exact match (case-insensitive).
+\item \textbf{Style F1}: Per-sample set F1 between predicted and ground-truth
+  \texttt{style\_tags}, averaged over all samples with valid JSON output.
+\item \textbf{Occasion F1}: Same as style F1 for \texttt{occasion\_tags}.
+\end{itemize}
+
+\noindent Color accuracy is omitted from the primary comparison because
+\texttt{primary\_color} is handled by a FashionCLIP zero-shot fallback in
+production (Section~\ref{sec:labels}).  For transparency: the Florence model
+alone achieves 11.6\% color exact-match on the test set, reflecting the
+difficulty of color prediction from images where ground-truth labels are
+themselves ambiguous (e.g., ``navy'' vs.\ ``blue'').
+
+\subsection{Results}
+
+\begin{table}[h]
+\centering
+\caption{Fashion attribute extraction results on held-out test set (N=461).}
+\label{tab:results}
+\begin{tabular}{lccccr}
+\toprule
+ & JSON & Cat. & Mat. & Style & Occ. \\
+Method & Valid & Acc. & Acc. & F1 & F1 \\
+\midrule
+GPT-4o-mini & 99.8\% & 89.3\% & 43.3\% & 0.398 & 0.553 \\
+\textbf{Fashion Florence} & \textbf{99.8\%} & \textbf{94.6\%} & \textbf{63.0\%} & \textbf{0.753} & \textbf{0.591} \\
+\midrule
+$\Delta$ (absolute) & 0.0 & +5.3 & +19.7 & +0.355 & +0.038 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Fashion Florence outperforms GPT-4o-mini on every accuracy metric while
+matching its JSON validity (both 99.8\%).  The largest gain is on style F1
+(+89\% relative), reflecting the fine-tuned model's superior understanding
+of fashion-specific vocabulary.  Category accuracy improves by 5.3
+percentage points; material accuracy by 19.7.
+
+\paragraph{External context.}
+\citet{kumar2025fashion} evaluate GPT-4o-mini and Gemini 2.0 Flash on 18
+fashion attributes from DeepFashion-MultiModal in a zero-shot setting,
+reporting macro F1 of 0.433 and 0.568 respectively.  While their task setup
+differs from ours (18 attributes vs.\ 5 fields, different dataset), these
+results confirm that zero-shot LLMs struggle with fashion attribute
+prediction, and that domain-specific fine-tuning (as in Fashion Florence)
+provides substantial improvements.
+
+\subsection{Per-Category Breakdown}
+
+\begin{table}[h]
+\centering
+\caption{Fashion Florence per-category accuracy on the held-out test set.}
+\label{tab:percategory}
+\begin{tabular}{lrcc}
+\toprule
+Category & N & Cat. Acc. & Mat. Acc. \\
+\midrule
+Top       & 161 & 95.7\% & 67.7\% \\
+Dress     & 145 & 95.9\% & 55.9\% \\
+Bottom    &  91 & 92.3\% & 65.9\% \\
+Layer     &  58 & 93.1\% & 63.8\% \\
+Shoes     &   5 & 80.0\% & 60.0\% \\
+\midrule
+Overall   & 460 & 94.6\% & 63.0\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Category accuracy exceeds 92\% for all categories with $\geq$50 test
+samples.  Shoes accuracy (80\%, N=5) is statistically unreliable due to
+the extremely small sample size and is included only for completeness;
+the 95\% Clopper--Pearson confidence interval is [28.4\%, 99.5\%].
+Accessories (N=0 in test) are omitted entirely.
+
+\subsection{Category-then-Rules Ablation}
+\label{sec:cat_rules}
+
+To isolate whether the model's style and occasion predictions reflect
+genuine visual recognition or merely memorization of category$\to$tag
+mappings, we compare the model's direct predictions against a
+\emph{category-then-defaults} baseline: take the model's predicted
+category, then assign the top-3 most frequent style tags and top-2 occasion
+tags for that category (computed from training set statistics).
+
+\begin{table}[h]
+\centering
+\caption{Style/occasion prediction: model vs.\ category-then-rules baseline.
+``Oracle'' uses ground-truth category.  \textit{To be filled after running
+\texttt{eval/eval\_category\_then\_rules.py}.}}
+\label{tab:cat_rules}
+\begin{tabular}{lcc}
+\toprule
+Method & Style F1 & Occasion F1 \\
+\midrule
+Fashion Florence (direct) & 0.753 & 0.591 \\
+Category $\to$ defaults (predicted cat.) & --- & --- \\
+Category $\to$ defaults (oracle cat.) & --- & --- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Color Pipeline Evaluation}
+
+Table~\ref{tab:color} reports color accuracy across three configurations.
+The production pipeline combines Florence with a FashionCLIP zero-shot
+fallback for ambiguous cases.
+
+\begin{table}[h]
+\centering
+\caption{Color prediction accuracy (exact-match and near-synonym match).
+\textit{To be filled after running \texttt{eval/eval\_color\_pipeline.py}.}}
+\label{tab:color}
+\begin{tabular}{lcc}
+\toprule
+Method & Exact \% & Near \% \\
+\midrule
+Florence only & 11.6 & --- \\
+FashionCLIP zero-shot only & --- & --- \\
+Florence + FashionCLIP fallback (production) & --- & --- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Efficiency}
+
+\begin{table}[h]
+\centering
+\caption{Inference cost comparison.}
+\label{tab:efficiency}
+\begin{tabular}{lrrr}
+\toprule
+Method & Params & Latency & Cost/image \\
+\midrule
+GPT-4o-mini & --- & 2,457 ms & $\sim$\$0.003 \\
+Fashion Florence & 0.77B & $\sim$800 ms & \$0 marginal\textsuperscript{$\dagger$} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent\textsuperscript{$\dagger$}\,\$0 marginal cost on an existing GPU
+allocation (Hugging Face Spaces T4); fixed GPU hosting costs are amortized
+across all inference requests.
+
+Fashion Florence latency of $\sim$800\,ms reflects GPU inference
+on the Hugging Face Space (T4).  The 10.5\,s mean observed in our
+evaluation includes network round-trip from a local client to the hosted
+Space; on-device or co-located inference would reduce this to sub-second.
+GPT-4o-mini latency is API round-trip from the same client.
+
+\subsection{Qualitative Analysis}
+
+We observe three common failure patterns:
+
+\paragraph{Material confusion.}
+The most frequent errors involve visually similar materials: chiffon
+predicted as silk, polyester as satin, and knit as cotton.  These
+confusions are understandable given that material identification often
+requires tactile rather than visual information.
+
+\paragraph{Multi-style items.}
+Items that span multiple style categories (e.g., a structured blazer with
+streetwear-influenced details) tend to receive style tags from only one
+dominant category.  The model rarely predicts more than 3 style tags, even
+when the ground truth contains 4--5.
+
+\paragraph{Category edge cases.}
+Jumpsuits and playsuits are occasionally misclassified between ``dress'' and
+``bottom,'' reflecting genuine ambiguity in the category taxonomy.  Long
+cardigans are sometimes labeled ``dress'' rather than ``layer.''
+
+\noindent Fashion Florence's strongest domain is category prediction for
+common categories (top, dress, bottom), where accuracy exceeds 92\%.  The
+style F1 advantage over GPT-4o-mini (0.753 vs.\ 0.398) is largest for
+fashion-specific vocabulary: GPT-4o-mini tends to default to generic tags
+like ``casual'' and ``modern,'' while Fashion Florence more often predicts
+domain-specific tags like ``bohemian,'' ``preppy,'' and ``workwear.''
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Deployment}
+\label{sec:deployment}
+
+Fashion Florence is deployed as a Docker container on Hugging Face Spaces,
+exposing a \texttt{POST /analyze} endpoint.  The production client
+(\texttt{fashion\_florence.py}) handles HF Space cold starts with retry logic
+(up to 2 retries, 120s initial timeout) and 503-detection for sleeping
+Spaces.
+
+The model outputs all 5 trained fields (\texttt{category},
+\texttt{primary\_color}, \texttt{material}, \texttt{style\_tags},
+\texttt{occasion\_tags}).  In the Loom production pipeline, the model's
+\texttt{occasion\_tags} prediction is overridden by deterministic
+style--occasion rules (which achieve higher reliability given correct
+category), and three additional fields (\texttt{season\_tags},
+\texttt{fit}, \texttt{formality}) are derived via material--season and
+style--fit mappings, expanding to the full 8-field Loom schema.
+
+Fashion Florence serves as the default vision backend in Loom, an
+open-source outfit recommendation system that uses the extracted attributes
+for downstream embedding, retrieval, and outfit scoring.
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Limitations}
+\label{sec:limitations}
+
+\paragraph{Training data imbalance.}
+The dataset is heavily skewed toward dresses (36.5\%) and tops (31.5\%),
+with shoes (1.5\%) and accessories (0.04\%) severely underrepresented
+(Table~\ref{tab:data}).  This reflects iMaterialist's natural distribution
+and likely degrades performance on minority categories.
+
+\paragraph{Derived labels and circular evaluation.}
+Style and occasion tags are derived from category names via hand-written
+rules, not from human annotations of the actual images.  A blazer is always
+tagged \{classic, workwear\} regardless of whether the specific image shows a
+casual or formal blazer.  Consequently, style F1 and occasion F1 partly
+measure the model's ability to reproduce a deterministic category-to-tag
+mapping rather than to recognize visual style.  An alternative pipeline
+that predicts category first and then applies rules post-hoc might achieve
+comparable style/occasion metrics; however, our end-to-end approach
+generates all fields jointly, which simplifies the production pipeline and
+allows the model to occasionally surface style signals not captured by the
+rules (e.g., predicting ``edgy'' for a conventionally categorized top based
+on its visual appearance).  Future work should evaluate against
+human-annotated style labels to isolate genuine visual style recognition.
+
+\paragraph{Color prediction.}
+Color remains the weakest field, particularly for muted, pastel, or
+multi-tone garments where the ``correct'' color is ambiguous even to human
+annotators.  The FashionCLIP fallback mitigates but does not eliminate this.
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Conclusion}
+
+We presented Fashion Florence, a Florence-2 model fine-tuned with LoRA to
+produce structured JSON fashion attributes from clothing images.  By framing
+attribute extraction as conditional text generation with a compact JSON
+target, the model provides a self-hosted, sub-second, schema-valid
+alternative to general-purpose multimodal APIs for fashion catalog
+processing.  The label engineering pipeline from iMaterialist demonstrates
+that rich supervision for domain-specific structured generation can be
+derived from existing multi-label datasets without additional annotation.
+
+% ══════════════════════════════════════════════════════════════════════════════
+\bibliographystyle{plainnat}
+\begin{thebibliography}{10}
+
+\bibitem[Chia et~al.(2022)]{chia2022fashionclip}
+Chia, P.~J., Attanasio, G., Bianchi, F., Terragni, S., Hung, A.,
+Lucaselli, E., Gashteovski, K., Rossiello, G., Subramanian, N., and
+Zanzotto, R.
+\newblock {FashionCLIP}: Connecting language and images for product
+representations.
+\newblock \emph{arXiv preprint arXiv:2204.03972}, 2022.
+
+\bibitem[Goenka et~al.(2022)]{goenka2022fashionvlp}
+Goenka, S., Zheng, Z., Jain, A., Srikumar, V., Annavaram, M., and Bui, T.
+\newblock {FashionVLP}: Vision language transformer for fashion retrieval with
+feedback.
+\newblock In \emph{CVPR}, 2022.
+
+\bibitem[Guo et~al.(2019)]{guo2019imaterialist}
+Guo, S., Huang, W., Zhang, X., Srikhanta, P., Cui, Y., Li, Y., Adam, H.,
+Scott, M.~R., and Belongie, S.
+\newblock The {iMaterialist} fashion attribute dataset.
+\newblock In \emph{CVPR Workshops}, 2019.
+
+\bibitem[Hu et~al.(2022)]{hu2022lora}
+Hu, E.~J., Shen, Y., Wallis, P., Allen-Zhu, Z., Li, Y., Wang, S., Wang,
+L., and Chen, W.
+\newblock {LoRA}: Low-rank adaptation of large language models.
+\newblock In \emph{ICLR}, 2022.
+
+\bibitem[Kumar et~al.(2025)]{kumar2025fashion}
+Kumar, A., et~al.
+\newblock Can {GPT-4o} mini and {Gemini 2.0 Flash} predict fine-grained fashion
+product attributes? {A} zero-shot analysis.
+\newblock \emph{arXiv preprint arXiv:2507.09950}, 2025.
+
+\bibitem[Liu et~al.(2016)]{liu2016deepfashion}
+Liu, Z., Luo, P., Qiu, S., Wang, X., and Tang, X.
+\newblock {DeepFashion}: Powering robust clothes recognition and retrieval
+with rich annotations.
+\newblock In \emph{CVPR}, 2016.
+
+\bibitem[Radford et~al.(2021)]{radford2021clip}
+Radford, A., Kim, J.~W., Hallacy, C., Ramesh, A., Goh, G., Agarwal, S.,
+Sastry, G., Askell, A., Mishkin, P., Clark, J., Krueger, G., and
+Sutskever, I.
+\newblock Learning transferable visual models from natural language
+supervision.
+\newblock In \emph{ICML}, 2021.
+
+\bibitem[Xiao et~al.(2024)]{xiao2024florence2}
+Xiao, B., Wu, H., Xu, W., Dai, X., Hu, H., Lu, Y., Zeng, M., Liu, C.,
+and Yuan, L.
+\newblock {Florence-2}: Advancing a unified representation for a variety of
+vision tasks.
+\newblock In \emph{CVPR}, 2024.
+
+\end{thebibliography}
+
+\end{document}
