@@ -86,6 +86,8 @@ def _cascade_one_outfit(
     source=None,
     occasion=None,
     mood_text=None,
+    taste_vector=None,
+    dislike_vector=None,
 ) -> dict | None:
     """
     Build a single outfit via three-round cascade retrieval:
@@ -196,6 +198,8 @@ def _cascade_one_outfit(
         base_item=base_item,
         direction=direction,
         base_embedding=base_embedding or None,
+        taste_vector=taste_vector,
+        dislike_vector=dislike_vector,
     )
     logger.info("  [%s] score=%.3f for %s", direction, score_details.get("total", 0), item.get("name"))
 
@@ -211,6 +215,8 @@ def run_outfit_generation(
     source: str = None,
     occasion: str = None,
     mood_text: str = None,
+    taste_vector: list = None,
+    dislike_vector: list = None,
 ) -> list[dict]:
     """
     Build outfits for one anchor item using cascade retrieval.
@@ -256,6 +262,8 @@ def run_outfit_generation(
             source=source,
             occasion=effective_occasion,
             mood_text=mood_text,
+            taste_vector=taste_vector,
+            dislike_vector=dislike_vector,
         )
         if result is None:
             continue
@@ -266,7 +274,10 @@ def run_outfit_generation(
             if slot_item:
                 used_ids_global.add(slot_item["id"])
 
-        outfit_data = assemble_outfit(direction, base_item, best_items, base_embedding or None)
+        outfit_data = assemble_outfit(
+            direction, base_item, best_items, base_embedding or None,
+            taste_vector=taste_vector, dislike_vector=dislike_vector,
+        )
 
         outfit_items = []
         for slot_name, slot_item in best_items.items():

@@ -17,14 +17,7 @@ from psycopg2.extras import Json
 from services.vision import analyze_image, describe_image
 from services.parser import parse_description
 from services.embedding import embed_base_item, embed_item_image
-from services.outfit import (
-    STYLE_DIRECTIONS, 
-    get_slots_for_outfit, 
-    assemble_outfit,
-    generate_candidate_outfits,
-    select_best_outfit
-)
-from services.retrieval import retrieve_for_slot, build_query_text, get_batch_embeddings
+from services.outfit import get_slots_for_outfit, assemble_outfit
 from services.collage import generate_outfit_collage
 from services.weather import fetch_weather, get_weather_outfit_adjustments, get_occasion_from_time, get_material_weather_score, WeatherData
 from services.image_processor import process_clothing_image
@@ -761,156 +754,46 @@ async def generate_outfits(request: Request, file: UploadFile = File(...), sessi
             logger.error(f"Embedding error: {e}")
             raise HTTPException(status_code=500, detail=f"Embedding error: {str(e)}")
 
-    # 5. Retrieve candidates and assemble outfits
-    # Phase 1: BATCH all query embeddings in ONE API call
-    # Phase 2: PARALLEL database queries (no more API calls)
-    # Phase 3: SEQUENTIAL selection to avoid duplicate items
-    logger.info("Building query embeddings (batched)...")
-    directions = ["Classic", "Trendy", "Bold"]
+    # 5. Generate outfits via cascade retrieval engine
     base_category = base_item.get("category", "top")
-    
-    # Build list of all (direction, slot) pairs and their query texts
-    # Layer candidates are retrieved for all outfits - scoring decides if used
-    retrieval_tasks = []
-    query_texts = []
-    for outfit_idx, direction in enumerate(directions):
-        slots = get_slots_for_outfit(base_category, outfit_idx)
-        for slot in slots:
-            query_text = build_query_text(base_item, direction, slot, {})
-            retrieval_tasks.append((outfit_idx, direction, slot))
-            query_texts.append(query_text)
-    
-    # SINGLE API call for ALL embeddings (replaces 9-12 individual calls)
-    logger.info(f"Batching {len(query_texts)} embeddings in one API call...")
-    query_embeddings = get_batch_embeddings(query_texts)
-    
-    # Blend taste/dislike vectors if available (personalization)
-    if taste_vector or dislike_vector:
-        TASTE_WEIGHT = 0.25   # How much likes boost retrieval
-        DISLIKE_WEIGHT = 0.15  # How much dislikes penalize (slightly less aggressive)
-        blended_embeddings = []
-        for emb in query_embeddings:
-            blended = list(emb)  # Start with original
-            
-            # Add taste vector (boost liked styles)
-            if taste_vector:
-                blended = [
-                    (1 - TASTE_WEIGHT) * blended[i] + TASTE_WEIGHT * taste_vector[i]
-                    for i in range(len(blended))
-                ]
-            
-            # Subtract dislike vector (penalize disliked styles)
-            if dislike_vector:
-                blended = [
-                    blended[i] - DISLIKE_WEIGHT * dislike_vector[i]
-                    for i in range(len(blended))
-                ]
-            
-            blended_embeddings.append(blended)
-        query_embeddings = blended_embeddings
-        logger.info(f"Query embeddings personalized (taste={taste_vector is not None}, dislike={dislike_vector is not None})")
-    
-    task_embeddings = dict(zip([(t[0], t[1], t[2]) for t in retrieval_tasks], query_embeddings))
-    logger.info("Embeddings ready, retrieving candidates...")
-    
-    def retrieve_task(task):
-        """Retrieve candidates for one (direction, slot) pair using precomputed embedding."""
-        outfit_idx, direction, slot = task
-        precomputed_emb = task_embeddings.get((outfit_idx, direction, slot))
-        try:
-            candidates = retrieve_for_slot(
-                base_item=base_item,
-                direction=direction,
-                slot=slot,
-                exclude_ids=[],  # No hard exclusions - taste vectors handle preferences
-                chosen_items={},
-                used_subtypes=set(),
-                k=15,
-                source=CATALOG_SOURCE,
-                precomputed_embedding=precomputed_emb
-            )
-            logger.info(f"  [{direction}] {slot}: {len(candidates)} candidates")
-            return (outfit_idx, direction, slot, candidates)
-        except Exception as e:
-            logger.error(f"  [{direction}] {slot}: Retrieval error - {e}")
-            return (outfit_idx, direction, slot, [])
-    
-    # Phase 2: Run ALL database retrievals in parallel (no API calls now!)
-    all_candidates = {}  # (outfit_idx, slot) -> candidates
-    with ThreadPoolExecutor(max_workers=12) as executor:
-        futures = [executor.submit(retrieve_task, task) for task in retrieval_tasks]
-        for future in as_completed(futures):
-            outfit_idx, direction, slot, candidates = future.result()
-            all_candidates[(outfit_idx, slot)] = candidates
-    
-    logger.info("All candidates retrieved, selecting items...")
-    
-    # Phase 3: Sequential selection with diversity tracking
-    outfits_by_idx = {}  # Store by index to maintain correct output order
-    used_ids_global = set()  # Track used item IDs across ALL outfits
-    
-    # Randomize selection order so different directions get first pick each time
-    # This prevents the same outfit from just swapping categories on regeneration
-    selection_order = list(range(len(directions)))
-    random.shuffle(selection_order)
-    logger.info(f"Selection order: {[directions[i] for i in selection_order]}")
-    
-    for outfit_idx in selection_order:
-        direction = directions[outfit_idx]
-        logger.info(f"Selecting {direction} outfit...")
-        slots = get_slots_for_outfit(base_category, outfit_idx)
-        
-        # Filter out already-used items from candidates
-        candidates_by_slot = {}
-        for slot in slots:
-            raw_candidates = all_candidates.get((outfit_idx, slot), [])
-            # Remove items already used in previous outfits
-            filtered = [c for c in raw_candidates if c["id"] not in used_ids_global]
-            
-            # Add strong randomness: fully shuffle all candidates
-            # This ensures different items get considered each regeneration
-            random.shuffle(filtered)
-            
-            candidates_by_slot[slot] = filtered
-            if len(filtered) < len(raw_candidates):
-                logger.info(f"    {slot}: {len(raw_candidates)} → {len(filtered)} after dedup")
-        
-        # Generate candidate outfits (combinations)
-        candidate_outfits = generate_candidate_outfits(
-            slots=slots,
-            candidates_by_slot=candidates_by_slot,
-            max_candidates=8
-        )
-        logger.info(f"  [{direction}] Generated {len(candidate_outfits)} candidate outfits")
-        
-        # Score and select best outfit (with Fixes 1-3: intent vector, formality, diversity)
-        best_items, score_details = select_best_outfit(
-            candidate_outfits=candidate_outfits,
-            base_item=base_item,
-            direction=direction,
-            base_embedding=embedding,
-            taste_vector=taste_vector,
-            dislike_vector=dislike_vector
-        )
-        
-        # Log selection and track used IDs
-        logger.info(f"  [{direction}] Best score: {score_details.get('total', 0):.3f}")
-        for slot, item in best_items.items():
-            if item:
-                logger.info(f"    [{direction}] {slot}: #{item['id']} - {item['name'][:35]}")
-                used_ids_global.add(item["id"])
-                
-        # Assemble final outfit (with enhanced scoring)
-        outfit = assemble_outfit(
-            direction, base_item, best_items, embedding,
-            taste_vector=taste_vector,
-            dislike_vector=dislike_vector
-        )
-        outfits_by_idx[outfit_idx] = outfit
-    
-    # Convert to list in correct order (Classic, Trendy, Bold)
-    outfits = [outfits_by_idx[i] for i in range(len(directions))]
-    logger.info("All outfits built with unique items")
+    from services.outfit_generator import run_outfit_generation
+
+    full_item = {
+        **base_item,
+        "id": image_hash,
+        "name": f"{base_item.get('primary_color', '')} {base_category}".strip().title(),
+        "image_url": str(upload_path),
+        "embedding": embedding,
+    }
+
+    raw_outfits = run_outfit_generation(
+        full_item,
+        source=CATALOG_SOURCE,
+        taste_vector=taste_vector,
+        dislike_vector=dislike_vector,
+    )
+
+    outfits = []
+    for ro in raw_outfits:
+        items = []
+        for oi in ro.get("outfit_items", []):
+            items.append({
+                "slot": oi["slot"],
+                "id": oi["id"],
+                "name": oi["name"],
+                "image_url": oi["image_url"],
+                "product_url": oi.get("product_url"),
+                "price": oi.get("price"),
+                "primary_color": oi.get("primary_color"),
+                "is_anchor": oi.get("is_anchor", False),
+            })
+        outfits.append({
+            "direction": ro["direction"],
+            "explanation": ro.get("explanation", ""),
+            "items": items,
+        })
+
+    logger.info("All outfits built via cascade engine")
 
     # 6. Store in database (get generation_id first for collages)
     conn = get_db_connection()
@@ -2964,47 +2847,21 @@ async def regenerate_single_outfit(
         elif weather_adjustments["skip_layer"] and "layer" in slots:
             slots = [s for s in slots if s != "layer"]
     
-    # Build queries and get embeddings
-    # Use raw mood_text if provided (direct embedding), otherwise use predefined occasion
+    # Use cascade retrieval engine
     occasion_name = occasion_info.get("occasion") if occasion_info else None
-    if mood_text:
-        query_texts = [build_query_text(base_item, direction, slot, {}, mood_text=mood_text) for slot in slots]
-    else:
-        query_texts = [build_query_text(base_item, direction, slot, {}, occasion=occasion_name) for slot in slots]
-    query_embeddings = get_batch_embeddings(query_texts)
-    
-    # Retrieve candidates (excluding disliked items)
-    candidates_by_slot = {}
-    for i, slot in enumerate(slots):
-        try:
-            candidates = retrieve_for_slot(
-                base_item=base_item,
-                direction=direction,
-                slot=slot,
-                exclude_ids=list(excluded),
-                chosen_items={},
-                k=10,
-                precomputed_embedding=query_embeddings[i],
-                use_closet=True,
-                user_id=user_id,
-                mood_text=mood_text if mood_text else None,  # Direct embedding for any mood!
-                occasion=occasion_name if not mood_text else None
-            )
-            candidates_by_slot[slot] = candidates
-        except Exception as e:
-            logger.error(f"Retrieval error for {slot}: {e}")
-            candidates_by_slot[slot] = []
-    
-    # Generate outfit
-    require_layer = weather_adjustments.get("force_layer", False) if weather_adjustments else False
-    candidate_outfits = generate_candidate_outfits(
-        slots=slots,
-        candidates_by_slot=candidates_by_slot,
-        max_candidates=8,
-        require_layer=require_layer
+    from services.outfit_generator import _cascade_one_outfit
+
+    cascade_result = _cascade_one_outfit(
+        base_item, base_item, embedding, direction, idx,
+        excluded,
+        use_closet=True, user_id=user_id,
+        occasion=occasion_name if not mood_text else None,
+        mood_text=mood_text if mood_text else None,
+        taste_vector=taste_vector,
+        dislike_vector=dislike_vector,
     )
-    
-    if not candidate_outfits:
+
+    if cascade_result is None:
         outfit = {
             "direction": f"Outfit {idx + 1}",
             "base_item": base_item,
@@ -3012,15 +2869,7 @@ async def regenerate_single_outfit(
             "explanation": "Limited items in closet"
         }
     else:
-        best_items, _ = select_best_outfit(
-            candidate_outfits=candidate_outfits,
-            base_item=base_item,
-            direction=direction,
-            base_embedding=embedding,
-            taste_vector=taste_vector,
-            dislike_vector=dislike_vector
-        )
-        
+        best_items, _ = cascade_result
         outfit = assemble_outfit(
             direction, base_item, best_items, embedding,
             taste_vector=taste_vector,
