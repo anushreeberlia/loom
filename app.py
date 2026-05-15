@@ -3,6 +3,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, RedirectResponse
 from pydantic import BaseModel
 from typing import Optional
+import asyncio
 import uuid
 import random
 import logging
@@ -2135,122 +2136,46 @@ async def generate_closet_outfits(
     if mood_text:
         logger.info(f"Single-item generation with mood: {mood_text} (using direct embedding)")
     
-    # Build query embeddings for closet retrieval
-    directions = ["Classic", "Trendy", "Bold"]
     base_category = base_item.get("category", "top")
-    
-    retrieval_tasks = []
-    query_texts = []
-    for outfit_idx, direction in enumerate(directions):
-        slots = get_slots_for_outfit(base_category, outfit_idx)
-        for slot in slots:
-            query_text = build_query_text(base_item, direction, slot, {}, mood_text=mood_text)
-            retrieval_tasks.append((outfit_idx, direction, slot))
-            query_texts.append(query_text)
-    
-    # Batch embed all queries
-    logger.info(f"Batching {len(query_texts)} embeddings for closet retrieval...")
-    query_embeddings = get_batch_embeddings(query_texts)
-    task_embeddings = dict(zip([(t[0], t[1], t[2]) for t in retrieval_tasks], query_embeddings))
-    
-    # Retrieve from CLOSET only (reuses same function with use_closet=True)
-    def retrieve_closet_task(task):
-        outfit_idx, direction, slot = task
-        precomputed_emb = task_embeddings.get((outfit_idx, direction, slot))
-        try:
-            candidates = retrieve_for_slot(
-                base_item=base_item,
-                direction=direction,
-                slot=slot,
-                exclude_ids=[],
-                chosen_items={},
-                k=10,
-                precomputed_embedding=precomputed_emb,
-                use_closet=True,
-                user_id=user_id,
-                mood_text=mood_text  # Direct embedding comparison - works for ANY mood!
-            )
-            logger.info(f"  [{direction}] {slot}: {len(candidates)} closet candidates")
-            return (outfit_idx, direction, slot, candidates)
-        except Exception as e:
-            logger.error(f"  [{direction}] {slot}: Retrieval error - {e}")
-            return (outfit_idx, direction, slot, [])
-    
-    # Parallel closet retrieval
-    all_candidates = {}
-    with ThreadPoolExecutor(max_workers=12) as executor:
-        futures = [executor.submit(retrieve_closet_task, task) for task in retrieval_tasks]
-        for future in as_completed(futures):
-            outfit_idx, direction, slot, candidates = future.result()
-            all_candidates[(outfit_idx, slot)] = candidates
-    
-    logger.info("Closet candidates retrieved, selecting items...")
-    
-    # Sequential selection with diversity
-    outfits_by_idx = {}
-    used_ids_global = set()
-    
-    selection_order = list(range(len(directions)))
-    random.shuffle(selection_order)
-    
-    for outfit_idx in selection_order:
-        direction = directions[outfit_idx]
-        slots = get_slots_for_outfit(base_category, outfit_idx)
-        
-        # Adjust slots based on weather
-        if weather_adjustments:
-            if weather_adjustments["force_layer"] and "layer" not in slots:
-                slots = slots + ["layer"]
-            elif weather_adjustments["skip_layer"] and "layer" in slots:
-                slots = [s for s in slots if s != "layer"]
-        
-        # Filter out used items (prefer diversity, but allow re-use as fallback)
-        candidates_by_slot = {}
-        for slot in slots:
-            raw = all_candidates.get((outfit_idx, slot), [])
-            filtered = [c for c in raw if c["id"] not in used_ids_global]
-            # If no candidates after filtering, allow re-use (small closet fallback)
-            if not filtered and raw:
-                filtered = raw  # Allow re-use rather than empty slot
-            random.shuffle(filtered)
-            candidates_by_slot[slot] = filtered
-        
-        # Generate and score candidate outfits
-        # If weather forces layer, make it required
-        require_layer = weather_adjustments.get("force_layer", False) if weather_adjustments else False
-        candidate_outfits = generate_candidate_outfits(
-            slots=slots,
-            candidates_by_slot=candidates_by_slot,
-            max_candidates=8,
-            require_layer=require_layer
-        )
-        
-        if not candidate_outfits:
-            logger.warning(f"  [{direction}] No valid outfit combinations from closet")
-            outfits_by_idx[outfit_idx] = {
-                "direction": direction,
-                "items": [],
-                "explanation": "Not enough items in closet for this outfit style.",
-                "score": 0
-            }
-            continue
-        
-        best_items, score_details = select_best_outfit(
-            candidate_outfits=candidate_outfits,
-            base_item=base_item,
-            direction=direction,
-            base_embedding=embedding
-        )
-        
-        # Track used IDs
-        for slot, item in best_items.items():
-            if item:
-                used_ids_global.add(item["id"])
-        
-        outfit = assemble_outfit(direction, base_item, best_items, embedding)
-        outfits_by_idx[outfit_idx] = outfit
-    
-    outfits = [outfits_by_idx[i] for i in range(len(directions))]
+
+    anchor_id = item_id if item_id else new_item_id
+    anchor_name = description if item_id else f"{base_item.get('primary_color', '')} {base_category}".strip().title()
+    full_item = {
+        **base_item,
+        "id": anchor_id,
+        "name": anchor_name,
+        "image_url": input_image_url,
+        "embedding": embedding,
+    }
+
+    # Use cascade retrieval (same pipeline as Shopify/eval)
+    from services.outfit_generator import run_outfit_generation
+    raw_outfits = await asyncio.to_thread(
+        run_outfit_generation,
+        full_item,
+        use_closet=True,
+        user_id=user_id,
+        mood_text=mood_text,
+    )
+
+    # Convert run_outfit_generation output to the format this endpoint expects
+    outfits = []
+    for ro in raw_outfits:
+        items = []
+        for oi in ro.get("outfit_items", []):
+            if oi.get("is_anchor"):
+                continue
+            items.append({
+                "slot": oi["slot"],
+                "id": oi["id"],
+                "name": oi["name"],
+                "image_url": oi["image_url"],
+            })
+        outfits.append({
+            "direction": ro["direction"],
+            "explanation": ro.get("explanation", ""),
+            "items": items,
+        })
     
     # Store generation
     conn = get_db_connection()
