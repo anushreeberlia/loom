@@ -2205,7 +2205,20 @@ async def get_daily_outfits(
                 logger.info(f"Cache hit for user {user_id}, occasion {occasion_name}")
                 cached_outfits = cached[0]
                 cached_weather = cached[1]
-                
+
+                _REQUIRED_SLOTS = {"bottom", "shoes"}
+                for outfit in (cached_outfits or []):
+                    filled = {it.get("slot") for it in outfit.get("items", []) if it}
+                    if not _REQUIRED_SLOTS.issubset(filled):
+                        logger.info("Cache stale: outfit missing slots %s, regenerating",
+                                    _REQUIRED_SLOTS - filled)
+                        cached = None
+                        break
+
+            if cached:
+                cached_outfits = cached[0]
+                cached_weather = cached[1]
+
                 # Verify collage files exist - if not, regenerate them
                 import os
                 collages_valid = True
