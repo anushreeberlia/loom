@@ -280,9 +280,9 @@ _FORMALITY_ANCHORS = {
     5: "formal elegant gown tuxedo suit stilettos cocktail dress evening wear",
 }
 _OCCASION_ANCHORS = {
-    "going-out": "glamorous evening party outfit, date night cocktail dress, nightclub heels",
+    "going-out": "nightclub evening party outfit, cocktail dress, bar night, dancing heels, glamorous dressy",
     "work": "professional office attire, business meeting blazer, smart workwear",
-    "casual": "relaxed everyday casual wear, loungewear hoodie jeans t-shirt",
+    "casual": "casual daytime outfit, brunch weekend coffee errand shopping, relaxed jeans t-shirt sneakers",
     "active": "athletic gym workout sportswear, running sneakers yoga leggings",
 }
 _LOUDNESS_ANCHORS = {

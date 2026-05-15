@@ -2359,20 +2359,8 @@ async def get_daily_outfits(
             score += tag_score * 20
 
             item_occ = infer_outfit_occasion(item)
-            mood_lower = mood.lower()
-            _mood_to_group = {
-                "going-out": {"night out", "dress to impress", "date night", "party",
-                              "clubbing", "cocktail", "dinner", "fancy", "evening",
-                              "club", "dancing", "drinks", "bar", "lounge"},
-                "work": {"work", "office", "professional", "business", "meeting"},
-                "casual": {"casual", "brunch", "errand", "weekend", "cozy", "chill", "lazy"},
-                "active": {"workout", "gym", "hike", "run", "sport", "athletic"},
-            }
-            target_group = "casual"
-            for group, keywords in _mood_to_group.items():
-                if any(kw in mood_lower for kw in keywords):
-                    target_group = group
-                    break
+            from services.retrieval import classify_mood_to_group
+            target_group = classify_mood_to_group(mood) or "casual"
             if item_occ == target_group:
                 score += 25
             elif (target_group == "going-out" and item_occ == "casual") or \

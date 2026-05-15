@@ -17,6 +17,7 @@ from services.outfit import (
     get_preferred_colors,
     get_avoid_colors,
     infer_outfit_occasion,
+    _get_inference_anchors,
 )
 from services.fashion_clip import embed_text as _clip_embed_text, embed_texts as _clip_embed_texts
 
@@ -134,6 +135,61 @@ def get_mood_embedding(mood_text: str) -> list[float]:
     
     _mood_embedding_cache[mood_text] = embeddings[0]
     return embeddings[0]
+
+
+_mood_group_cache: dict[str, str | None] = {}
+
+_OCCASION_GROUPS = ("going-out", "work", "casual", "active")
+
+def classify_mood_to_group(mood_text: str) -> str | None:
+    """Classify free-form mood text into an occasion group via CLIP similarity.
+
+    Embeds *mood_text* and compares against the four occasion-anchor
+    prototypes from ``_OCCASION_ANCHORS`` (outfit.py).
+
+    Returns the best-matching group with high confidence, or ``"casual"``
+    as the safe default when the model is ambiguous.  FashionCLIP's
+    training data skews toward "dressy" contexts, so casual moods often
+    land close to going-out.  We counteract this by requiring a clear
+    similarity gap (>=0.04) before assigning a non-casual group.
+    """
+    if mood_text in _mood_group_cache:
+        return _mood_group_cache[mood_text]
+
+    anchors = _get_inference_anchors()
+    mood_emb = np.array(get_mood_embedding(mood_text))
+    norm_mood = np.linalg.norm(mood_emb)
+    if norm_mood == 0:
+        _mood_group_cache[mood_text] = "casual"
+        return "casual"
+
+    sims: dict[str, float] = {}
+    for group in _OCCASION_GROUPS:
+        anchor = anchors.get(("occasion", group))
+        if anchor is None:
+            continue
+        sims[group] = float(np.dot(mood_emb, anchor) / (norm_mood * np.linalg.norm(anchor)))
+
+    if not sims:
+        _mood_group_cache[mood_text] = "casual"
+        return "casual"
+
+    ranked = sorted(sims.items(), key=lambda x: x[1], reverse=True)
+    best_group, best_sim = ranked[0]
+    runner_up_sim = ranked[1][1] if len(ranked) > 1 else 0.0
+    gap = best_sim - runner_up_sim
+
+    MIN_GAP = 0.04
+
+    if gap >= MIN_GAP:
+        result = best_group
+    else:
+        result = "casual"
+
+    logger.info("classify_mood_to_group(%r): %s (best=%s sim=%.3f, gap=%.3f)",
+                mood_text, result, best_group, best_sim, gap)
+    _mood_group_cache[mood_text] = result
+    return result
 
 
 _direct_mood_cache: dict[str, list[float]] = {}
@@ -284,19 +340,7 @@ def filter_by_occasion_semantic(candidates: list[dict], occasion: str = None,
 
     target_group = _OCCASION_ALIAS.get(occasion, "casual") if occasion else None
     if not target_group and mood_text:
-        mood_lower = mood_text.lower()
-        _MOOD_TO_GROUP = {
-            "going-out": {"night out", "dress to impress", "date night", "party",
-                          "clubbing", "cocktail", "dinner", "fancy", "evening",
-                          "club", "dancing", "drinks", "bar", "lounge",
-                          "going out", "date"},
-            "work": {"work", "office", "professional", "business", "meeting"},
-            "active": {"workout", "gym", "hike", "run", "sport"},
-        }
-        for group, keywords in _MOOD_TO_GROUP.items():
-            if any(kw in mood_lower for kw in keywords):
-                target_group = group
-                break
+        target_group = classify_mood_to_group(mood_text)
 
     blocked_groups = set()
     if target_group:
