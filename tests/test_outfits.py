@@ -226,7 +226,11 @@ def print_result(result: dict, verbose: bool = True):
         # Show score breakdown if available
         breakdown = outfit.get("score_breakdown", {})
         if breakdown and verbose:
-            print(f"   Score: sim={breakdown.get('sim_weighted', 0):.2f} + dir_bonus={breakdown.get('direction_bonus', 0):.2f} - penalties={breakdown.get('color_penalty', 0) + breakdown.get('formality_penalty', 0):.2f}")
+            print(f"   Silhouette={breakdown.get('silhouette', 0):.3f} "
+                  f"Color={breakdown.get('color_surfaces', 0):.3f} "
+                  f"Narrative={breakdown.get('texture_narrative', 0):.3f} "
+                  f"Finishing={breakdown.get('finishing', 0):.3f} "
+                  f"(damp={breakdown.get('dampening', 1.0):.2f})")
     
     # Violations
     if result["violations"]:

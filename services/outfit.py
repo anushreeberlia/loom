@@ -1,6 +1,7 @@
 """
 Outfit structure definitions and assembly logic.
 """
+import numpy as np
 
 # Neutral colors that go with everything
 NEUTRALS = {"black", "white", "gray", "beige", "brown", "navy", "metallic"}
@@ -24,28 +25,6 @@ COLOR_FAMILIES = {
     "neutral": {"black", "white", "gray", "beige", "navy", "metallic", "brown"},
 }
 
-# Formality levels (Fix 2) - higher = more formal
-FORMALITY_LEVELS = {
-    "casual": 0,       # sneakers, t-shirts, joggers
-    "smart_casual": 1, # flats, blouses, jeans
-    "dressy": 2,       # heels, clutch, blazer
-}
-
-# Keywords to infer formality level
-FORMALITY_KEYWORDS = {
-    0: {"sneaker", "flip flop", "jogger", "shorts", "t-shirt", "tank", "hoodie", "sandal", "sweatpant", "sweatshirt"},
-    1: {"jeans", "flat", "loafer", "blouse", "shirt", "cardigan", "sweater", "skirt", "boot"},  
-    2: {"heel", "pump", "stiletto", "clutch", "blazer", "trousers", "pencil", "gown", "dress shoe", "wedge"},
-}
-
-# Occasion tags for consistency (Fix 2)
-OCCASION_KEYWORDS = {
-    "casual": {"weekend", "casual", "everyday", "daytime", "errand", "relax", "lounge"},
-    "work": {"office", "work", "professional", "business", "meeting"},
-    "evening": {"evening", "dinner", "date", "night out", "party", "cocktail"},
-    "formal": {"formal", "gala", "wedding", "event", "special occasion"},
-}
-
 # Slot-specific color preferences (what colors work best per slot)
 SLOT_COLOR_PREFS = {
     "shoes": {"black", "white", "beige", "gray", "brown", "metallic", "navy"},
@@ -55,92 +34,133 @@ SLOT_COLOR_PREFS = {
     "layer": {"black", "white", "gray", "beige", "navy", "brown"},
 }
 
-# Semantic weight contexts for materials
-# Used to compute material "heaviness" via embeddings
-MATERIAL_WEIGHT_CONTEXTS = {
-    "heavy": "thick heavy warm winter chunky bulky insulated padded puffy quilted down wool cashmere fleece shearling fur lined cozy substantial weighty dense",
-    "light": "thin light airy breathable summer sheer delicate flowy lightweight gauzy transparent see-through crisp cool"
+# ── Formality: continuous scoring (replaces 3-bucket system) ──────────────────
+
+GARMENT_TYPE_BASE_SCORES = [
+    ({"gown", "tuxedo", "suit", "stiletto", "cocktail dress", "evening dress"}, 5),
+    ({"blouse", "chinos", "trousers", "dress", "blazer", "heel", "pump", "wedge", "oxford"}, 4),
+    ({"jeans", "cardigan", "boot", "flat", "loafer", "skirt", "sweater", "shirt"}, 3),
+    ({"t-shirt", "tee", "tank", "hoodie", "sweatshirt", "sneaker", "sandal", "cami", "camisole"}, 2),
+    ({"sports bra", "gym shorts", "flip flop", "jogger", "legging", "athletic"}, 1),
+]
+
+TEXTURE_FORMALITY_NUDGE = {
+    "satin": 0.3, "silk": 0.3, "patent": 0.3, "sequin": 0.3, "metallic": 0.3,
+    "cotton": 0.0, "polyester": 0.0, "denim": 0.0, "nylon": 0.0, "blend": 0.0,
+    "jersey": 0.0, "rayon": 0.0, "viscose": 0.0, "linen": 0.0,
+    "fleece": -0.2, "knit": -0.2, "faux fur": -0.2, "terry": -0.2,
+    "corduroy": -0.3, "canvas": -0.3,
 }
 
-# Cache for material weight embeddings and per-item weights
-_material_weight_cache = {}
-_item_weight_cache = {}  # Cache computed weights by item material+category
+STYLE_TAG_FORMALITY_NUDGE = {
+    "dressy": 0.5, "elegant": 0.5, "work": 0.5, "formal": 0.5, "cocktail": 0.5,
+    "workwear": 0.5, "glamorous": 0.5,
+    "casual": -0.5, "basic": -0.5, "athletic": -0.5, "sporty": -0.5,
+    "lounge": -0.5, "activewear": -0.5,
+}
 
+COLOR_FORMALITY_NUDGE = {
+    "black": 0.2, "navy": 0.2,
+    "white": -0.2, "beige": -0.2, "neon": -0.2, "pastel": -0.2,
+}
 
-def get_semantic_material_weight(item: dict) -> float:
-    """
-    Compute material weight semantically using embeddings.
-    Returns a score from -1 (very light) to +1 (very heavy).
-    """
-    import numpy as np
-    from services.retrieval import get_batch_embeddings
-    
-    global _material_weight_cache, _item_weight_cache
-    
-    # Build text SPECIFICALLY about material/weight (not full item)
-    material = item.get("material") or ""
-    category = item.get("category") or ""
-    name = item.get("name") or ""
-    
-    # Extract weight-relevant info
-    item_text = f"{material} {category}".strip()
-    
-    # Add weight hints from name
-    weight_words = ["chunky", "thin", "light", "heavy", "puffer", "quilted", "padded", 
-                    "fleece", "knit", "wool", "cotton", "silk", "sheer", "thick", "hoodie",
-                    "sweater", "cardigan", "jacket", "coat", "blazer", "t-shirt", "tee"]
-    for word in weight_words:
-        if word in name.lower():
-            item_text += f" {word}"
-    
-    if not item_text.strip():
-        return 0  # Neutral if no info
-    
-    # Check cache first
-    cache_key = item_text.lower().strip()
-    if cache_key in _item_weight_cache:
-        return _item_weight_cache[cache_key]
-    
-    # Get or compute weight context embeddings
-    if "heavy" not in _material_weight_cache:
-        embeddings = get_batch_embeddings([
-            MATERIAL_WEIGHT_CONTEXTS["heavy"],
-            MATERIAL_WEIGHT_CONTEXTS["light"]
-        ])
-        _material_weight_cache["heavy"] = np.array(embeddings[0])
-        _material_weight_cache["light"] = np.array(embeddings[1])
-    
-    # Compute fresh embedding from material text
-    item_emb = np.array(get_batch_embeddings([item_text])[0])
-    
-    heavy_emb = _material_weight_cache["heavy"]
-    light_emb = _material_weight_cache["light"]
-    
-    # Compute similarities
-    heavy_sim = np.dot(item_emb, heavy_emb) / (np.linalg.norm(item_emb) * np.linalg.norm(heavy_emb))
-    light_sim = np.dot(item_emb, light_emb) / (np.linalg.norm(item_emb) * np.linalg.norm(light_emb))
-    
-    # Cache and return
-    weight = float(heavy_sim - light_sim)
-    _item_weight_cache[cache_key] = weight
-    return weight
+FORMALITY_RANGES = {
+    "cardigan": (2.0, 4.0), "denim jacket": (2.0, 3.5),
+    "jeans": (1.5, 3.0), "sneaker": (1.5, 3.0), "white sneaker": (1.5, 3.0),
+    "blazer": (3.0, 5.0), "trench": (3.0, 5.0),
+    "hoodie": (1.0, 2.0), "sweatshirt": (1.0, 2.0), "jogger": (1.0, 1.5),
+    "stiletto": (4.0, 5.0), "gown": (4.5, 5.5), "tuxedo": (4.5, 5.5),
+    "t-shirt": (1.5, 2.5), "tee": (1.5, 2.5), "tank": (1.5, 2.5),
+    "blouse": (3.5, 5.0), "silk blouse": (3.5, 5.0),
+    "dress": (3.0, 5.0), "skirt": (2.5, 4.5),
+    "loafer": (2.5, 4.0), "flat": (2.5, 4.0), "boot": (2.0, 4.0),
+    "heel": (3.5, 5.0), "pump": (3.5, 5.0),
+    "legging": (1.0, 2.0), "flip flop": (1.0, 1.5), "sandal": (1.5, 3.0),
+}
 
+# ── Texture: 2-axis classification ───────────────────────────────────────────
 
-def is_layer_compatible(layer: dict, top: dict) -> bool:
-    """
-    Check if a layer can go over a top using semantic material weight.
-    Layer should be heavier or roughly equal to what's underneath.
-    """
-    if not layer or not top:
-        return True
-    
-    layer_weight = get_semantic_material_weight(layer)
-    top_weight = get_semantic_material_weight(top)
-    
-    # Layer should be heavier than or close to top weight
-    # Allow some tolerance (0.15) - semantic weights aren't perfectly calibrated
-    # A heavy coat should always pass over any top
-    return layer_weight >= top_weight - 0.15
+MATERIAL_STRUCTURE = {
+    "rigid": {"leather", "denim", "suede", "canvas", "corduroy", "tweed"},
+    "fluid": {"chiffon", "silk", "satin", "lace", "linen", "organza", "tulle", "rayon"},
+    "soft": {"knit", "wool", "cashmere", "fleece", "velvet", "faux fur", "mohair", "sherpa"},
+    "neutral": {"cotton", "polyester", "nylon", "viscose", "jersey", "blend"},
+}
+
+MATERIAL_SURFACE = {
+    "shiny": {"satin", "silk", "patent", "sequin", "metallic", "organza", "lamé"},
+    "matte": {"cotton", "denim", "canvas", "wool", "linen", "knit", "suede", "corduroy", "jersey"},
+    "textured": {"tweed", "corduroy", "faux fur", "fleece", "lace", "velvet", "bouclé", "sherpa"},
+}
+
+_TEXTURE_ANCHORS = {
+    "structure": {
+        "rigid": "structured stiff shape-holding leather denim suede canvas tweed garment",
+        "fluid": "flowing draped lightweight silk chiffon satin lace organza garment",
+        "soft": "soft cozy yielding knit wool cashmere fleece velvet garment",
+    },
+    "surface": {
+        "shiny": "shiny glossy reflective lustrous satin silk patent sequin garment",
+        "matte": "matte flat non-reflective cotton denim canvas wool suede garment",
+        "textured": "textured nubby rough woven tweed bouclé fleece lace velvet garment",
+    },
+}
+_FORMALITY_ANCHORS = {
+    1: "very casual athletic gym shorts flip flops joggers leggings sports bra activewear",
+    2: "casual everyday t-shirt tank top hoodie sweatshirt sneakers sandals",
+    3: "smart casual jeans cardigan boots flats loafers sweater casual shirt",
+    4: "dressy polished blouse trousers blazer heels pumps chinos dress",
+    5: "formal elegant gown tuxedo suit stilettos cocktail dress evening wear",
+}
+_inference_anchor_cache = {}
+
+# ── Volume classification ────────────────────────────────────────────────────
+
+VOLUME_KEYWORDS = {
+    "slim": {"skinny", "pencil", "slim", "tight", "fitted", "bodycon", "tapered"},
+    "relaxed": {"wide", "oversized", "baggy", "flowy", "loose", "palazzo", "relaxed", "boyfriend"},
+    "cropped": {"cropped", "crop", "bolero", "shrug"},
+    "long": {"long", "duster", "maxi", "floor-length", "midi"},
+}
+
+FIT_TO_VOLUME = {
+    "fitted": "slim", "bodycon": "slim", "slim": "slim",
+    "relaxed": "relaxed", "oversized": "relaxed", "wide": "relaxed", "loose": "relaxed",
+    "cropped": "cropped",
+    "straight": "regular",
+}
+
+# ── Item role detection ──────────────────────────────────────────────────────
+
+STATEMENT_KEYWORDS = {
+    "print", "pattern", "statement", "sequin", "embellished", "bold",
+    "graphic", "floral", "animal", "metallic", "neon", "glitter",
+    "embroidered", "beaded", "rhinestone",
+}
+
+# ── Color harmony ────────────────────────────────────────────────────────────
+
+ANALOGOUS = {
+    "red": {"orange", "pink", "burgundy", "coral", "rust"},
+    "orange": {"red", "yellow", "coral", "rust"},
+    "yellow": {"orange", "green"},
+    "green": {"yellow", "teal", "blue"},
+    "blue": {"green", "purple", "navy", "teal"},
+    "purple": {"blue", "pink", "lavender"},
+    "pink": {"red", "purple", "coral", "lavender"},
+}
+
+# ── Shoe-bottom harmony ─────────────────────────────────────────────────────
+
+CHUNKY_SHOE_KEYWORDS = {"chunky", "platform", "combat", "lug sole", "wedge sneaker"}
+
+# ── Layer justification ──────────────────────────────────────────────────────
+
+TOP_COVERAGE = {
+    "exposed": {"cami", "camisole", "tank", "sleeveless", "strapless", "halter", "spaghetti", "tube", "bandeau"},
+    "short_sleeve": {"t-shirt", "tee", "short sleeve", "polo", "crop top"},
+    "full": {"long sleeve", "turtleneck", "hoodie", "sweatshirt", "mock neck", "pullover"},
+}
 
 
 # What slots to fill based on input item category
@@ -349,10 +369,6 @@ BANNED_KEYWORDS = {
     "dupatta", "innerwear", "underwear", "bra", "lingerie",
 }
 
-DRESSY_KEYWORDS = {"heel", "pump", "blazer", "trousers", "pencil", "clutch", "dress"}
-CASUAL_KEYWORDS = {"sneaker", "flip flop", "jogger", "shorts", "t-shirt", "tank", "sandal", "hoodie"}
-
-
 # ============== FIX 1: Outfit Intent Vector ==============
 
 def compute_outfit_intent_vector(
@@ -402,207 +418,857 @@ def compute_outfit_intent_vector(
     return result
 
 
-# ============== FIX 2: Formality & Occasion Consistency ==============
+# ============== PHASE 1: Rich Item Inference ==============
 
-def infer_formality(item: dict) -> int:
+def _get_inference_anchors():
+    """Lazy-load and cache CLIP text anchor embeddings for fallback classification."""
+    global _inference_anchor_cache
+    if _inference_anchor_cache:
+        return _inference_anchor_cache
+
+    from services.retrieval import get_batch_embeddings
+    import numpy as np
+
+    texts = []
+    keys = []
+
+    for axis, anchors in _TEXTURE_ANCHORS.items():
+        for label, text in anchors.items():
+            keys.append(("texture", axis, label))
+            texts.append(text)
+    for level, text in _FORMALITY_ANCHORS.items():
+        keys.append(("formality", level))
+        texts.append(text)
+
+    embeddings = get_batch_embeddings(texts)
+    for key, emb in zip(keys, embeddings):
+        _inference_anchor_cache[key] = np.array(emb)
+    return _inference_anchor_cache
+
+
+def _embedding_classify(item_embedding, anchor_group: str, axis: str = None):
+    """Classify an item by cosine similarity to cached text anchors."""
+    import numpy as np
+    anchors = _get_inference_anchors()
+    item_emb = np.array(item_embedding)
+    norm = np.linalg.norm(item_emb)
+    if norm == 0:
+        return None
+
+    best_label, best_sim = None, -1.0
+    for key, anchor_emb in anchors.items():
+        if anchor_group == "texture" and key[0] == "texture" and key[1] == axis:
+            label = key[2]
+        elif anchor_group == "formality" and key[0] == "formality":
+            label = key[1]
+        else:
+            continue
+        sim = float(np.dot(item_emb, anchor_emb) / (norm * np.linalg.norm(anchor_emb)))
+        if sim > best_sim:
+            best_sim = sim
+            best_label = label
+    return best_label
+
+
+def _match_material(material_str, name_str=""):
+    """Find a known material keyword in material field or item name."""
+    all_materials = set()
+    for mats in MATERIAL_STRUCTURE.values():
+        all_materials |= mats
+    combined = (material_str + " " + name_str).lower()
+    for mat in all_materials:
+        if mat in combined:
+            return mat
+    return None
+
+
+def infer_formality_continuous(item: dict) -> tuple:
     """
-    Infer formality level from item name.
-    Returns: 0 (casual), 1 (smart_casual), 2 (dressy)
+    Infer continuous formality score from item metadata.
+    Returns (point_score, range_min, range_max).
     """
     if not item:
-        return 1  # Default to smart_casual
-    
+        return (3.0, 2.5, 3.5)
+
     name_lower = item.get("name", "").lower()
-    
-    # Check dressy first (highest specificity)
-    for kw in FORMALITY_KEYWORDS[2]:
-        if kw in name_lower:
-            return 2
-    
-    # Check casual
-    for kw in FORMALITY_KEYWORDS[0]:
-        if kw in name_lower:
-            return 0
-    
-    # Default to smart_casual
-    return 1
+    category = (item.get("category") or "").lower()
+    combined = name_lower + " " + category
+
+    base = 3.0
+    matched = False
+    for keywords, score in GARMENT_TYPE_BASE_SCORES:
+        if any(kw in combined for kw in keywords):
+            base = score
+            matched = True
+            break
+
+    if not matched:
+        emb = item.get("embedding")
+        if emb:
+            level = _embedding_classify(emb, "formality")
+            if level is not None:
+                base = float(level)
+
+    material = (item.get("material") or "").lower()
+    mat_nudge = 0.0
+    for mat_kw, nudge in TEXTURE_FORMALITY_NUDGE.items():
+        if mat_kw in material or mat_kw in name_lower:
+            mat_nudge = nudge
+            break
+
+    tag_nudge = 0.0
+    for tag in (item.get("style_tags") or []):
+        tag_lower = tag.lower()
+        if tag_lower in STYLE_TAG_FORMALITY_NUDGE:
+            tag_nudge = STYLE_TAG_FORMALITY_NUDGE[tag_lower]
+            break
+
+    color = (item.get("primary_color") or "").lower()
+    color_nudge = COLOR_FORMALITY_NUDGE.get(color, 0.0)
+
+    point = base + mat_nudge + tag_nudge + color_nudge
+
+    range_min, range_max = point - 0.5, point + 0.5
+    for kw, (rmin, rmax) in FORMALITY_RANGES.items():
+        if kw in combined:
+            range_min, range_max = rmin, rmax
+            break
+
+    return (round(point, 1), range_min, range_max)
 
 
-def infer_occasions(item: dict) -> set:
+def classify_texture(item: dict) -> tuple:
     """
-    Infer plausible occasions from item name/tags.
-    Returns: Set of occasion types
+    Classify item material along two axes: structure and surface.
+    Returns (structure, surface) -- e.g. ("rigid", "matte").
     """
     if not item:
-        return {"casual", "work"}  # Default
-    
+        return ("neutral", "matte")
+
+    material = (item.get("material") or "").lower()
+    name_lower = item.get("name", "").lower()
+    mat_key = _match_material(material, name_lower)
+
+    structure = "neutral"
+    surface = "matte"
+
+    if mat_key:
+        for s, mats in MATERIAL_STRUCTURE.items():
+            if mat_key in mats:
+                structure = s
+                break
+        for s, mats in MATERIAL_SURFACE.items():
+            if mat_key in mats:
+                surface = s
+                break
+    else:
+        emb = item.get("embedding")
+        if emb:
+            s = _embedding_classify(emb, "texture", "structure")
+            if s and s != "neutral":
+                structure = s
+            sf = _embedding_classify(emb, "texture", "surface")
+            if sf:
+                surface = sf
+
+    return (structure, surface)
+
+
+def infer_volume_class(item: dict) -> str:
+    """Infer volume class from fit field or name keywords."""
+    if not item:
+        return "regular"
+
+    fit = (item.get("fit") or "").lower()
+    if fit and fit in FIT_TO_VOLUME:
+        return FIT_TO_VOLUME[fit]
+
+    name_lower = item.get("name", "").lower()
+    for vol_class, keywords in VOLUME_KEYWORDS.items():
+        if any(kw in name_lower for kw in keywords):
+            return vol_class
+
+    return "regular"
+
+
+def infer_item_role(item: dict) -> str:
+    """
+    Classify item as statement, supporting, or finisher.
+    Shoes and accessories are always finishers.
+    """
+    if not item:
+        return "supporting"
+
+    category = (item.get("category") or "").lower()
+    if category in ("shoes", "accessory"):
+        return "finisher"
+
     name_lower = item.get("name", "").lower()
     tags = " ".join(item.get("style_tags") or []).lower()
     combined = name_lower + " " + tags
-    
-    occasions = set()
-    
-    for occasion, keywords in OCCASION_KEYWORDS.items():
-        if any(kw in combined for kw in keywords):
-            occasions.add(occasion)
-    
-    # Infer from formality if no explicit occasions
-    if not occasions:
-        formality = infer_formality(item)
-        if formality == 0:
-            occasions = {"casual"}
-        elif formality == 2:
-            occasions = {"evening", "work"}
-        else:
-            occasions = {"casual", "work"}
-    
-    return occasions
+
+    if any(kw in combined for kw in STATEMENT_KEYWORDS):
+        return "statement"
+
+    color = (item.get("primary_color") or "").lower()
+    if color and color not in NEUTRALS and color not in {"white", "beige", "brown"}:
+        bold_colors = {"red", "orange", "yellow", "pink", "purple", "neon", "metallic", "multi"}
+        if color in bold_colors:
+            return "statement"
+
+    return "supporting"
 
 
-def check_formality_consistency(items_by_slot: dict, base_item: dict) -> tuple[bool, float]:
-    """
-    Check if all items are within ±1 formality step of each other.
-    
-    Returns:
-        (is_consistent: bool, penalty: float)
-    """
-    formalities = []
-    
-    # Include base item formality
-    base_formality = infer_formality(base_item)
-    formalities.append(base_formality)
-    
-    for item in items_by_slot.values():
+def enrich_items(base_item: dict, items_by_slot: dict) -> dict:
+    """Run all inferences on base + slot items. Returns enriched metadata keyed by slot."""
+    enriched = {}
+
+    def _enrich(item):
+        point, rmin, rmax = infer_formality_continuous(item)
+        return {
+            "formality": point,
+            "formality_range": (rmin, rmax),
+            "texture": classify_texture(item),
+            "volume": infer_volume_class(item),
+            "role": infer_item_role(item),
+        }
+
+    enriched["base"] = _enrich(base_item)
+
+    for slot, item in items_by_slot.items():
         if item:
-            formalities.append(infer_formality(item))
-    
-    if not formalities:
-        return True, 0.0
-    
-    min_f = min(formalities)
-    max_f = max(formalities)
-    spread = max_f - min_f
-    
-    # Within ±1 step is OK
-    if spread <= 1:
-        return True, 0.0
-    
-    # Penalty scales with spread
-    penalty = 0.2 * (spread - 1)
-    return False, penalty
+            enriched[slot] = _enrich(item)
+
+    return enriched
 
 
-def check_occasion_consistency(items_by_slot: dict, base_item: dict) -> tuple[bool, float]:
-    """
-    Check if all items share at least one common occasion.
-    
-    Returns:
-        (has_common_occasion: bool, penalty: float)
-    """
-    all_occasions = []
-    
-    # Include base item occasions
-    base_occasions = infer_occasions(base_item)
-    all_occasions.append(base_occasions)
-    
-    for item in items_by_slot.values():
-        if item:
-            all_occasions.append(infer_occasions(item))
-    
-    if len(all_occasions) < 2:
-        return True, 0.0
-    
-    # Find intersection of all occasion sets
-    common = all_occasions[0]
-    for occasions in all_occasions[1:]:
-        common = common & occasions
-    
-    if common:
-        return True, 0.0
-    
-    # No common occasion - penalty
-    return False, 0.15
-
-
-# ============== FIX 3: Within-Outfit Diversity Control ==============
+# ============== PHASE 2: Outfit Composition Scoring ==============
 
 def get_color_family(color: str) -> str:
     """Get the color family (warm/cool/neutral) for a color."""
     if not color:
         return "neutral"
-    
     color_lower = color.lower()
-    
     for family, colors in COLOR_FAMILIES.items():
         if color_lower in colors:
             return family
-    
-    return "neutral"  # Unknown colors default to neutral
+    return "neutral"
 
 
-def check_within_outfit_diversity(items_by_slot: dict, base_item: dict) -> tuple[float, float]:
+def check_formality_coherence(enriched: dict) -> float:
     """
-    Check within-outfit diversity rules:
-    - Penalty for multiple statement pieces
-    - Bonus for color family harmony
-    
-    Returns:
-        (penalty: float, bonus: float)
+    Check that all items' formality ranges overlap.
+    Returns penalty (0 = all coherent, positive = gap exists).
     """
-    penalty = 0.0
-    bonus = 0.0
-    
-    statement_count = 0
+    ranges = [v["formality_range"] for v in enriched.values()]
+    if len(ranges) < 2:
+        return 0.0
+
+    overall_min = max(r[0] for r in ranges)
+    overall_max = min(r[1] for r in ranges)
+    gap = overall_min - overall_max
+
+    if gap <= 0:
+        return 0.0
+    return 0.15 * gap
+
+
+def check_bookend_score(enriched: dict, items_by_slot: dict) -> float:
+    """
+    Sandwich/bookend check: outermost piece (layer or top) should echo shoes.
+    Returns net bonus/penalty.
+    """
+    shoes_data = enriched.get("shoes")
+    if not shoes_data:
+        return 0.0
+
+    outer_key = "layer" if "layer" in enriched and items_by_slot.get("layer") else "base"
+    if outer_key == "base" and "top" in enriched:
+        outer_key = "top"
+    outer_data = enriched.get(outer_key)
+    if not outer_data:
+        outer_data = enriched.get("base")
+    if not outer_data:
+        return 0.0
+
+    score = 0.0
+
+    formality_diff = abs(outer_data["formality"] - shoes_data["formality"])
+    if formality_diff <= 0.5:
+        score += 0.05
+    elif formality_diff > 1.5:
+        score -= 0.08
+
+    o_struct, o_surf = outer_data["texture"]
+    s_struct, s_surf = shoes_data["texture"]
+    if o_struct != "neutral" and s_struct != "neutral":
+        if o_struct != s_struct:
+            score += 0.03
+        elif o_surf != s_surf:
+            score += 0.03
+
+    outer_item = items_by_slot.get(outer_key if outer_key != "base" else None)
+    shoes_item = items_by_slot.get("shoes")
+    if outer_item and shoes_item:
+        o_color = get_color_family(outer_item.get("primary_color", ""))
+        s_color = get_color_family(shoes_item.get("primary_color", ""))
+        if o_color == s_color or (o_color == "neutral" and s_color == "neutral"):
+            score += 0.03
+
+    return round(score, 3)
+
+
+def check_color_composition(base_item: dict, items_by_slot: dict) -> float:
+    """
+    60-30-10 color composition check.
+    Returns bonus (positive) or penalty (negative).
+    """
     colors = []
-    
-    # Include base item
-    base_color = base_item.get("primary_color", "")
-    if base_color:
-        colors.append(base_color)
-    
-    base_name = base_item.get("name", "").lower()
-    base_tags = base_item.get("style_tags") or []
-    if "statement" in base_name or any("statement" in t.lower() for t in base_tags):
-        statement_count += 1
-    
+    bc = base_item.get("primary_color", "")
+    if bc:
+        colors.append(bc.lower())
     for item in items_by_slot.values():
-        if not item:
-            continue
-        
-        name_lower = item.get("name", "").lower()
-        tags = item.get("style_tags") or []
-        color = item.get("primary_color", "")
-        
-        # Count statements
-        if "statement" in name_lower or any("statement" in t.lower() for t in tags):
-            statement_count += 1
-        
-        # Collect colors
-        if color:
-            colors.append(color)
-    
-    # Penalty: More than 1 statement piece
-    if statement_count > 1:
-        penalty += 0.1 * (statement_count - 1)
-    
-    # Bonus: Color family harmony
-    # Items in same family or complementary families get bonus
-    if len(colors) >= 2:
-        families = [get_color_family(c) for c in colors]
-        neutral_count = families.count("neutral")
-        non_neutral_families = set(f for f in families if f != "neutral")
-        
-        # Good: All neutrals or mostly neutrals + one accent family
-        if neutral_count >= len(families) - 1:
-            bonus += 0.05
-        # Good: All same non-neutral family
-        elif len(non_neutral_families) == 1:
-            bonus += 0.03
-        # Bad: Multiple non-neutral families competing
-        elif len(non_neutral_families) > 1:
-            penalty += 0.05 * (len(non_neutral_families) - 1)
-    
-    return penalty, bonus
+        if item:
+            c = item.get("primary_color", "")
+            if c:
+                colors.append(c.lower())
+
+    if len(colors) < 2:
+        return 0.0
+
+    non_neutrals = [c for c in colors if c not in NEUTRALS]
+    families = [get_color_family(c) for c in colors]
+    unique_non_neutrals = set(non_neutrals)
+    count = len(unique_non_neutrals)
+
+    score = 0.0
+
+    all_families = set(families)
+    if len(all_families) == 1:
+        score += 0.03
+
+    if count == 0:
+        score += 0.04
+    elif count == 1:
+        score += 0.04
+    elif count == 2:
+        c_list = list(unique_non_neutrals)
+        a, b = c_list[0], c_list[1]
+        is_complement = b in COMPLEMENTS.get(a, set()) or a in COMPLEMENTS.get(b, set())
+        is_analogous = b in ANALOGOUS.get(a, set()) or a in ANALOGOUS.get(b, set())
+        if not (is_complement or is_analogous):
+            score -= 0.05
+    else:
+        score -= 0.08 * (count - 2)
+
+    return round(score, 3)
+
+
+def check_one_hero_rule(enriched: dict) -> float:
+    """Penalize multiple statement pieces."""
+    statement_count = sum(1 for v in enriched.values() if v["role"] == "statement")
+    if statement_count <= 1:
+        return 0.0
+    if statement_count == 2:
+        return 0.08
+    return 0.15
+
+
+def check_proportion_balance(enriched: dict) -> float:
+    """
+    One-volume-at-a-time check.
+    Returns bonus (positive) or penalty (negative).
+    """
+    top_vol = None
+    bottom_vol = None
+    layer_vol = None
+
+    for key in ("base", "top"):
+        if key in enriched:
+            top_vol = enriched[key]["volume"]
+            break
+
+    if "bottom" in enriched:
+        bottom_vol = enriched["bottom"]["volume"]
+    if "layer" in enriched:
+        layer_vol = enriched["layer"]["volume"]
+
+    score = 0.0
+
+    if top_vol and bottom_vol:
+        if top_vol == "relaxed" and bottom_vol == "relaxed":
+            score -= 0.06
+        elif (top_vol == "slim" and bottom_vol == "relaxed") or \
+             (top_vol == "relaxed" and bottom_vol == "slim"):
+            score += 0.03
+
+    if layer_vol and bottom_vol:
+        if layer_vol in ("long", "relaxed") and bottom_vol == "relaxed":
+            score -= 0.05
+        elif layer_vol == "cropped" and bottom_vol == "relaxed":
+            score += 0.03
+        elif layer_vol == "long" and bottom_vol == "slim":
+            score += 0.03
+
+    return round(score, 3)
+
+
+# ============== PHASE 3: Pairwise Checks ==============
+
+def check_texture_contrast(enriched: dict, items_by_slot: dict) -> float:
+    """Check texture contrast between adjacent items (top+layer, top+bottom)."""
+    score = 0.0
+
+    def _pair_score(a_tex, b_tex):
+        a_struct, a_surf = a_tex
+        b_struct, b_surf = b_tex
+        if a_struct == "neutral" or b_struct == "neutral":
+            return 0.0
+        if a_struct == b_struct and a_surf == b_surf:
+            return -0.04
+        if a_struct != b_struct:
+            return 0.03
+        return 0.0
+
+    top_key = "top" if "top" in enriched else "base"
+
+    if top_key in enriched and "layer" in enriched:
+        score += _pair_score(enriched[top_key]["texture"], enriched["layer"]["texture"])
+
+    if top_key in enriched and "bottom" in enriched:
+        score += _pair_score(enriched[top_key]["texture"], enriched["bottom"]["texture"])
+
+    return round(score, 3)
+
+
+def check_shoe_bottom_harmony(enriched: dict, items_by_slot: dict) -> float:
+    """Check shoe-bottom proportion and formality harmony."""
+    if "shoes" not in enriched or "bottom" not in enriched:
+        return 0.0
+
+    score = 0.0
+    bottom_vol = enriched["bottom"]["volume"]
+    shoes_item = items_by_slot.get("shoes")
+    shoe_name = (shoes_item.get("name", "") if shoes_item else "").lower()
+
+    if bottom_vol == "relaxed":
+        if any(kw in shoe_name for kw in CHUNKY_SHOE_KEYWORDS):
+            score -= 0.06
+
+    if bottom_vol == "slim" and not any(kw in shoe_name for kw in CHUNKY_SHOE_KEYWORDS):
+        score += 0.02
+
+    f_diff = abs(enriched["shoes"]["formality"] - enriched["bottom"]["formality"])
+    if f_diff > 2.0:
+        score -= 0.05
+
+    return round(score, 3)
+
+
+def check_layer_justification(enriched: dict, items_by_slot: dict,
+                               weather_context: dict = None) -> float:
+    """Check whether a layer earns its place in the outfit."""
+    layer_item = items_by_slot.get("layer")
+    if not layer_item or "layer" not in enriched:
+        return 0.0
+
+    if weather_context:
+        if weather_context.get("force_layer"):
+            return 0.0
+        if weather_context.get("skip_layer"):
+            material = (layer_item.get("material") or "").lower()
+            heavy_mats = {"wool", "fleece", "cashmere", "leather", "shearling", "down", "puffer"}
+            if any(m in material for m in heavy_mats):
+                return -0.06
+            return 0.0
+
+    top_key = "top" if "top" in enriched else "base"
+    top_data = enriched.get(top_key, {})
+    layer_data = enriched["layer"]
+
+    top_item = items_by_slot.get("top")
+    top_name = (top_item.get("name", "") if top_item else "").lower()
+    if not top_name:
+        top_name = (items_by_slot.get("_base", {}).get("name", "")).lower()
+
+    coverage = "full"
+    for cov_type, keywords in TOP_COVERAGE.items():
+        if any(kw in top_name for kw in keywords):
+            coverage = cov_type
+            break
+
+    if coverage == "exposed":
+        return 0.0
+    if coverage == "short_sleeve":
+        return -0.02
+
+    score = 0.0
+    justified = False
+
+    l_struct = layer_data["texture"][0]
+    t_struct = top_data.get("texture", ("neutral", "matte"))[0]
+    if l_struct == "rigid" and t_struct in ("soft", "neutral"):
+        justified = True
+
+    if not justified:
+        if l_struct != t_struct and l_struct != "neutral" and t_struct != "neutral":
+            justified = True
+
+    if not justified:
+        if layer_data["formality"] > top_data.get("formality", 3.0) + 0.5:
+            justified = True
+
+    if not justified:
+        l_tex = layer_data["texture"]
+        t_tex = top_data.get("texture", ("neutral", "matte"))
+        same_texture = (l_tex[0] == t_tex[0] and l_tex[1] == t_tex[1])
+        l_range = layer_data["formality_range"]
+        t_range = top_data.get("formality_range", (2.5, 3.5))
+        overlapping = l_range[0] <= t_range[1] and t_range[0] <= l_range[1]
+        if same_texture and overlapping:
+            score -= 0.06
+
+    layer_name = layer_item.get("name", "").lower()
+    pullover_kws = {"pullover", "crewneck", "sweatshirt"}
+    bulky_top_kws = {"turtleneck", "hoodie", "sweatshirt"}
+    is_pullover_layer = any(kw in layer_name for kw in pullover_kws)
+    is_bulky_top = any(kw in top_name for kw in bulky_top_kws)
+
+    if is_pullover_layer and is_bulky_top:
+        score -= 0.08
+
+    if layer_data["volume"] == "relaxed" and top_data.get("volume", "regular") == "relaxed":
+        score -= 0.05
+
+    return round(score, 3)
+
+
+# ============== HIERARCHICAL SCORING ==============
+
+_LOUD_COLORS = {
+    "red", "orange", "yellow", "pink", "purple", "green", "blue",
+    "coral", "fuchsia", "magenta", "teal", "turquoise", "lime", "neon",
+}
+
+
+def compute_visual_loudness(item: dict, enriched_data: dict) -> float:
+    """How much attention does this item demand? Returns 0.0 - 1.0."""
+    loudness = 0.0
+
+    color = (item.get("primary_color") or "").lower()
+    if color in _LOUD_COLORS:
+        loudness += 0.30
+    elif color and color not in NEUTRALS:
+        loudness += 0.15
+
+    tex = enriched_data.get("texture", ("neutral", "matte"))
+    if tex[1] == "shiny":
+        loudness += 0.20
+    elif tex[1] == "textured":
+        loudness += 0.10
+
+    name = (item.get("name") or "").lower()
+    tags = " ".join(item.get("style_tags") or []).lower()
+    combined = name + " " + tags
+    if any(kw in combined for kw in STATEMENT_KEYWORDS):
+        loudness += 0.30
+
+    vol = enriched_data.get("volume", "regular")
+    if vol in ("cropped", "long", "relaxed"):
+        loudness += 0.10
+
+    return min(loudness, 1.0)
+
+
+def compute_visual_cohesion(
+    base_item: dict,
+    items_by_slot: dict[str, dict],
+    intent_vector: list,
+) -> dict:
+    """
+    Outfit-level visual measurements: centroid, intent alignment, spread.
+    Returns dict with 'centroid', 'intent_alignment', 'spread', 'embeddings'.
+    """
+    embeddings = []
+    base_emb = base_item.get("embedding") or []
+    if base_emb:
+        embeddings.append(base_emb)
+    for item in items_by_slot.values():
+        if item:
+            emb = item.get("embedding") or []
+            if emb:
+                embeddings.append(emb)
+
+    if not embeddings:
+        return {"centroid": [], "intent_alignment": 0.5, "spread": 0.3, "embeddings": []}
+
+    dim = len(embeddings[0])
+    centroid = [0.0] * dim
+    for emb in embeddings:
+        for i in range(min(dim, len(emb))):
+            centroid[i] += emb[i]
+    centroid = [c / len(embeddings) for c in centroid]
+
+    intent_alignment = cosine_similarity(centroid, intent_vector) if intent_vector else 0.5
+
+    distances = [1.0 - cosine_similarity(centroid, emb) for emb in embeddings]
+    spread = sum(distances) / len(distances) if distances else 0.3
+
+    return {
+        "centroid": centroid,
+        "intent_alignment": intent_alignment,
+        "spread": spread,
+        "embeddings": embeddings,
+    }
+
+
+# ── Level 1: Silhouette & Proportion ─────────────────────────────────────────
+
+def score_silhouette(
+    enriched: dict,
+    items_by_slot: dict,
+    cohesion: dict,
+) -> tuple[float, bool]:
+    """
+    Foundation level. Proportion balance + shoe-bottom harmony + embedding spread.
+    Returns (score, is_solid).
+    """
+    proportion = check_proportion_balance(enriched)
+    shoe_bottom = check_shoe_bottom_harmony(enriched, items_by_slot)
+
+    spread = cohesion.get("spread", 0.3)
+    spread_adj = 0.0
+    if spread < 0.25:
+        spread_adj = 0.03
+    elif spread > 0.40:
+        spread_adj = -0.05 * ((spread - 0.40) / 0.10)
+        spread_adj = max(spread_adj, -0.15)
+
+    score = proportion + shoe_bottom + spread_adj
+    is_solid = score > -0.03
+    return round(score, 4), is_solid
+
+
+# ── Level 2: Color Surfaces ──────────────────────────────────────────────────
+
+def _check_color_calm(base_item: dict, items_by_slot: dict) -> float:
+    """Are the large surfaces settled or fighting?"""
+    colors = []
+    bc = (base_item.get("primary_color") or "").lower()
+    if bc:
+        colors.append(bc)
+    for item in items_by_slot.values():
+        if item:
+            c = (item.get("primary_color") or "").lower()
+            if c:
+                colors.append(c)
+
+    if len(colors) < 2:
+        return 0.03
+
+    families = [get_color_family(c) for c in colors]
+    unique_families = set(families)
+    non_neutral_families = unique_families - {"neutral"}
+
+    score = 0.0
+
+    if len(non_neutral_families) == 0:
+        score += 0.03
+    elif len(non_neutral_families) == 1:
+        score += 0.02
+    elif len(non_neutral_families) >= 3:
+        score -= 0.04 * (len(non_neutral_families) - 2)
+
+    if len(set(colors)) == 1 and len(colors) >= 3:
+        score -= 0.03
+
+    unique_non_neutrals = set(c for c in colors if c not in NEUTRALS)
+    if len(unique_non_neutrals) >= 2:
+        shades = len(unique_non_neutrals)
+        if shades == 2:
+            pass
+        elif shades >= 3:
+            score += 0.02
+
+    return round(score, 4)
+
+
+def score_color_surfaces(
+    enriched: dict,
+    items_by_slot: dict,
+    base_item: dict,
+    silhouette_solid: bool,
+) -> tuple[float, bool]:
+    """
+    Level 2. Color composition + bookend + calm.
+    Returns (score, is_calm).
+    """
+    composition = check_color_composition(base_item, items_by_slot)
+    bookend = check_bookend_score(enriched, items_by_slot)
+    calm = _check_color_calm(base_item, items_by_slot)
+
+    gate = 1.0 if silhouette_solid else 0.7
+    score = (composition + bookend + calm) * gate
+
+    is_calm = score > -0.02
+    return round(score, 4), is_calm
+
+
+# ── Level 3: Texture & Narrative ─────────────────────────────────────────────
+
+def _check_texture_variety(enriched: dict) -> float:
+    """Reward variety, penalize flatness across the whole outfit."""
+    structures = set()
+    surfaces = set()
+    for data in enriched.values():
+        tex = data.get("texture", ("neutral", "matte"))
+        if tex[0] != "neutral":
+            structures.add(tex[0])
+        surfaces.add(tex[1])
+
+    score = 0.0
+    if len(structures) >= 3:
+        score += 0.03
+    elif len(structures) == 0:
+        score -= 0.02
+
+    all_textures = [(d["texture"][0], d["texture"][1]) for d in enriched.values()
+                    if d.get("texture", ("neutral", "matte"))[0] != "neutral"]
+    if len(all_textures) >= 2 and len(set(all_textures)) == 1:
+        score -= 0.03
+
+    return round(score, 4)
+
+
+def _score_narrative(
+    enriched: dict,
+    items_by_slot: dict,
+    base_item: dict,
+) -> dict:
+    """
+    Hero clarity, attention gradient, support deference.
+    Returns dict with individual scores and hero_count.
+    """
+    loudness_map = {}
+    loudness_map["base"] = compute_visual_loudness(base_item, enriched.get("base", {}))
+    for slot, item in items_by_slot.items():
+        if item and slot in enriched:
+            loudness_map[slot] = compute_visual_loudness(item, enriched[slot])
+
+    if not loudness_map:
+        return {"hero_clarity": 0.0, "gradient": 0.0, "deference": 0.0, "hero_count": 0}
+
+    sorted_items = sorted(loudness_map.items(), key=lambda x: x[1], reverse=True)
+    loudest_key, loudest_val = sorted_items[0]
+    second_val = sorted_items[1][1] if len(sorted_items) > 1 else 0.0
+
+    hero_gap = loudest_val - second_val
+    hero_count = sum(1 for _, v in sorted_items if v >= loudest_val - 0.05) if loudest_val > 0.2 else 0
+
+    hero_clarity = 0.0
+    if hero_count == 1 and hero_gap >= 0.2:
+        hero_clarity = 0.05
+    elif hero_count == 1 and hero_gap >= 0.1:
+        hero_clarity = 0.03
+    elif hero_count == 0:
+        hero_clarity = -0.03
+    elif hero_count == 2:
+        hero_clarity = -0.06
+    elif hero_count >= 3:
+        hero_clarity = -0.12
+
+    if hero_count == 1 and loudest_key in ("base", "top"):
+        layer_item = items_by_slot.get("layer")
+        if layer_item:
+            layer_name = (layer_item.get("name") or "").lower()
+            pullover_kws = {"pullover", "crewneck", "sweatshirt", "hoodie"}
+            if any(kw in layer_name for kw in pullover_kws):
+                hero_clarity -= 0.04
+
+    gradient_score = 0.0
+    if len(sorted_items) >= 3 and hero_count == 1:
+        hero_loudness = sorted_items[0][1]
+        violations = 0
+        for key, val in sorted_items[1:]:
+            role = enriched.get(key, {}).get("role", "supporting")
+            if role == "supporting" and val > hero_loudness - 0.05:
+                violations += 1
+        if violations == 0:
+            gradient_score = 0.02
+        else:
+            gradient_score = -0.02 * violations
+
+    deference = 0.0
+    if hero_count == 1:
+        hero_loudness = sorted_items[0][1]
+        supporting_loudness = [v for k, v in sorted_items[1:]]
+        if supporting_loudness:
+            avg_supporting = sum(supporting_loudness) / len(supporting_loudness)
+            gap = hero_loudness - avg_supporting
+            if gap >= 0.3:
+                deference = 0.03
+            elif gap >= 0.15:
+                deference = 0.01
+            elif gap < 0.05:
+                deference = -0.02
+
+    return {
+        "hero_clarity": round(hero_clarity, 4),
+        "gradient": round(gradient_score, 4),
+        "deference": round(deference, 4),
+        "hero_count": hero_count,
+    }
+
+
+def score_texture_and_narrative(
+    enriched: dict,
+    items_by_slot: dict,
+    base_item: dict,
+    color_calm: bool,
+    weather_context: dict = None,
+) -> tuple[float, bool]:
+    """
+    Level 3. Texture variety + contrast + narrative structure + layer justification.
+    Returns (score, story_clear).
+    """
+    contrast = check_texture_contrast(enriched, items_by_slot)
+    variety = _check_texture_variety(enriched)
+    layer_adj = check_layer_justification(enriched, items_by_slot, weather_context)
+
+    texture_gate = 1.2 if color_calm else 0.7
+    texture_score = (contrast + variety) * texture_gate + layer_adj
+
+    narrative = _score_narrative(enriched, items_by_slot, base_item)
+    narrative_score = narrative["hero_clarity"] + narrative["gradient"] + narrative["deference"]
+
+    score = texture_score + narrative_score
+    story_clear = narrative["hero_count"] == 1 and narrative["hero_clarity"] >= 0.0
+    return round(score, 4), story_clear, narrative
+
+
+# ── Level 4: Finishing & Intent ──────────────────────────────────────────────
+
+def score_finishing(
+    enriched: dict,
+    items_by_slot: dict,
+    cohesion: dict,
+    direction: str,
+    base_item: dict,
+    story_clear: bool,
+) -> float:
+    """
+    Level 4. Intent alignment + direction match + formality coherence.
+    """
+    intent_alignment = cohesion.get("intent_alignment", 0.5)
+
+    direction_bonus = compute_direction_bonus(base_item, items_by_slot, direction)
+    direction_gate = 1.2 if story_clear else 0.8
+    gated_direction = direction_bonus * direction_gate
+
+    formality_pen = check_formality_coherence(enriched)
+
+    score = 0.40 * intent_alignment + gated_direction - formality_pen
+    return round(score, 4)
 
 
 def cosine_similarity(v1: list, v2: list) -> float:
@@ -722,114 +1388,88 @@ def score_outfit(
     items_by_slot: dict[str, dict],
     direction: str,
     base_embedding: list = None,
-    intent_vector: list = None,  # Fix 1: Unified outfit intent vector
-    taste_vector: list = None,   # For personalization
-    dislike_vector: list = None  # For avoiding dislikes
+    intent_vector: list = None,
+    taste_vector: list = None,
+    dislike_vector: list = None,
+    weather_context: dict = None,
 ) -> dict:
     """
-    Score a complete outfit using embedding similarity + direction bonuses - penalties.
-    
-    Enhanced with:
-    - Fix 1: Intent vector - all items scored against unified outfit intent
-    - Fix 2: Formality + occasion consistency
-    - Fix 3: Within-outfit diversity control
-    
-    Returns dict with score breakdown and any violations.
+    Hierarchical outfit scoring mirroring how the eye reads an outfit:
+    silhouette -> color surfaces -> texture/narrative -> finishing/intent.
+
+    Each level gates the levels above it. A broken silhouette dampens
+    everything; busy color surfaces dampen texture appreciation.
+
+    Returns dict with total score, violations, and per-level breakdown.
     """
-    # Check hard violations first
     violations = check_hard_violations(base_item, items_by_slot, direction)
     if violations:
-        return {
-            "total": -1.0,  # Disqualified
-            "violations": violations,
-            "breakdown": {}
-        }
-    
-    # Fix 1: Compute intent vector if not provided
+        return {"total": -1.0, "violations": violations, "breakdown": {}}
+
     base_emb = base_embedding or []
     if not intent_vector and base_emb:
         intent_vector = compute_outfit_intent_vector(
             base_emb, direction, taste_vector, dislike_vector
         )
-    
-    # Use intent vector for scoring (falls back to base_emb if no intent)
-    scoring_vector = intent_vector if intent_vector else base_emb
-    
-    # Get embeddings (handle None items)
-    bottom_item = items_by_slot.get("bottom")
-    shoes_item = items_by_slot.get("shoes")
-    acc_item = items_by_slot.get("accessory")
-    layer_item = items_by_slot.get("layer")
-    top_item = items_by_slot.get("top")
-    
-    bottom_emb = (bottom_item.get("embedding") if bottom_item else None) or []
-    shoes_emb = (shoes_item.get("embedding") if shoes_item else None) or []
-    acc_emb = (acc_item.get("embedding") if acc_item else None) or []
-    layer_emb = (layer_item.get("embedding") if layer_item else None) or []
-    top_emb = (top_item.get("embedding") if top_item else None) or []
-    
-    # Fix 1: Score all items against the INTENT vector (not just base)
-    # This ensures thematic consistency across all pieces
-    sim_intent_bottom = cosine_similarity(scoring_vector, bottom_emb) if bottom_emb else 0.5
-    sim_intent_shoes = cosine_similarity(scoring_vector, shoes_emb) if shoes_emb else 0.5
-    sim_intent_acc = cosine_similarity(scoring_vector, acc_emb) if acc_emb else 0.5
-    sim_intent_layer = cosine_similarity(scoring_vector, layer_emb) if layer_emb else 0.0
-    sim_intent_top = cosine_similarity(scoring_vector, top_emb) if top_emb else 0.0
-    
-    # Cross-item harmony (bottom-shoes still important)
-    sim_bottom_shoes = cosine_similarity(bottom_emb, shoes_emb) if (bottom_emb and shoes_emb) else 0.5
-    
-    # Weighted similarity score - all items relative to intent
-    sim_score = (
-        0.35 * sim_intent_bottom +
-        0.25 * sim_intent_shoes +
-        0.15 * sim_intent_acc +
-        0.10 * sim_intent_layer +
-        0.10 * sim_intent_top +
-        0.05 * sim_bottom_shoes  # Small bonus for bottom-shoes harmony
+
+    enriched = enrich_items(base_item, items_by_slot)
+    cohesion = compute_visual_cohesion(base_item, items_by_slot, intent_vector)
+
+    # Level 1: Silhouette & Proportion (foundation)
+    l1_score, silhouette_solid = score_silhouette(enriched, items_by_slot, cohesion)
+
+    # Level 2: Color Surfaces (gated by L1)
+    l2_score, color_calm = score_color_surfaces(
+        enriched, items_by_slot, base_item, silhouette_solid
     )
-    
-    # Direction bonus
-    direction_bonus = compute_direction_bonus(base_item, items_by_slot, direction)
-    
-    # Fix 2: Formality consistency
-    formality_ok, formality_penalty = check_formality_consistency(items_by_slot, base_item)
-    
-    # Fix 2: Occasion consistency
-    occasion_ok, occasion_penalty = check_occasion_consistency(items_by_slot, base_item)
-    
-    # Fix 3: Within-outfit diversity control
-    diversity_penalty, harmony_bonus = check_within_outfit_diversity(items_by_slot, base_item)
-    
-    # Color harmony penalty (soft) - already existed but simplified
-    colors = [base_item.get("primary_color", "")]
-    for item in items_by_slot.values():
-        if item:
-            colors.append(item.get("primary_color", ""))
-    
-    non_neutrals = [c for c in colors if c and c not in NEUTRALS]
-    color_penalty = 0.0
-    if len(non_neutrals) > 2:
-        color_penalty = 0.1 * (len(non_neutrals) - 2)
-    
-    # Total penalties
-    total_penalty = color_penalty + formality_penalty + occasion_penalty + diversity_penalty
-    total_bonus = direction_bonus + harmony_bonus
-    
-    total = sim_score + total_bonus - total_penalty
-    
+
+    # Level 3: Texture & Narrative (gated by L2)
+    l3_score, story_clear, narrative_detail = score_texture_and_narrative(
+        enriched, items_by_slot, base_item, color_calm, weather_context
+    )
+
+    # Level 4: Finishing & Intent (gated by L3)
+    l4_score = score_finishing(
+        enriched, items_by_slot, cohesion, direction, base_item, story_clear
+    )
+
+    # Hierarchy dampening: broken foundation suppresses upper levels
+    dampening = 1.0
+    if not silhouette_solid:
+        dampening *= 0.70
+    if not color_calm:
+        dampening *= 0.85
+
+    # Bookend forgiveness: strong framing eases penalties in L2/L3
+    bookend_raw = check_bookend_score(enriched, items_by_slot)
+    if bookend_raw > 0.04:
+        l3_score = l3_score * 1.0 + abs(min(l3_score, 0)) * 0.15
+
+    total = (
+        0.30 * l1_score +
+        0.25 * l2_score +
+        0.25 * l3_score * dampening +
+        0.20 * l4_score * dampening
+    )
+
     return {
-        "total": round(total, 3),
+        "total": round(total, 4),
         "violations": [],
         "breakdown": {
-            "sim_intent_weighted": round(sim_score, 3),
-            "sim_bottom_shoes": round(sim_bottom_shoes, 3),
-            "direction_bonus": round(direction_bonus, 3),
-            "harmony_bonus": round(harmony_bonus, 3),
-            "color_penalty": round(color_penalty, 3),
-            "formality_penalty": round(formality_penalty, 3),
-            "occasion_penalty": round(occasion_penalty, 3),
-            "diversity_penalty": round(diversity_penalty, 3),
+            "silhouette": round(l1_score, 4),
+            "silhouette_solid": silhouette_solid,
+            "color_surfaces": round(l2_score, 4),
+            "color_calm": color_calm,
+            "texture_narrative": round(l3_score, 4),
+            "story_clear": story_clear,
+            "finishing": round(l4_score, 4),
+            "dampening": round(dampening, 3),
+            "intent_alignment": round(cohesion.get("intent_alignment", 0.5), 4),
+            "spread": round(cohesion.get("spread", 0.3), 4),
+            "hero_clarity": narrative_detail.get("hero_clarity", 0.0),
+            "hero_count": narrative_detail.get("hero_count", 0),
+            "gradient": narrative_detail.get("gradient", 0.0),
+            "deference": narrative_detail.get("deference", 0.0),
         }
     }
 
@@ -888,38 +1528,31 @@ def select_best_outfit(
     direction: str,
     base_embedding: list = None,
     taste_vector: list = None,
-    dislike_vector: list = None
+    dislike_vector: list = None,
+    weather_context: dict = None,
 ) -> tuple[dict[str, dict], dict]:
     """
     Score all candidate outfits and return the best one.
-    
-    Args:
-        candidate_outfits: List of outfit combinations to score
-        base_item: User's input item
-        direction: Style direction (Classic/Trendy/Bold)
-        base_embedding: Embedding of base item
-        taste_vector: User's taste preferences (Fix 1)
-        dislike_vector: User's dislikes (Fix 1)
-    
+
     Returns:
         (best_items_by_slot, score_details)
     """
     best_outfit = None
     best_score = -999
     best_details = {}
-    
-    # Fix 1: Compute intent vector once for all candidates
+
     intent_vector = compute_outfit_intent_vector(
         base_embedding, direction, taste_vector, dislike_vector
     ) if base_embedding else None
-    
+
     for items_by_slot in candidate_outfits:
         score_result = score_outfit(
-            base_item, items_by_slot, direction, 
+            base_item, items_by_slot, direction,
             base_embedding=base_embedding,
             intent_vector=intent_vector,
             taste_vector=taste_vector,
-            dislike_vector=dislike_vector
+            dislike_vector=dislike_vector,
+            weather_context=weather_context,
         )
         
         if score_result["total"] > best_score:
@@ -931,24 +1564,17 @@ def select_best_outfit(
 
 
 def assemble_outfit(
-    direction: str, 
-    base_item: dict, 
+    direction: str,
+    base_item: dict,
     items_by_slot: dict[str, dict],
     base_embedding: list = None,
     taste_vector: list = None,
-    dislike_vector: list = None
+    dislike_vector: list = None,
+    weather_context: dict = None,
 ) -> dict:
     """
     Assemble a single outfit response with scoring.
-    
-    Args:
-        direction: "Classic", "Trendy", or "Bold"
-        base_item: The user's input item parsed tags
-        items_by_slot: Dict mapping slot → selected catalog item
-        base_embedding: Optional embedding for similarity scoring
-        taste_vector: User's taste preferences (Fix 1)
-        dislike_vector: User's dislikes (Fix 1)
-    
+
     Returns:
         Outfit dict ready for API response
     """
@@ -967,17 +1593,17 @@ def assemble_outfit(
                 "score": item.get("score"),  # Item's match score
             })
     
-    # Score outfit with enhanced scoring (Fixes 1-3)
     intent_vector = compute_outfit_intent_vector(
         base_embedding, direction, taste_vector, dislike_vector
     ) if base_embedding else None
-    
+
     score_result = score_outfit(
         base_item, items_by_slot, direction,
         base_embedding=base_embedding,
         intent_vector=intent_vector,
         taste_vector=taste_vector,
-        dislike_vector=dislike_vector
+        dislike_vector=dislike_vector,
+        weather_context=weather_context,
     )
     
     return {

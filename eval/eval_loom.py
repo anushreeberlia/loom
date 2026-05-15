@@ -195,10 +195,15 @@ def _make_ablation_patches(ablation: str) -> list:
         patches.append(patch.object(ret_mod, "filter_by_occasion_semantic",
                                     lambda candidates, *a, **kw: candidates))
 
-    elif ablation == "no_material":
+    elif ablation == "no_texture":
         import services.outfit as outfit_mod
-        patches.append(patch.object(outfit_mod, "is_layer_compatible",
-                                    lambda *a, **kw: True))
+        patches.append(patch.object(outfit_mod, "check_texture_contrast",
+                                    lambda *a, **kw: 0.0))
+
+    elif ablation == "no_layer_just":
+        import services.outfit as outfit_mod
+        patches.append(patch.object(outfit_mod, "check_layer_justification",
+                                    lambda *a, **kw: 0.0))
 
     elif ablation == "no_noise":
         _orig_random_uniform = random.uniform
@@ -212,8 +217,8 @@ def _make_ablation_patches(ablation: str) -> list:
 
     elif ablation == "no_formality":
         import services.outfit as outfit_mod
-        patches.append(patch.object(outfit_mod, "check_formality_consistency",
-                                    lambda *a, **kw: (True, 0.0)))
+        patches.append(patch.object(outfit_mod, "check_formality_coherence",
+                                    lambda *a, **kw: 0.0))
 
     return patches
 
@@ -282,8 +287,8 @@ def compute_metrics(all_results: list[dict]) -> dict:
     total_outfits = 0
     latencies = []
     outfit_scores = []
-    sim_scores = []
-    direction_bonuses = []
+    silhouette_scores = []
+    narrative_scores = []
     hard_violations = 0
     total_scored = 0
 
@@ -297,10 +302,10 @@ def compute_metrics(all_results: list[dict]) -> dict:
             total_score = sd.get("total", 0)
             outfit_scores.append(total_score)
             bd = sd.get("breakdown", {})
-            if bd.get("sim_intent_weighted"):
-                sim_scores.append(bd["sim_intent_weighted"])
-            if bd.get("direction_bonus") is not None:
-                direction_bonuses.append(bd["direction_bonus"])
+            if bd.get("silhouette") is not None:
+                silhouette_scores.append(bd["silhouette"])
+            if bd.get("texture_narrative") is not None:
+                narrative_scores.append(bd["texture_narrative"])
             if total_score <= -1.0:
                 hard_violations += 1
 
@@ -332,8 +337,8 @@ def compute_metrics(all_results: list[dict]) -> dict:
         "total_outfits": total_outfits,
         "outfits_per_anchor": round(total_outfits / max(1, len(all_results)), 2),
         "mean_score": round(sum(outfit_scores) / max(1, len(outfit_scores)), 3) if outfit_scores else 0,
-        "mean_sim": round(sum(sim_scores) / max(1, len(sim_scores)), 3) if sim_scores else 0,
-        "mean_dir_bonus": round(sum(direction_bonuses) / max(1, len(direction_bonuses)), 3) if direction_bonuses else 0,
+        "mean_silhouette": round(sum(silhouette_scores) / max(1, len(silhouette_scores)), 3) if silhouette_scores else 0,
+        "mean_narrative": round(sum(narrative_scores) / max(1, len(narrative_scores)), 3) if narrative_scores else 0,
         "hard_violation_pct": round(100 * hard_violations / max(1, total_scored), 1),
         "mean_latency_ms": round(sum(latencies) / max(1, len(latencies)), 1),
         "p95_latency_ms": round(sorted(latencies)[int(0.95 * len(latencies))] if latencies else 0, 1),

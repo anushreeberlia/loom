@@ -15,7 +15,6 @@ from services.outfit import (
     build_base_item_text,
     get_preferred_colors,
     get_avoid_colors,
-    is_layer_compatible
 )
 from services.fashion_clip import embed_text as _clip_embed_text, embed_texts as _clip_embed_texts
 
@@ -572,21 +571,46 @@ def build_query_text(
             top_name = top.get("name", "").lower()
             top_style = " ".join((top.get("style_tags") or [])[:2])
             top_color = top.get("primary_color", "")
-            
-            # Detect top type to build better layer query
+
             is_strappy = any(kw in top_name for kw in ["cami", "tank", "halter", "strappy", "strap"])
             is_athletic = any(kw in top_name for kw in ["sweat", "hoodie", "athletic", "sport", "gym"])
             is_dressy = any(kw in top_name for kw in ["blouse", "silk", "satin", "elegant"])
-            
-            # Build layer hint based on top type
-            if is_strappy:
-                item_hint = f"women's open cardigan or lightweight jacket (not vest or pullover) that drapes nicely over a {top_color} {top_name}"
+
+            bottom = chosen_items.get("bottom") if chosen_items else None
+            shoes = chosen_items.get("shoes") if chosen_items else None
+
+            bottom_name = (bottom.get("name", "") if bottom else "").lower()
+            bottom_vol = ""
+            if any(kw in bottom_name for kw in ["wide", "palazzo", "flare", "baggy"]):
+                bottom_vol = "wide"
+            elif any(kw in bottom_name for kw in ["slim", "skinny", "pencil", "fitted"]):
+                bottom_vol = "slim"
+
+            shoe_name = (shoes.get("name", "") if shoes else "").lower()
+            shoe_formal = any(kw in shoe_name for kw in ["heel", "pump", "oxford", "loafer", "stiletto"])
+
+            formality_hint = ""
+            if shoe_formal or is_dressy:
+                formality_hint = "polished structured "
             elif is_athletic:
-                item_hint = f"women's sporty zip-up jacket or athletic layer that matches a casual {top_color} {top_name}"
+                formality_hint = "casual sporty "
+
+            length_hint = ""
+            if bottom_vol == "wide":
+                length_hint = "cropped or waist-length "
+
+            if is_strappy:
+                item_hint = (f"women's {formality_hint}{length_hint}open cardigan or lightweight jacket "
+                             f"(not vest or pullover) that drapes nicely over a {top_color} {top_name}")
+            elif is_athletic:
+                item_hint = (f"women's {length_hint}sporty zip-up jacket or athletic layer "
+                             f"that matches a casual {top_color} {top_name}")
             elif is_dressy:
-                item_hint = f"women's elegant blazer or refined cardigan that complements a dressy {top_color} {top_name}"
+                item_hint = (f"women's {length_hint}elegant blazer or refined cardigan "
+                             f"that complements a dressy {top_color} {top_name}")
             else:
-                item_hint = f"women's layer (cardigan, jacket, or blazer) that pairs well with a {top_style} {top_color} {top_name}"
+                item_hint = (f"women's {formality_hint}{length_hint}layer (cardigan, jacket, or blazer) "
+                             f"that pairs well with a {top_style} {top_color} {top_name}")
     
     # Build color guidance based on policy
     if color_policy == "neutrals":
@@ -727,16 +751,16 @@ def retrieve_candidates(
     # Choose table and columns based on mode
     if use_closet:
         table = "user_closet_items"
-        select_cols = "id, name, image_url, NULL as product_url, primary_color, style_tags"
-        base_columns = ["id", "name", "image_url", "product_url", "primary_color", "style_tags"]
+        select_cols = "id, name, image_url, NULL as product_url, primary_color, style_tags, material, category, fit"
+        base_columns = ["id", "name", "image_url", "product_url", "primary_color", "style_tags", "material", "category", "fit"]
     elif shop_domain:
         table = "shopify_catalog_items"
-        select_cols = "id, name, image_url, product_url, primary_color, style_tags, shopify_product_id, price"
-        base_columns = ["id", "name", "image_url", "product_url", "primary_color", "style_tags", "shopify_product_id", "price"]
+        select_cols = "id, name, image_url, product_url, primary_color, style_tags, shopify_product_id, price, material, category, fit"
+        base_columns = ["id", "name", "image_url", "product_url", "primary_color", "style_tags", "shopify_product_id", "price", "material", "category", "fit"]
     else:
         table = "catalog_items"
-        select_cols = "id, name, image_url, product_url, primary_color, style_tags"
-        base_columns = ["id", "name", "image_url", "product_url", "primary_color", "style_tags"]
+        select_cols = "id, name, image_url, product_url, primary_color, style_tags, material, category, fit"
+        base_columns = ["id", "name", "image_url", "product_url", "primary_color", "style_tags", "material", "category", "fit"]
     
     # Build dynamic WHERE clause
     where_conditions = ["category = %s", "embedding IS NOT NULL"]
@@ -964,35 +988,8 @@ def retrieve_for_slot(
     if slot == "layer" and not use_closet and not shop_domain:
         candidates = filter_layer_items(candidates)
     
-    # For layers: filter by compatibility with the top underneath
-    # The top could be in chosen_items OR be the base_item itself (daily outfit flow)
-    if slot == "layer":
-        top = None
-        if chosen_items:
-            top = chosen_items.get("top")
-        if not top and base_item.get("category") == "top":
-            top = base_item  # base_item IS the top in daily outfit flow
-        
-        if top:
-            compatible = []
-            for c in candidates:
-                # Check material weight compatibility (layer should be heavier than top)
-                if is_layer_compatible(c, top):
-                    compatible.append(c)
-            if compatible:  # Only filter if we have options left
-                candidates = compatible
-                logger.info(f"Layer compatibility: {len(candidates)} layers compatible with top")
-    
-    # For tops when base is a layer: top should be lighter than the layer
-    # (you don't wear a chunky sweater under a light cardigan)
-    if slot == "top" and base_item.get("category") == "layer":
-        compatible = []
-        for c in candidates:
-            # Reverse check: layer (base) should be heavier than top (candidate)
-            if is_layer_compatible(base_item, c):
-                compatible.append(c)
-        if compatible:
-            candidates = compatible
+    # Material/texture compatibility is handled via composition-aware checks in
+    # score_outfit() (texture contrast, layer justification, shoe-bottom harmony).
     
     # Apply sanity gate (slot-aware)
     candidates = filter_candidates(candidates, slot)
