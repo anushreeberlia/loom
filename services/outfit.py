@@ -1236,6 +1236,39 @@ def _check_color_calm(base_item: dict, items_by_slot: dict) -> float:
     return round(score, 4)
 
 
+def _check_adjacent_color_clash(base_item: dict, items_by_slot: dict) -> float:
+    """Penalize visually adjacent slots (top+layer) with clashing non-neutral colors."""
+    layer = items_by_slot.get("layer")
+    if not layer:
+        return 0.0
+
+    top_color = (base_item.get("primary_color") or "").lower()
+    layer_color = (layer.get("primary_color") or "").lower()
+
+    if not top_color or not layer_color:
+        return 0.0
+    if top_color in NEUTRALS or layer_color in NEUTRALS:
+        return 0.0
+    if top_color == layer_color:
+        return 0.0
+
+    top_family = get_color_family(top_color)
+    layer_family = get_color_family(layer_color)
+    if top_family == layer_family:
+        return 0.0
+
+    is_complement = (layer_color in COMPLEMENTS.get(top_color, set())
+                     or top_color in COMPLEMENTS.get(layer_color, set()))
+    is_analogous = (layer_color in ANALOGOUS.get(top_color, set())
+                    or top_color in ANALOGOUS.get(layer_color, set()))
+
+    if is_analogous:
+        return 0.0
+    if is_complement:
+        return -0.03
+    return -0.08
+
+
 def score_color_surfaces(
     enriched: dict,
     items_by_slot: dict,
@@ -1249,9 +1282,10 @@ def score_color_surfaces(
     composition = check_color_composition(base_item, items_by_slot)
     bookend = check_bookend_score(enriched, items_by_slot)
     calm = _check_color_calm(base_item, items_by_slot)
+    adjacent = _check_adjacent_color_clash(base_item, items_by_slot)
 
     gate = 1.0 if silhouette_solid else 0.7
-    score = (composition + bookend + calm) * gate
+    score = (composition + bookend + calm + adjacent) * gate
 
     is_calm = score > -0.02
     return round(score, 4), is_calm

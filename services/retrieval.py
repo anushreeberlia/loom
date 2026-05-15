@@ -680,20 +680,20 @@ def build_query_text(
         }
         occasion_hint = occasion_descriptions.get(occasion, occasion) + " "
     
-    # Build base query with occasion
-    base_query = f"{occasion_hint}{direction_lower} {item_hint} {color_hint}"
-    
-    # Add sequential conditioning - reference already chosen items
+    # Gather color context from base item + already chosen items
     chosen_items = chosen_items or {}
     context_parts = [f"{base_color} {style} {base_category}"]
 
     _NEUTRALS = {"black", "white", "gray", "grey", "beige", "brown", "navy", "metallic",
                  "off white", "dark grey", "light beige"}
     chosen_non_neutrals = []
+
+    if base_color and base_color.lower() not in _NEUTRALS:
+        chosen_non_neutrals.append(base_color.lower())
+
     for chosen_slot, chosen_item in chosen_items.items():
         if chosen_item:
             chosen_color = chosen_item.get("primary_color", "")
-            chosen_name = chosen_item.get("name", "").split()[-1]
             context_parts.append(f"{chosen_color} {chosen_slot}")
             if chosen_color and chosen_color.lower() not in _NEUTRALS:
                 chosen_non_neutrals.append(chosen_color.lower())
@@ -705,6 +705,7 @@ def build_query_text(
             color_hint = f"in neutral tones or a shade that complements {chosen_non_neutrals[0]}"
 
     context = " + ".join(context_parts)
+    base_query = f"{occasion_hint}{direction_lower} {item_hint} {color_hint}"
 
     return f"{base_query} to complete an outfit with {context}"
 
