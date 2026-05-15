@@ -2335,21 +2335,22 @@ async def get_daily_outfits(
         all_item_tags = set(occasion_tags + style_tags)
         
         if has_manual_mood:
-            from services.retrieval import compute_tag_mood_score
-            tag_score = compute_tag_mood_score(style_tags, mood)
-            score += tag_score * 50
-
             if item.get("embedding"):
                 semantic_score = compute_occasion_score(
                     item["embedding"], mood_text=mood, item_tags=all_item_tags
                 )
-                score += semantic_score * 50
+                score += semantic_score * 80
+
+            from services.retrieval import compute_tag_mood_score
+            tag_score = compute_tag_mood_score(style_tags, mood)
+            score += tag_score * 20
 
             item_occ = infer_outfit_occasion(item)
             mood_lower = mood.lower()
             _mood_to_group = {
                 "going-out": {"night out", "dress to impress", "date night", "party",
-                              "clubbing", "cocktail", "dinner", "fancy", "evening"},
+                              "clubbing", "cocktail", "dinner", "fancy", "evening",
+                              "club", "dancing", "drinks", "bar", "lounge"},
                 "work": {"work", "office", "professional", "business", "meeting"},
                 "casual": {"casual", "brunch", "errand", "weekend", "cozy", "chill", "lazy"},
                 "active": {"workout", "gym", "hike", "run", "sport", "athletic"},
