@@ -351,7 +351,7 @@ def filter_by_occasion_semantic(candidates: list[dict], occasion: str = None,
             blocked_groups |= _OCCASION_HARD_BLOCK_LAYER.get(target_group, set())
 
     all_scored = []
-    anchors = _get_inference_anchors() if blocked_groups else {}
+    anchors = _get_inference_anchors() if (blocked_groups or target_group) else {}
     for c in candidates:
         item_tags = set((c.get("occasion_tags") or []) + (c.get("style_tags") or []))
 
@@ -387,7 +387,17 @@ def filter_by_occasion_semantic(candidates: list[dict], occasion: str = None,
         if target_group and not mood_text:
             compat = _OCCASION_SOFT_COMPAT.get(target_group, {}).get(item_group, 0.5)
 
-        c["_occasion_score"] = clip_score + (compat - 0.5) * 0.15
+        emb_occ_nudge = 0.0
+        if target_group and c.get("embedding") and anchors:
+            item_emb = np.array(c["embedding"], dtype=np.float32)
+            norm = np.linalg.norm(item_emb)
+            if norm > 0:
+                tgt_anchor = anchors.get(("occasion", target_group))
+                if tgt_anchor is not None:
+                    tgt_sim = float(np.dot(item_emb, tgt_anchor) / (norm * np.linalg.norm(tgt_anchor)))
+                    emb_occ_nudge = (tgt_sim - 0.3) * 0.3
+
+        c["_occasion_score"] = clip_score + (compat - 0.5) * 0.15 + emb_occ_nudge
         c["_occasion_group"] = item_group
         all_scored.append(c)
 
@@ -400,16 +410,18 @@ def filter_by_occasion_semantic(candidates: list[dict], occasion: str = None,
     if best > 0:
         cutoff_pct = 0.85 if occasion == "work" else 0.7
         cutoff = best * cutoff_pct
-        filtered = [c for c in all_scored if c.get("_occasion_score", 0) >= cutoff]
+    else:
+        max_drop = 0.08 if occasion == "work" else 0.15
+        cutoff = best - max_drop
 
-        logger.info(
-            f"Occasion filter ({occasion}): best={best:.3f}, cutoff={cutoff:.3f}, "
-            f"kept {len(filtered)}/{len(all_scored)} "
-            f"(hard-blocked {len(candidates) - len(all_scored)} incompatible)")
+    filtered = [c for c in all_scored if c.get("_occasion_score", 0) >= cutoff]
 
-        return filtered if len(filtered) >= 3 else all_scored[:min(5, len(all_scored))]
+    logger.info(
+        f"Occasion filter ({occasion or mood_text}): best={best:.3f}, cutoff={cutoff:.3f}, "
+        f"kept {len(filtered)}/{len(all_scored)} "
+        f"(hard-blocked {len(candidates) - len(all_scored)} incompatible)")
 
-    return all_scored
+    return filtered if len(filtered) >= 3 else all_scored[:min(5, len(all_scored))]
 
 
 def infer_product_type(item_name: str, slot: str) -> dict:
@@ -613,9 +625,8 @@ def apply_direction_rerank(
         
         return score
     
-    # Sort by score (higher is better), maintaining relative order for ties
     scored = [(c, score_candidate(c)) for c in candidates]
-    scored.sort(key=lambda x: -x[1])
+    scored.sort(key=lambda x: -(x[1] + x[0].get("_occasion_score", 0) * 0.5))
     
     return [c for c, _ in scored]
 

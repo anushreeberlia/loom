@@ -2196,7 +2196,7 @@ async def get_daily_outfits(
         cursor_cache = conn_cache.cursor()
         try:
             cursor_cache.execute(
-                """SELECT outfits_json, weather_json FROM daily_outfit_cache 
+                """SELECT outfits_json, weather_json, created_at FROM daily_outfit_cache 
                    WHERE user_id = %s AND cache_date = %s AND occasion = %s""",
                 (user_id, user_today, occasion_name)
             )
@@ -2205,6 +2205,7 @@ async def get_daily_outfits(
                 logger.info(f"Cache hit for user {user_id}, occasion {occasion_name}")
                 cached_outfits = cached[0]
                 cached_weather = cached[1]
+                cache_created = cached[2]
 
                 _REQUIRED_SLOTS = {"bottom", "shoes"}
                 for outfit in (cached_outfits or []):
@@ -2214,6 +2215,15 @@ async def get_daily_outfits(
                                     _REQUIRED_SLOTS - filled)
                         cached = None
                         break
+
+                _SCORING_VERSION_TS = "2026-05-15 07:00:00"
+                if cached and cache_created:
+                    from datetime import datetime as _dt
+                    cutoff = _dt.fromisoformat(_SCORING_VERSION_TS)
+                    if cache_created < cutoff:
+                        logger.info("Cache stale: created %s before scoring version %s",
+                                    cache_created, _SCORING_VERSION_TS)
+                        cached = None
 
             if cached:
                 cached_outfits = cached[0]

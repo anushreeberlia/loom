@@ -7,14 +7,17 @@ ablated configurations, logging score breakdowns, violation rates,
 diversity metrics, and latency.
 
 Ablations:
-  1. full          — complete system (baseline)
-  2. random        — random retrieval from correct categories (trivial baseline)
-  3. no_blend      — image-only embeddings (alpha=1.0, beta=0.0)
-  4. no_occasion   — disable vibe/anti-vibe occasion filtering
-  5. no_material   — disable semantic material weight checking
-  6. no_noise      — deterministic retrieval (no distance perturbation)
-  7. no_direction  — zero out direction reranking bonuses
-  8. no_formality  — disable formality consistency penalty
+  1. full               — complete system (baseline)
+  2. random             — random retrieval from correct categories (trivial baseline)
+  3. no_occasion        — disable occasion semantic filtering entirely
+  4. no_emb_harmony     — disable embedding-based visual harmony in color scoring
+  5. no_emb_loudness    — fall back to keyword-only visual loudness (no embedding)
+  6. no_emb_formality   — fall back to keyword-only formality (no embedding)
+  7. no_emb_layer_rerank— disable embedding-based layer reranking
+  8. no_emb_mood_classify— disable CLIP mood classification (no occasion group)
+  9. no_direction       — zero out direction reranking bonuses
+  10. no_formality      — disable formality consistency penalty
+  11. no_noise          — deterministic retrieval (no distance perturbation)
 
 Usage:
   # Full ablation on 100 anchors:
@@ -60,7 +63,11 @@ logger = logging.getLogger(__name__)
 
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://localhost:5432/outfit_styler")
 
-ALL_ABLATIONS = ["full", "random", "no_blend", "no_occasion", "no_material", "no_noise", "no_direction", "no_formality"]
+ALL_ABLATIONS = [
+    "full", "random", "no_occasion", "no_emb_harmony", "no_emb_loudness",
+    "no_emb_formality", "no_emb_layer_rerank", "no_emb_mood_classify",
+    "no_direction", "no_formality", "no_noise",
+]
 
 
 # ── Load anchor items from DB ─────────────────────────────────────────────────
@@ -195,15 +202,44 @@ def _make_ablation_patches(ablation: str) -> list:
         patches.append(patch.object(ret_mod, "filter_by_occasion_semantic",
                                     lambda candidates, *a, **kw: candidates))
 
-    elif ablation == "no_texture":
+    elif ablation == "no_emb_harmony":
         import services.outfit as outfit_mod
-        patches.append(patch.object(outfit_mod, "check_texture_contrast",
+        patches.append(patch.object(outfit_mod, "_embedding_visual_harmony",
                                     lambda *a, **kw: 0.0))
 
-    elif ablation == "no_layer_just":
+    elif ablation == "no_emb_loudness":
         import services.outfit as outfit_mod
-        patches.append(patch.object(outfit_mod, "check_layer_justification",
-                                    lambda *a, **kw: 0.0))
+        _orig_loudness = outfit_mod.compute_visual_loudness
+        def _keyword_only_loudness(item, enriched_data=None):
+            saved = item.get("embedding")
+            item["embedding"] = None
+            result = _orig_loudness(item, enriched_data or {})
+            item["embedding"] = saved
+            return result
+        patches.append(patch.object(outfit_mod, "compute_visual_loudness",
+                                    _keyword_only_loudness))
+
+    elif ablation == "no_emb_formality":
+        import services.outfit as outfit_mod
+        _orig_formality = outfit_mod.infer_formality_continuous
+        def _keyword_only_formality(item):
+            saved = item.get("embedding")
+            item["embedding"] = None
+            result = _orig_formality(item)
+            item["embedding"] = saved
+            return result
+        patches.append(patch.object(outfit_mod, "infer_formality_continuous",
+                                    _keyword_only_formality))
+
+    elif ablation == "no_emb_layer_rerank":
+        import services.retrieval as ret_mod
+        patches.append(patch.object(ret_mod, "_rerank_by_embedding_harmony",
+                                    lambda candidates, *a, **kw: candidates))
+
+    elif ablation == "no_emb_mood_classify":
+        import services.retrieval as ret_mod
+        patches.append(patch.object(ret_mod, "classify_mood_to_group",
+                                    lambda *a, **kw: None))
 
     elif ablation == "no_noise":
         _orig_random_uniform = random.uniform
@@ -282,13 +318,19 @@ def generate_with_ablation(item: dict, ablation: str, shop_domain: str = None,
 
 # ── Compute metrics from generation results ──────────────────────────────────
 
+def _mean(vals):
+    return round(sum(vals) / max(1, len(vals)), 4) if vals else 0.0
+
+
 def compute_metrics(all_results: list[dict]) -> dict:
     """Aggregate metrics across all anchor items for one ablation."""
     total_outfits = 0
     latencies = []
     outfit_scores = []
     silhouette_scores = []
+    color_scores = []
     narrative_scores = []
+    finishing_scores = []
     hard_violations = 0
     total_scored = 0
 
@@ -304,8 +346,12 @@ def compute_metrics(all_results: list[dict]) -> dict:
             bd = sd.get("breakdown", {})
             if bd.get("silhouette") is not None:
                 silhouette_scores.append(bd["silhouette"])
+            if bd.get("color_surfaces") is not None:
+                color_scores.append(bd["color_surfaces"])
             if bd.get("texture_narrative") is not None:
                 narrative_scores.append(bd["texture_narrative"])
+            if bd.get("finishing") is not None:
+                finishing_scores.append(bd["finishing"])
             if total_score <= -1.0:
                 hard_violations += 1
 
@@ -316,7 +362,7 @@ def compute_metrics(all_results: list[dict]) -> dict:
         for outfit in result["outfits"]:
             outfit_colors = set()
             outfit_categories = set()
-            for item in outfit.get("outfit_items", []):
+            for item in outfit.get("items", outfit.get("outfit_items", [])):
                 c = item.get("primary_color")
                 if c:
                     outfit_colors.add(c)
@@ -336,30 +382,32 @@ def compute_metrics(all_results: list[dict]) -> dict:
         "n_anchors": len(all_results),
         "total_outfits": total_outfits,
         "outfits_per_anchor": round(total_outfits / max(1, len(all_results)), 2),
-        "mean_score": round(sum(outfit_scores) / max(1, len(outfit_scores)), 3) if outfit_scores else 0,
-        "mean_silhouette": round(sum(silhouette_scores) / max(1, len(silhouette_scores)), 3) if silhouette_scores else 0,
-        "mean_narrative": round(sum(narrative_scores) / max(1, len(narrative_scores)), 3) if narrative_scores else 0,
+        "mean_score": _mean(outfit_scores),
+        "mean_silhouette": _mean(silhouette_scores),
+        "mean_color": _mean(color_scores),
+        "mean_narrative": _mean(narrative_scores),
+        "mean_finishing": _mean(finishing_scores),
         "hard_violation_pct": round(100 * hard_violations / max(1, total_scored), 1),
         "mean_latency_ms": round(sum(latencies) / max(1, len(latencies)), 1),
         "p95_latency_ms": round(sorted(latencies)[int(0.95 * len(latencies))] if latencies else 0, 1),
-        "mean_color_spread": round(sum(color_spreads) / max(1, len(color_spreads)), 2) if color_spreads else 0,
-        "mean_slot_diversity": round(sum(subtype_diversities) / max(1, len(subtype_diversities)), 2) if subtype_diversities else 0,
+        "mean_color_spread": _mean(color_spreads),
+        "mean_slot_diversity": _mean(subtype_diversities),
     }
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def print_ablation_table(metrics_by_ablation: dict):
-    header = (f"{'Ablation':<16} {'Score':>7} {'Sim':>6} {'DirB':>6} {'Viol%':>6} "
-              f"{'Colors':>7} {'Slots':>6} {'ms':>7} {'P95':>7}")
+    header = (f"{'Ablation':<22} {'Total':>7} {'Silh':>6} {'Color':>6} {'Narr':>6} "
+              f"{'Finish':>6} {'Viol%':>6} {'Slots':>6} {'ms':>7}")
     print("\n" + "=" * len(header))
     print(header)
     print("-" * len(header))
     for ablation, m in metrics_by_ablation.items():
-        print(f"{ablation:<16} {m['mean_score']:>7.3f} {m['mean_sim']:>6.3f} "
-              f"{m['mean_dir_bonus']:>6.3f} {m['hard_violation_pct']:>5.1f}% "
-              f"{m['mean_color_spread']:>7.2f} {m['mean_slot_diversity']:>6.2f} "
-              f"{m['mean_latency_ms']:>6.0f} {m['p95_latency_ms']:>6.0f}")
+        print(f"{ablation:<22} {m['mean_score']:>7.3f} {m['mean_silhouette']:>6.3f} "
+              f"{m['mean_color']:>6.3f} {m['mean_narrative']:>6.3f} "
+              f"{m['mean_finishing']:>6.3f} {m['hard_violation_pct']:>5.1f}% "
+              f"{m['mean_slot_diversity']:>6.2f} {m['mean_latency_ms']:>6.0f}")
     print("=" * len(header))
 
 
