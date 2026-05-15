@@ -2428,6 +2428,30 @@ async def get_daily_outfits(
     import random
     from datetime import datetime, timedelta
     
+    # When refreshing, read previously shown top IDs from cache so we can avoid them
+    refresh_exclude_ids = set()
+    if refresh:
+        try:
+            conn_prev = get_db_connection()
+            cur_prev = conn_prev.cursor()
+            cur_prev.execute(
+                """SELECT outfits_json FROM daily_outfit_cache
+                   WHERE user_id = %s AND cache_date = %s AND occasion = %s""",
+                (user_id, user_today, occasion_name)
+            )
+            row_prev = cur_prev.fetchone()
+            if row_prev and row_prev[0]:
+                for outfit in row_prev[0]:
+                    base_id = (outfit.get("base_item") or {}).get("id")
+                    if base_id:
+                        refresh_exclude_ids.add(base_id)
+            cur_prev.close()
+            conn_prev.close()
+            if refresh_exclude_ids:
+                logger.info(f"Refresh: excluding previously shown tops {refresh_exclude_ids}")
+        except Exception:
+            pass
+
     # Get recent top suggestions for this user+occasion (FIFO queue)
     # Only use rotation for default occasion (no manual mood or occasion)
     recent_suggestions = {}
@@ -2455,21 +2479,21 @@ async def get_daily_outfits(
         """Score item, penalizing recently suggested tops."""
         base_score = item_score(item)
         item_id = item["id"]
-        
+
+        if item_id in refresh_exclude_ids:
+            base_score -= 100
+
         if item_id in recent_suggestions:
             last_suggested = recent_suggestions[item_id]
             if last_suggested:
                 days_ago = (datetime.now() - last_suggested).days
-                # Heavy penalty for recently suggested (within 3 days)
-                # Gradually decreases over time
                 if days_ago < 1:
-                    base_score -= 20  # Very recent - strong penalty
+                    base_score -= 20
                 elif days_ago < 3:
-                    base_score -= 10  # Recent - moderate penalty
+                    base_score -= 10
                 elif days_ago < 7:
-                    base_score -= 5   # Within a week - small penalty
-                # After 7 days, no penalty - back in rotation
-        
+                    base_score -= 5
+
         return base_score
     
     scored_tops = [(item, score_with_recency(item)) for item in tops_only]

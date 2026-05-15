@@ -92,21 +92,49 @@ _OCCASION_COMPAT = {
 }
 
 
+_WEAK_CASUAL_TAGS = {"everyday", "casual"}
+
+_STRONG_GOING_OUT_TAGS = {"party", "clubbing", "cocktail", "dinner", "date",
+                          "date-night", "evening", "night-out", "going-out"}
+_STRONG_WORK_TAGS = {"work", "office", "business", "professional"}
+_STRONG_ACTIVE_TAGS = {"gym", "workout", "sport", "athletic", "hiking"}
+
+
 def infer_outfit_occasion(item: dict) -> str:
     """
     Derive the dominant occasion group from an item's occasion_tags, style_tags,
     and material. Returns one of: 'going-out', 'work', 'casual', 'active'.
+
+    Explicit occasion tags (party, work, gym) are weighted heavily.
+    'everyday' is treated as a weak default that doesn't override specific signals.
     """
     occ_tags = set(t.lower() for t in (item.get("occasion_tags") or []))
     style_tags = set(t.lower() for t in (item.get("style_tags") or []))
     material = (item.get("material") or "").lower()
-    all_signals = occ_tags | style_tags
 
     scores = {"going-out": 0, "work": 0, "casual": 0, "active": 0}
 
-    for group, keywords in _OCCASION_GROUPS.items():
-        overlap = all_signals & keywords
-        scores[group] += len(overlap) * 2
+    strong_go = occ_tags & _STRONG_GOING_OUT_TAGS
+    strong_wk = occ_tags & _STRONG_WORK_TAGS
+    strong_ac = occ_tags & _STRONG_ACTIVE_TAGS
+    has_specific_occ = bool(strong_go or strong_wk or strong_ac)
+
+    scores["going-out"] += len(strong_go) * 3
+    scores["work"] += len(strong_wk) * 3
+    scores["active"] += len(strong_ac) * 3
+
+    has_everyday = "everyday" in occ_tags
+    has_casual_occ = "casual" in occ_tags
+    if has_specific_occ:
+        if has_everyday:
+            scores["casual"] += 1
+        if has_casual_occ:
+            scores["casual"] += 1
+    else:
+        if has_everyday:
+            scores["casual"] += 1
+        if has_casual_occ:
+            scores["casual"] += 2
 
     if any(m in material for m in _DRESSY_MATERIALS):
         scores["going-out"] += 3
@@ -117,14 +145,17 @@ def infer_outfit_occasion(item: dict) -> str:
     if any(m in material for m in _GOING_OUT_MATERIALS):
         scores["going-out"] += 2
 
-    dressy_styles = all_signals & {"elegant", "chic", "sexy", "glamorous", "edgy"}
-    scores["going-out"] += len(dressy_styles)
+    dressy_styles = style_tags & {"elegant", "chic", "sexy", "glamorous", "edgy"}
+    scores["going-out"] += len(dressy_styles) * 2
 
-    work_styles = all_signals & {"workwear", "professional", "classic"}
-    scores["work"] += len(work_styles)
+    work_styles = style_tags & {"workwear", "professional", "classic"}
+    scores["work"] += len(work_styles) * 2
 
-    casual_styles = all_signals & {"basic", "relaxed", "sporty"}
+    casual_styles = style_tags & {"basic", "relaxed", "sporty"}
     scores["casual"] += len(casual_styles)
+
+    if "casual" in style_tags and not dressy_styles and not has_specific_occ:
+        scores["casual"] += 1
 
     if max(scores.values()) == 0:
         return "casual"
