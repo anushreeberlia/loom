@@ -2517,12 +2517,14 @@ async def get_daily_outfits(
     if scored_tops:
         best_score = scored_tops[0][1] if scored_tops else 0
         
-        # Mood requests: tighter window + less jitter so semantic signal dominates
-        # Default: wider window + more jitter for daily variety
-        tier_window = 2 if has_manual_mood else 5
-        jitter_max = 1.0 if has_manual_mood else 3.0
+        # Tier window: include items reasonably close to the best score
+        # Jitter: random shuffle within the tier to create variety across requests
+        tier_window = 10 if has_manual_mood else 8
+        jitter_max = 5.0 if has_manual_mood else 4.0
         
         top_tier = [item for item, score in scored_tops if score >= best_score - tier_window]
+        if len(top_tier) < 5:
+            top_tier = [item for item, _ in scored_tops[:min(8, len(scored_tops))]]
         logger.info(f"Top tier ({best_score:.1f} to {best_score-tier_window:.1f}): {len(top_tier)} tops")
         
         randomized = [(item, score_with_recency(item) + random.uniform(0, jitter_max)) for item in top_tier]

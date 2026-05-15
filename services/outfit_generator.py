@@ -125,7 +125,9 @@ def _cascade_one_outfit(
             precomputed_embedding=emb,
             **retrieval_kw,
         )
-        round1_candidates[slot] = [c for c in cands if c["id"] not in used_ids]
+        after_used = [c for c in cands if c["id"] not in used_ids]
+        round1_candidates[slot] = after_used
+        logger.info("  R1 %s: retrieved %d -> after used_ids filter %d", slot, len(cands), len(after_used))
 
     chosen = {}
     if round1_slots:
@@ -139,6 +141,9 @@ def _cascade_one_outfit(
             chosen["bottom"] = best_bottom
         if best_shoes:
             chosen["shoes"] = best_shoes
+        logger.info("  Anchor pair: bottom=%s shoes=%s",
+                     best_bottom.get("name") if best_bottom else "NONE",
+                     best_shoes.get("name") if best_shoes else "NONE")
 
     # ── Round 2: third piece (top/layer) with silhouette context ──
     round2_slots = [s for s in all_slots if s in THIRD_PIECE_SLOTS]

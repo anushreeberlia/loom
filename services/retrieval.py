@@ -287,7 +287,9 @@ def filter_by_occasion_semantic(candidates: list[dict], occasion: str = None,
         mood_lower = mood_text.lower()
         _MOOD_TO_GROUP = {
             "going-out": {"night out", "dress to impress", "date night", "party",
-                          "clubbing", "cocktail", "dinner", "fancy", "evening"},
+                          "clubbing", "cocktail", "dinner", "fancy", "evening",
+                          "club", "dancing", "drinks", "bar", "lounge",
+                          "going out", "date"},
             "work": {"work", "office", "professional", "business", "meeting"},
             "active": {"workout", "gym", "hike", "run", "sport"},
         }
