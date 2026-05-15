@@ -15,6 +15,7 @@ from services.outfit import (
     build_base_item_text,
     get_preferred_colors,
     get_avoid_colors,
+    infer_outfit_occasion,
 )
 from services.fashion_clip import embed_text as _clip_embed_text, embed_texts as _clip_embed_texts
 
@@ -241,51 +242,82 @@ def compute_occasion_score(item_embedding: list[float], occasion: str = None,
     return score
 
 
-def filter_by_occasion_semantic(candidates: list[dict], occasion: str = None, 
+_OCCASION_ALIAS = {
+    "going-out": "going-out", "night-out": "going-out", "date-night": "going-out",
+    "work": "work", "office": "work",
+    "casual": "casual", "everyday": "casual",
+    "workout": "active",
+}
+
+_OCCASION_HARD_BLOCK = {
+    "going-out": {"active"},
+    "work": {"active"},
+    "active": {"going-out"},
+}
+
+_OCCASION_SOFT_COMPAT = {
+    "going-out": {"going-out": 1.0, "work": 0.6, "casual": 0.3, "active": 0.0},
+    "work":      {"work": 1.0, "going-out": 0.5, "casual": 0.4, "active": 0.0},
+    "casual":    {"casual": 1.0, "work": 0.6, "going-out": 0.6, "active": 0.5},
+    "active":    {"active": 1.0, "casual": 0.5, "work": 0.2, "going-out": 0.0},
+}
+
+
+def filter_by_occasion_semantic(candidates: list[dict], occasion: str = None,
                                 mood_text: str = None, threshold: float = -0.02) -> list[dict]:
     """
-    Filter and rank candidates by semantic occasion fit.
-    Uses relative filtering: keeps top half of scored candidates.
+    Filter and rank candidates by occasion fit.
+    Combines hard occasion-group filtering with CLIP semantic similarity.
     """
     if not mood_text and occasion not in OCCASION_SEMANTIC_CONTEXTS:
         return candidates
-    
+
     if not candidates:
         return candidates
-    
-    # Score all candidates
+
+    target_group = _OCCASION_ALIAS.get(occasion, "casual") if occasion else None
+    blocked_groups = _OCCASION_HARD_BLOCK.get(target_group, set()) if target_group else set()
+
     all_scored = []
     for c in candidates:
         item_tags = set((c.get("occasion_tags") or []) + (c.get("style_tags") or []))
-        
-        if not c.get("embedding"):
-            c["_occasion_score"] = 0
-        else:
-            score = compute_occasion_score(c["embedding"], occasion=occasion, 
-                                          mood_text=mood_text, item_tags=item_tags)
-            c["_occasion_score"] = score
+
+        item_group = infer_outfit_occasion(c)
+        if item_group in blocked_groups:
+            continue
+
+        clip_score = 0.0
+        if c.get("embedding"):
+            clip_score = compute_occasion_score(
+                c["embedding"], occasion=occasion,
+                mood_text=mood_text, item_tags=item_tags)
+
+        compat = 1.0
+        if target_group and not mood_text:
+            compat = _OCCASION_SOFT_COMPAT.get(target_group, {}).get(item_group, 0.5)
+
+        c["_occasion_score"] = clip_score + (compat - 0.5) * 0.15
+        c["_occasion_group"] = item_group
         all_scored.append(c)
-    
+
     all_scored.sort(key=lambda x: x.get("_occasion_score", 0), reverse=True)
-    
+
     if len(all_scored) <= 3:
         return all_scored
-    
-    # Keep items within threshold of the best score
-    # Work is stricter - need higher percentage of best score
+
     best = all_scored[0].get("_occasion_score", 0)
     if best > 0:
-        # Work occasion requires stricter filtering (85% of best)
-        # Other occasions use looser filtering (70% of best)
         cutoff_pct = 0.85 if occasion == "work" else 0.7
         cutoff = best * cutoff_pct
         filtered = [c for c in all_scored if c.get("_occasion_score", 0) >= cutoff]
-        
-        # Log for debugging
-        logger.info(f"Occasion filter ({occasion}): best={best:.3f}, cutoff={cutoff:.3f}, kept {len(filtered)}/{len(all_scored)}")
-        
-        return filtered if len(filtered) >= 3 else all_scored[:3]
-    
+
+        logger.info(
+            f"Occasion filter ({occasion}): best={best:.3f}, cutoff={cutoff:.3f}, "
+            f"kept {len(filtered)}/{len(all_scored)} "
+            f"(hard-blocked {len(candidates) - len(all_scored)} incompatible)")
+
+        return filtered if len(filtered) >= 3 else all_scored[:min(5, len(all_scored))]
+
     return all_scored
 
 

@@ -2338,7 +2338,7 @@ async def get_daily_outfits(
             from services.retrieval import compute_tag_mood_score
             tag_score = compute_tag_mood_score(style_tags, mood)
             score += tag_score * 50
-            
+
             if item.get("embedding"):
                 semantic_score = compute_occasion_score(
                     item["embedding"], mood_text=mood, item_tags=all_item_tags
@@ -2360,16 +2360,16 @@ async def get_daily_outfits(
                     target_group = group
                     break
             if item_occ == target_group:
-                score += 15
+                score += 25
             elif (target_group == "going-out" and item_occ == "casual") or \
                  (target_group == "work" and item_occ == "active"):
-                score -= 20
+                score -= 50
 
             formality_pt, _, _ = infer_formality_continuous(item)
             if target_group == "going-out" and formality_pt < 2.8:
-                score -= 15
+                score -= 40
             elif target_group == "work" and formality_pt < 3.0:
-                score -= 10
+                score -= 30
         else:
             # Auto occasion: use season, material, tag matching, and embeddings
             season_tags = item.get("season_tags") or []
@@ -2405,13 +2405,13 @@ async def get_daily_outfits(
                 score += 15
             elif (target_group == "going-out" and item_occ == "casual") or \
                  (target_group == "work" and item_occ == "active"):
-                score -= 20
+                score -= 30
 
             formality_pt, _, _ = infer_formality_continuous(item)
             if target_group == "going-out" and formality_pt < 2.8:
-                score -= 15
+                score -= 25
             elif target_group == "work" and formality_pt < 3.0:
-                score -= 10
+                score -= 15
 
             if weather_adjustments:
                 material = item.get("material") or ""
@@ -2474,15 +2474,17 @@ async def get_daily_outfits(
     
     scored_tops = [(item, score_with_recency(item)) for item in tops_only]
     scored_tops.sort(key=lambda x: x[1], reverse=True)
-    
-    logger.info(f"Scored {len(scored_tops)} tops for occasion: {occasion_name}")
-    for item, score in scored_tops[:8]:
+
+    logger.info(f"Scored {len(scored_tops)} tops for occasion={occasion_name}, manual_mood={has_manual_mood}")
+    for item, score in scored_tops[:10]:
         recency_note = ""
         if item["id"] in recent_suggestions:
             days = (datetime.now() - recent_suggestions[item["id"]]).days if recent_suggestions[item["id"]] else 0
-            recency_note = f" (last: {days}d ago)"
+            recency_note = f" (last:{days}d)"
+        base = item_score(item)
         tags_str = ",".join((item.get("style_tags") or [])[:3])
-        logger.info(f"  Top candidate: {item['name']} score={score:.1f} tags=[{tags_str}]{recency_note}")
+        mat = (item.get("material") or "?")[:10]
+        logger.info(f"  #{item['id']} {item['name']} base={base:.1f} rec={score:.1f} mat={mat} tags=[{tags_str}]{recency_note}")
     
     selected_bases = []
     used_ids = set()
@@ -2510,15 +2512,15 @@ async def get_daily_outfits(
             if len(selected_bases) >= 3:
                 break
         
-        # Fill from remaining tops if needed
         if len(selected_bases) < 3:
-            remaining = [(item, score) for item, score in scored_tops if item["id"] not in used_ids]
-            random.shuffle(remaining)
+            remaining = [(item, score) for item, score in scored_tops
+                         if item["id"] not in used_ids and score > -20]
+            remaining.sort(key=lambda x: x[1], reverse=True)
             for item, score in remaining:
                 item["score"] = score
                 selected_bases.append(item)
                 used_ids.add(item["id"])
-                logger.info(f"  Filled: {item['name']} (score={score})")
+                logger.info(f"  Filled: {item['name']} (score={score:.1f})")
                 if len(selected_bases) >= 3:
                     break
     

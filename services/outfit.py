@@ -113,6 +113,10 @@ def infer_outfit_occasion(item: dict) -> str:
     if any(m in material for m in _CASUAL_MATERIALS):
         scores["casual"] += 2
 
+    _GOING_OUT_MATERIALS = {"leather", "suede", "velvet", "patent"}
+    if any(m in material for m in _GOING_OUT_MATERIALS):
+        scores["going-out"] += 2
+
     dressy_styles = all_signals & {"elegant", "chic", "sexy", "glamorous", "edgy"}
     scores["going-out"] += len(dressy_styles)
 
