@@ -17,6 +17,7 @@ from services.outfit import (
     select_best_outfit,
     assemble_outfit,
     pick_anchor_pair,
+    infer_outfit_occasion,
 )
 from services.retrieval import retrieve_for_slot, build_query_text, get_batch_embeddings
 
@@ -233,6 +234,11 @@ def run_outfit_generation(
     base_embedding = item.get("embedding") or []
     directions = ["Classic", "Trendy", "Bold"]
 
+    effective_occasion = occasion
+    if not effective_occasion and not mood_text:
+        effective_occasion = infer_outfit_occasion(base_item)
+        logger.info("Inferred occasion from anchor: %s", effective_occasion)
+
     outfits_by_idx = {}
     used_ids_global = set()
     selection_order = list(range(len(directions)))
@@ -248,7 +254,7 @@ def run_outfit_generation(
             use_closet=use_closet,
             user_id=user_id,
             source=source,
-            occasion=occasion,
+            occasion=effective_occasion,
             mood_text=mood_text,
         )
         if result is None:

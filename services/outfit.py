@@ -63,6 +63,111 @@ STYLE_TAG_FORMALITY_NUDGE = {
     "lounge": -0.5, "activewear": -0.5,
 }
 
+# ── Occasion compatibility ────────────────────────────────────────────────────
+
+_OCCASION_GROUPS = {
+    "going-out": {"party", "going-out", "clubbing", "date", "dinner", "cocktail", "evening"},
+    "work":      {"work", "office", "professional", "business"},
+    "casual":    {"everyday", "casual", "weekend", "brunch", "errand"},
+    "active":    {"workout", "gym", "athletic", "sport", "hiking"},
+}
+
+_DRESSY_MATERIALS = {"chiffon", "satin", "silk", "mesh", "lace", "organza", "velvet", "sequin"}
+_CASUAL_MATERIALS = {"fleece", "terry", "canvas", "corduroy"}
+
+_OCCASION_COMPAT = {
+    ("going-out", "going-out"): 0.08,
+    ("going-out", "work"):      0.02,
+    ("going-out", "casual"):   -0.06,
+    ("going-out", "active"):   -0.10,
+    ("work",      "work"):      0.06,
+    ("work",      "casual"):   -0.03,
+    ("work",      "going-out"): 0.02,
+    ("work",      "active"):   -0.08,
+    ("casual",    "casual"):    0.04,
+    ("casual",    "going-out"):-0.04,
+    ("casual",    "work"):     -0.02,
+    ("casual",    "active"):    0.00,
+    ("active",    "active"):    0.04,
+}
+
+
+def infer_outfit_occasion(item: dict) -> str:
+    """
+    Derive the dominant occasion group from an item's occasion_tags, style_tags,
+    and material. Returns one of: 'going-out', 'work', 'casual', 'active'.
+    """
+    occ_tags = set(t.lower() for t in (item.get("occasion_tags") or []))
+    style_tags = set(t.lower() for t in (item.get("style_tags") or []))
+    material = (item.get("material") or "").lower()
+    all_signals = occ_tags | style_tags
+
+    scores = {"going-out": 0, "work": 0, "casual": 0, "active": 0}
+
+    for group, keywords in _OCCASION_GROUPS.items():
+        overlap = all_signals & keywords
+        scores[group] += len(overlap) * 2
+
+    if any(m in material for m in _DRESSY_MATERIALS):
+        scores["going-out"] += 3
+    if any(m in material for m in _CASUAL_MATERIALS):
+        scores["casual"] += 2
+
+    dressy_styles = all_signals & {"elegant", "chic", "sexy", "glamorous", "edgy"}
+    scores["going-out"] += len(dressy_styles)
+
+    work_styles = all_signals & {"workwear", "professional", "classic"}
+    scores["work"] += len(work_styles)
+
+    casual_styles = all_signals & {"basic", "relaxed", "sporty"}
+    scores["casual"] += len(casual_styles)
+
+    if max(scores.values()) == 0:
+        return "casual"
+    return max(scores, key=scores.get)
+
+
+def _item_occasion_group(item: dict) -> str:
+    """Get occasion group for a single item (cheaper version for scoring)."""
+    occ_tags = set(t.lower() for t in (item.get("occasion_tags") or []))
+    style_tags = set(t.lower() for t in (item.get("style_tags") or []))
+    material = (item.get("material") or "").lower()
+    all_signals = occ_tags | style_tags
+
+    scores = {"going-out": 0, "work": 0, "casual": 0, "active": 0}
+    for group, keywords in _OCCASION_GROUPS.items():
+        scores[group] += len(all_signals & keywords) * 2
+    if any(m in material for m in _DRESSY_MATERIALS):
+        scores["going-out"] += 3
+    if any(m in material for m in _CASUAL_MATERIALS):
+        scores["casual"] += 2
+    scores["going-out"] += len(all_signals & {"elegant", "chic", "sexy", "glamorous", "edgy"})
+    scores["work"] += len(all_signals & {"workwear", "professional", "classic"})
+    scores["casual"] += len(all_signals & {"basic", "relaxed", "sporty"})
+    if max(scores.values()) == 0:
+        return "casual"
+    return max(scores, key=scores.get)
+
+
+def check_occasion_coherence(base_item: dict, items_by_slot: dict) -> float:
+    """
+    Score occasion compatibility across all items. Returns a penalty (negative)
+    for mismatches and a bonus (positive) for strong agreement.
+    """
+    anchor_occ = infer_outfit_occasion(base_item)
+    total = 0.0
+    count = 0
+    for slot, item in items_by_slot.items():
+        if not item:
+            continue
+        item_occ = _item_occasion_group(item)
+        pair = (anchor_occ, item_occ)
+        reverse = (item_occ, anchor_occ)
+        compat = _OCCASION_COMPAT.get(pair, _OCCASION_COMPAT.get(reverse, 0.0))
+        total += compat
+        count += 1
+    return total
+
 COLOR_FORMALITY_NUDGE = {
     "black": 0.2, "navy": 0.2,
     "white": -0.2, "beige": -0.2, "neon": -0.2, "pastel": -0.2,
@@ -1261,7 +1366,7 @@ def score_finishing(
     story_clear: bool,
 ) -> float:
     """
-    Level 4. Intent alignment + direction match + formality coherence.
+    Level 4. Intent alignment + direction match + formality coherence + occasion coherence.
     """
     intent_alignment = cohesion.get("intent_alignment", 0.5)
 
@@ -1270,8 +1375,9 @@ def score_finishing(
     gated_direction = direction_bonus * direction_gate
 
     formality_pen = check_formality_coherence(enriched)
+    occasion_adj = check_occasion_coherence(base_item, items_by_slot)
 
-    score = 0.40 * intent_alignment + gated_direction - formality_pen
+    score = 0.35 * intent_alignment + gated_direction - formality_pen + occasion_adj
     return round(score, 4)
 
 
