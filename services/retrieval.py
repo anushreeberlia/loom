@@ -255,6 +255,10 @@ _OCCASION_HARD_BLOCK = {
     "active": {"going-out"},
 }
 
+_OCCASION_HARD_BLOCK_LAYER = {
+    "going-out": {"active", "casual"},
+}
+
 _OCCASION_SOFT_COMPAT = {
     "going-out": {"going-out": 1.0, "work": 0.6, "casual": 0.3, "active": 0.0},
     "work":      {"work": 1.0, "going-out": 0.5, "casual": 0.4, "active": 0.0},
@@ -264,10 +268,12 @@ _OCCASION_SOFT_COMPAT = {
 
 
 def filter_by_occasion_semantic(candidates: list[dict], occasion: str = None,
-                                mood_text: str = None, threshold: float = -0.02) -> list[dict]:
+                                mood_text: str = None, threshold: float = -0.02,
+                                slot: str = None) -> list[dict]:
     """
     Filter and rank candidates by occasion fit.
     Combines hard occasion-group filtering with CLIP semantic similarity.
+    For layers, applies stricter blocking (e.g. casual layers blocked for going-out).
     """
     if not mood_text and occasion not in OCCASION_SEMANTIC_CONTEXTS:
         return candidates
@@ -276,7 +282,24 @@ def filter_by_occasion_semantic(candidates: list[dict], occasion: str = None,
         return candidates
 
     target_group = _OCCASION_ALIAS.get(occasion, "casual") if occasion else None
-    blocked_groups = _OCCASION_HARD_BLOCK.get(target_group, set()) if target_group else set()
+    if not target_group and mood_text:
+        mood_lower = mood_text.lower()
+        _MOOD_TO_GROUP = {
+            "going-out": {"night out", "dress to impress", "date night", "party",
+                          "clubbing", "cocktail", "dinner", "fancy", "evening"},
+            "work": {"work", "office", "professional", "business", "meeting"},
+            "active": {"workout", "gym", "hike", "run", "sport"},
+        }
+        for group, keywords in _MOOD_TO_GROUP.items():
+            if any(kw in mood_lower for kw in keywords):
+                target_group = group
+                break
+
+    blocked_groups = set()
+    if target_group:
+        blocked_groups = set(_OCCASION_HARD_BLOCK.get(target_group, set()))
+        if slot == "layer":
+            blocked_groups |= _OCCASION_HARD_BLOCK_LAYER.get(target_group, set())
 
     all_scored = []
     for c in candidates:
@@ -1010,9 +1033,9 @@ def retrieve_for_slot(
     # mood_text takes priority - it allows ANY mood description to work via direct embedding
     # occasion is used as fallback for predefined occasions
     if mood_text:
-        candidates = filter_by_occasion_semantic(candidates, mood_text=mood_text)
+        candidates = filter_by_occasion_semantic(candidates, mood_text=mood_text, slot=slot)
     elif occasion and occasion in OCCASION_SEMANTIC_CONTEXTS:
-        candidates = filter_by_occasion_semantic(candidates, occasion=occasion)
+        candidates = filter_by_occasion_semantic(candidates, occasion=occasion, slot=slot)
     # Legacy keyword filtering (fallback if occasion not provided but prefer/avoid are)
     elif avoid_occasions or prefer_occasions:
         avoid_set = set(avoid_occasions or [])
