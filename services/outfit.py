@@ -1818,9 +1818,9 @@ def score_outfit(
     # Hierarchy dampening: broken foundation suppresses upper levels
     dampening = 1.0
     if not silhouette_solid:
-        dampening *= 0.70
+        dampening *= 0.50
     if not color_calm:
-        dampening *= 0.85
+        dampening *= 0.80
 
     # Bookend forgiveness: strong framing eases penalties in L2/L3
     bookend_raw = check_bookend_score(enriched, items_by_slot)
@@ -1829,7 +1829,7 @@ def score_outfit(
 
     total = (
         0.30 * l1_score +
-        0.25 * l2_score +
+        0.25 * l2_score * dampening +
         0.25 * l3_score * dampening +
         0.20 * l4_score * dampening
     )
