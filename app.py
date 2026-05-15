@@ -2527,20 +2527,46 @@ async def get_daily_outfits(
         randomized = [(item, score_with_recency(item) + random.uniform(0, jitter_max)) for item in top_tier]
         randomized.sort(key=lambda x: x[1], reverse=True)
         
+        import numpy as np
+
+        def _too_similar(candidate, selected, threshold=0.92):
+            """Check if candidate's image embedding is too close to any selected item."""
+            c_emb = candidate.get("embedding")
+            if not c_emb:
+                return False
+            c_arr = np.array(c_emb)
+            c_norm = np.linalg.norm(c_arr)
+            if c_norm == 0:
+                return False
+            for s in selected:
+                s_emb = s.get("embedding")
+                if not s_emb:
+                    continue
+                s_arr = np.array(s_emb)
+                s_norm = np.linalg.norm(s_arr)
+                if s_norm == 0:
+                    continue
+                sim = float(np.dot(c_arr, s_arr) / (c_norm * s_norm))
+                if sim >= threshold:
+                    return True
+            return False
+
         for item, rand_score in randomized:
-            if item["id"] not in used_ids:
-                item["score"] = item_score(item)  # Store actual score (without recency penalty)
+            if item["id"] not in used_ids and not _too_similar(item, selected_bases):
+                item["score"] = item_score(item)
                 selected_bases.append(item)
                 used_ids.add(item["id"])
                 logger.info(f"  Selected: {item['name']} (score={item['score']:.1f}, rand={rand_score:.1f})")
             if len(selected_bases) >= 3:
                 break
-        
+
         if len(selected_bases) < 3:
             remaining = [(item, score) for item, score in scored_tops
                          if item["id"] not in used_ids and score > -20]
             remaining.sort(key=lambda x: x[1], reverse=True)
             for item, score in remaining:
+                if _too_similar(item, selected_bases):
+                    continue
                 item["score"] = score
                 selected_bases.append(item)
                 used_ids.add(item["id"])
