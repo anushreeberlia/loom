@@ -407,11 +407,10 @@ def filter_by_occasion_semantic(candidates: list[dict], occasion: str = None,
         return all_scored
 
     best = all_scored[0].get("_occasion_score", 0)
-    if best > 0:
-        cutoff_pct = 0.85 if occasion == "work" else 0.7
-        cutoff = best * cutoff_pct
+    max_drop = 0.10 if occasion == "work" else 0.15
+    if best > 0.5:
+        cutoff = best * (0.85 if occasion == "work" else 0.7)
     else:
-        max_drop = 0.08 if occasion == "work" else 0.15
         cutoff = best - max_drop
 
     filtered = [c for c in all_scored if c.get("_occasion_score", 0) >= cutoff]
