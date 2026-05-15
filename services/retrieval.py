@@ -4,6 +4,7 @@ Vector search and candidate retrieval logic.
 
 import os
 import logging
+import numpy as np
 import psycopg2
 from dotenv import load_dotenv
 
@@ -413,6 +414,49 @@ def filter_by_subtype_diversity(
             preferred.append(c)
     
     return preferred + fallback
+
+
+def _rerank_by_embedding_harmony(candidates: list[dict], base_item: dict) -> list[dict]:
+    """Rerank layer candidates by embedding similarity to anchor top.
+
+    Sweet spot: 0.4-0.7 similarity (related but not identical).
+    Penalize very low (<0.2, clashing) and very high (>0.85, too matchy).
+    """
+    base_emb = base_item.get("embedding")
+    if not base_emb:
+        return candidates
+
+    base_arr = np.array(base_emb, dtype=np.float32)
+    base_norm = np.linalg.norm(base_arr)
+    if base_norm == 0:
+        return candidates
+
+    scored = []
+    for c in candidates:
+        c_emb = c.get("embedding")
+        if not c_emb:
+            scored.append((0.0, c))
+            continue
+        c_arr = np.array(c_emb, dtype=np.float32)
+        c_norm = np.linalg.norm(c_arr)
+        if c_norm == 0:
+            scored.append((0.0, c))
+            continue
+        sim = float(np.dot(base_arr, c_arr) / (base_norm * c_norm))
+
+        if 0.4 <= sim <= 0.7:
+            bonus = 0.10
+        elif 0.3 <= sim < 0.4 or 0.7 < sim <= 0.85:
+            bonus = 0.0
+        elif sim > 0.85:
+            bonus = -0.05
+        else:
+            bonus = -0.08
+
+        scored.append((bonus, c))
+
+    scored.sort(key=lambda x: x[0], reverse=True)
+    return [c for _, c in scored]
 
 
 def apply_direction_rerank(
@@ -1067,5 +1111,8 @@ def retrieve_for_slot(
     
     # Apply direction-specific reranking (slot-aware, base-aware for Bold)
     candidates = apply_direction_rerank(candidates, direction, slot, base_item, chosen_items)
-    
+
+    if slot == "layer" and base_item.get("embedding"):
+        candidates = _rerank_by_embedding_harmony(candidates, base_item)
+
     return candidates[:k]

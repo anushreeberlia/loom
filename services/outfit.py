@@ -167,6 +167,19 @@ def infer_outfit_occasion(item: dict) -> str:
         and any(m in material for m in _VERSATILE_MATS)):
         scores["going-out"] += 2
 
+    emb = item.get("embedding")
+    if emb:
+        emb_scores = _embedding_occasion_scores(emb)
+        if emb_scores:
+            best_occ = max(emb_scores, key=emb_scores.get)
+            best_sim = emb_scores[best_occ]
+            second_sim = max(v for k, v in emb_scores.items() if k != best_occ)
+            gap = best_sim - second_sim
+            if gap >= 0.03:
+                scores[best_occ] += 2
+            elif gap >= 0.01:
+                scores[best_occ] += 1
+
     if max(scores.values()) == 0:
         return "casual"
     return max(scores, key=scores.get)
@@ -265,6 +278,16 @@ _FORMALITY_ANCHORS = {
     3: "smart casual jeans cardigan boots flats loafers sweater casual shirt",
     4: "dressy polished blouse trousers blazer heels pumps chinos dress",
     5: "formal elegant gown tuxedo suit stilettos cocktail dress evening wear",
+}
+_OCCASION_ANCHORS = {
+    "going-out": "glamorous evening party outfit, date night cocktail dress, nightclub heels",
+    "work": "professional office attire, business meeting blazer, smart workwear",
+    "casual": "relaxed everyday casual wear, loungewear hoodie jeans t-shirt",
+    "active": "athletic gym workout sportswear, running sneakers yoga leggings",
+}
+_LOUDNESS_ANCHORS = {
+    "bold": "bold statement piece, eye-catching pattern, bright vivid color, sequin embellished",
+    "subtle": "subtle understated basic, plain minimal solid neutral, simple quiet muted",
 }
 _inference_anchor_cache = {}
 
@@ -593,6 +616,12 @@ def _get_inference_anchors():
     for level, text in _FORMALITY_ANCHORS.items():
         keys.append(("formality", level))
         texts.append(text)
+    for occ, text in _OCCASION_ANCHORS.items():
+        keys.append(("occasion", occ))
+        texts.append(text)
+    for label, text in _LOUDNESS_ANCHORS.items():
+        keys.append(("loudness", label))
+        texts.append(text)
 
     embeddings = get_batch_embeddings(texts)
     for key, emb in zip(keys, embeddings):
@@ -600,11 +629,53 @@ def _get_inference_anchors():
     return _inference_anchor_cache
 
 
+def _parse_embedding(raw):
+    """Safely convert embedding to numpy array regardless of storage format."""
+    if isinstance(raw, np.ndarray):
+        return raw
+    if isinstance(raw, str):
+        import json
+        return np.array(json.loads(raw), dtype=np.float32)
+    return np.array(raw, dtype=np.float32)
+
+
+def _embedding_occasion_scores(item_embedding) -> dict:
+    """Return {occasion: similarity} for an item embedding against occasion anchors."""
+    anchors = _get_inference_anchors()
+    item_emb = _parse_embedding(item_embedding)
+    norm = np.linalg.norm(item_emb)
+    if norm == 0:
+        return {}
+    scores = {}
+    for key, anchor_emb in anchors.items():
+        if key[0] == "occasion":
+            occ = key[1]
+            sim = float(np.dot(item_emb, anchor_emb) / (norm * np.linalg.norm(anchor_emb)))
+            scores[occ] = sim
+    return scores
+
+
+def _embedding_loudness(item_embedding) -> float:
+    """Return 0-1 loudness from embedding similarity to bold vs subtle prototypes."""
+    anchors = _get_inference_anchors()
+    item_emb = _parse_embedding(item_embedding)
+    norm = np.linalg.norm(item_emb)
+    if norm == 0:
+        return 0.3
+    bold_emb = anchors.get(("loudness", "bold"))
+    subtle_emb = anchors.get(("loudness", "subtle"))
+    if bold_emb is None or subtle_emb is None:
+        return 0.3
+    bold_sim = float(np.dot(item_emb, bold_emb) / (norm * np.linalg.norm(bold_emb)))
+    subtle_sim = float(np.dot(item_emb, subtle_emb) / (norm * np.linalg.norm(subtle_emb)))
+    raw = (bold_sim - subtle_sim + 0.3) / 0.6
+    return max(0.0, min(1.0, raw))
+
+
 def _embedding_classify(item_embedding, anchor_group: str, axis: str = None):
     """Classify an item by cosine similarity to cached text anchors."""
-    import numpy as np
     anchors = _get_inference_anchors()
-    item_emb = np.array(item_embedding)
+    item_emb = _parse_embedding(item_embedding)
     norm = np.linalg.norm(item_emb)
     if norm == 0:
         return None
@@ -640,6 +711,10 @@ def infer_formality_continuous(item: dict) -> tuple:
     """
     Infer continuous formality score from item metadata.
     Returns (point_score, range_min, range_max).
+
+    When an image embedding exists, it becomes the primary signal since it
+    captures visual formality cues (fabric drape, hardware, sheen) that
+    keywords miss. Keyword/tag/color nudges are applied on top.
     """
     if not item:
         return (3.0, 2.5, 3.5)
@@ -648,20 +723,27 @@ def infer_formality_continuous(item: dict) -> tuple:
     category = (item.get("category") or "").lower()
     combined = name_lower + " " + category
 
-    base = 3.0
-    matched = False
+    emb = item.get("embedding")
+    emb_base = None
+    if emb:
+        level = _embedding_classify(emb, "formality")
+        if level is not None:
+            emb_base = float(level)
+
+    kw_base = None
     for keywords, score in GARMENT_TYPE_BASE_SCORES:
         if any(kw in combined for kw in keywords):
-            base = score
-            matched = True
+            kw_base = score
             break
 
-    if not matched:
-        emb = item.get("embedding")
-        if emb:
-            level = _embedding_classify(emb, "formality")
-            if level is not None:
-                base = float(level)
+    if emb_base is not None and kw_base is not None:
+        base = emb_base * 0.65 + kw_base * 0.35
+    elif emb_base is not None:
+        base = emb_base
+    elif kw_base is not None:
+        base = kw_base
+    else:
+        base = 3.0
 
     material = (item.get("material") or "").lower()
     mat_nudge = 0.0
@@ -1136,9 +1218,29 @@ _LOUD_COLORS = {
 
 
 def compute_visual_loudness(item: dict, enriched_data: dict) -> float:
-    """How much attention does this item demand? Returns 0.0 - 1.0."""
-    loudness = 0.0
+    """How much attention does this item demand? Returns 0.0 - 1.0.
 
+    Uses embedding-based classification as primary signal when an image
+    embedding is available, with keyword heuristics as secondary nudge.
+    Falls back to pure keyword scoring for text-only embeddings.
+    """
+    emb = item.get("embedding")
+    if emb:
+        emb_loudness = _embedding_loudness(emb)
+
+        kw_nudge = 0.0
+        name = (item.get("name") or "").lower()
+        tags = " ".join(item.get("style_tags") or []).lower()
+        combined = name + " " + tags
+        if any(kw in combined for kw in STATEMENT_KEYWORDS):
+            kw_nudge += 0.10
+        tex = enriched_data.get("texture", ("neutral", "matte"))
+        if tex[1] == "shiny":
+            kw_nudge += 0.05
+
+        return min(emb_loudness + kw_nudge, 1.0)
+
+    loudness = 0.0
     color = (item.get("primary_color") or "").lower()
     if color in _LOUD_COLORS:
         loudness += 0.30
@@ -1310,6 +1412,66 @@ def _check_adjacent_color_clash(base_item: dict, items_by_slot: dict) -> float:
     return -0.08
 
 
+def _embedding_visual_harmony(base_item: dict, items_by_slot: dict) -> float:
+    """Pairwise embedding similarity for adjacent slots as a visual harmony signal.
+
+    High similarity (>0.7) between adjacent items = bonus (cohesive)
+    Very low similarity (<0.3) = penalty (likely clashing)
+    """
+    base_emb = base_item.get("embedding")
+    if not base_emb:
+        return 0.0
+
+    base_arr = _parse_embedding(base_emb)
+    base_norm = np.linalg.norm(base_arr)
+    if base_norm == 0:
+        return 0.0
+
+    score = 0.0
+    pairs_checked = 0
+
+    for slot in ("layer", "bottom"):
+        other = items_by_slot.get(slot)
+        if not other:
+            continue
+        other_emb = other.get("embedding")
+        if not other_emb:
+            continue
+        other_arr = _parse_embedding(other_emb)
+        other_norm = np.linalg.norm(other_arr)
+        if other_norm == 0:
+            continue
+
+        sim = float(np.dot(base_arr, other_arr) / (base_norm * other_norm))
+        pairs_checked += 1
+
+        if sim >= 0.7:
+            score += 0.03
+        elif sim >= 0.5:
+            score += 0.01
+        elif sim < 0.3:
+            score -= 0.04
+
+    layer = items_by_slot.get("layer")
+    bottom = items_by_slot.get("bottom")
+    if layer and bottom:
+        l_emb = layer.get("embedding")
+        b_emb = bottom.get("embedding")
+        if l_emb and b_emb:
+            l_arr = _parse_embedding(l_emb)
+            b_arr = _parse_embedding(b_emb)
+            l_norm = np.linalg.norm(l_arr)
+            b_norm = np.linalg.norm(b_arr)
+            if l_norm > 0 and b_norm > 0:
+                sim = float(np.dot(l_arr, b_arr) / (l_norm * b_norm))
+                if sim >= 0.7:
+                    score += 0.02
+                elif sim < 0.3:
+                    score -= 0.03
+
+    return round(score, 4)
+
+
 def score_color_surfaces(
     enriched: dict,
     items_by_slot: dict,
@@ -1317,16 +1479,17 @@ def score_color_surfaces(
     silhouette_solid: bool,
 ) -> tuple[float, bool]:
     """
-    Level 2. Color composition + bookend + calm.
+    Level 2. Color composition + bookend + calm + embedding harmony.
     Returns (score, is_calm).
     """
     composition = check_color_composition(base_item, items_by_slot)
     bookend = check_bookend_score(enriched, items_by_slot)
     calm = _check_color_calm(base_item, items_by_slot)
     adjacent = _check_adjacent_color_clash(base_item, items_by_slot)
+    harmony = _embedding_visual_harmony(base_item, items_by_slot)
 
     gate = 1.0 if silhouette_solid else 0.7
-    score = (composition + bookend + calm + adjacent) * gate
+    score = (composition + bookend + calm + adjacent + harmony) * gate
 
     is_calm = score > -0.02
     return round(score, 4), is_calm
