@@ -45,11 +45,15 @@ GARMENT_TYPE_BASE_SCORES = [
 ]
 
 TEXTURE_FORMALITY_NUDGE = {
-    "satin": 0.3, "silk": 0.3, "patent": 0.3, "sequin": 0.3, "metallic": 0.3,
+    "satin": 0.4, "silk": 0.4, "patent": 0.4, "sequin": 0.5, "metallic": 0.4,
+    "chiffon": 0.4, "sheer": 0.4, "mesh": 0.3, "lace": 0.3, "organza": 0.4,
+    "velvet": 0.3, "crepe": 0.2,
+    "leather": 0.1, "suede": 0.1,
     "cotton": 0.0, "polyester": 0.0, "denim": 0.0, "nylon": 0.0, "blend": 0.0,
     "jersey": 0.0, "rayon": 0.0, "viscose": 0.0, "linen": 0.0,
-    "fleece": -0.2, "knit": -0.2, "faux fur": -0.2, "terry": -0.2,
-    "corduroy": -0.3, "canvas": -0.3,
+    "ribbed": -0.1,
+    "fleece": -0.3, "knit": -0.3, "faux fur": -0.3, "terry": -0.3, "wool": -0.1,
+    "corduroy": -0.4, "canvas": -0.4,
 }
 
 STYLE_TAG_FORMALITY_NUDGE = {
