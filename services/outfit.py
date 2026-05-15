@@ -157,6 +157,16 @@ def infer_outfit_occasion(item: dict) -> str:
     if "casual" in style_tags and not dressy_styles and not has_specific_occ:
         scores["casual"] += 1
 
+    fit = (item.get("fit") or "").lower()
+    color = (item.get("primary_color") or "").lower()
+    _NIGHT_OUT_COLORS = {"black", "red", "navy", "white", "purple"}
+    _VERSATILE_MATS = {"cotton", "jersey", "polyester", "knit", "ribbed knit",
+                       "synthetic", "spandex"}
+    if (fit == "fitted"
+        and color in _NIGHT_OUT_COLORS
+        and any(m in material for m in _VERSATILE_MATS)):
+        scores["going-out"] += 2
+
     if max(scores.values()) == 0:
         return "casual"
     return max(scores, key=scores.get)
