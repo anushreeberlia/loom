@@ -314,6 +314,8 @@ _OCCASION_HARD_BLOCK = {
 
 _OCCASION_HARD_BLOCK_LAYER = {
     "going-out": {"active", "casual"},
+    "casual": {"active"},
+    "work": {"active"},
 }
 
 _OCCASION_SOFT_COMPAT = {
@@ -349,12 +351,31 @@ def filter_by_occasion_semantic(candidates: list[dict], occasion: str = None,
             blocked_groups |= _OCCASION_HARD_BLOCK_LAYER.get(target_group, set())
 
     all_scored = []
+    anchors = _get_inference_anchors() if blocked_groups else {}
     for c in candidates:
         item_tags = set((c.get("occasion_tags") or []) + (c.get("style_tags") or []))
 
         item_group = infer_outfit_occasion(c)
         if item_group in blocked_groups:
             continue
+
+        if blocked_groups and c.get("embedding"):
+            item_emb = np.array(c["embedding"], dtype=np.float32)
+            norm = np.linalg.norm(item_emb)
+            if norm > 0:
+                for bg in blocked_groups:
+                    anchor = anchors.get(("occasion", bg))
+                    if anchor is not None:
+                        sim = float(np.dot(item_emb, anchor) / (norm * np.linalg.norm(anchor)))
+                        tgt_anchor = anchors.get(("occasion", target_group))
+                        tgt_sim = float(np.dot(item_emb, tgt_anchor) / (norm * np.linalg.norm(tgt_anchor))) if tgt_anchor is not None else 0
+                        if sim > tgt_sim and sim > 0.35:
+                            logger.info("Embedding hard-block: %s (#%s) blocked-group %s sim=%.3f > target %s sim=%.3f",
+                                        c.get("name"), c.get("id"), bg, sim, target_group, tgt_sim)
+                            item_group = bg
+                            break
+                if item_group in blocked_groups:
+                    continue
 
         clip_score = 0.0
         if c.get("embedding"):
