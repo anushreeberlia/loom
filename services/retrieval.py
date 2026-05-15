@@ -359,7 +359,7 @@ def filter_by_occasion_semantic(candidates: list[dict], occasion: str = None,
         if item_group in blocked_groups:
             continue
 
-        if blocked_groups and c.get("embedding"):
+        if slot == "layer" and blocked_groups and c.get("embedding"):
             item_emb = np.array(c["embedding"], dtype=np.float32)
             norm = np.linalg.norm(item_emb)
             if norm > 0:
