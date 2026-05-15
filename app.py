@@ -2444,6 +2444,7 @@ async def get_daily_outfits(
     def item_score(item):
         """Score item by season, occasion, style, and material appropriateness."""
         from services.retrieval import compute_occasion_score
+        from services.outfit import infer_outfit_occasion, infer_formality_continuous
         score = 0
         
         occasion_tags = item.get("occasion_tags") or []
@@ -2451,8 +2452,6 @@ async def get_daily_outfits(
         all_item_tags = set(occasion_tags + style_tags)
         
         if has_manual_mood:
-            # Mood queries: tag-level + embedding scoring ONLY.
-            # Skip season/material — user chose a mood, honor it over weather.
             from services.retrieval import compute_tag_mood_score
             tag_score = compute_tag_mood_score(style_tags, mood)
             score += tag_score * 50
@@ -2462,6 +2461,32 @@ async def get_daily_outfits(
                     item["embedding"], mood_text=mood, item_tags=all_item_tags
                 )
                 score += semantic_score * 50
+
+            item_occ = infer_outfit_occasion(item)
+            mood_lower = mood.lower()
+            _mood_to_group = {
+                "going-out": {"night out", "dress to impress", "date night", "party",
+                              "clubbing", "cocktail", "dinner", "fancy", "evening"},
+                "work": {"work", "office", "professional", "business", "meeting"},
+                "casual": {"casual", "brunch", "errand", "weekend", "cozy", "chill", "lazy"},
+                "active": {"workout", "gym", "hike", "run", "sport", "athletic"},
+            }
+            target_group = "casual"
+            for group, keywords in _mood_to_group.items():
+                if any(kw in mood_lower for kw in keywords):
+                    target_group = group
+                    break
+            if item_occ == target_group:
+                score += 15
+            elif (target_group == "going-out" and item_occ == "casual") or \
+                 (target_group == "work" and item_occ == "active"):
+                score -= 20
+
+            formality_pt, _, _ = infer_formality_continuous(item)
+            if target_group == "going-out" and formality_pt < 2.8:
+                score -= 15
+            elif target_group == "work" and formality_pt < 3.0:
+                score -= 10
         else:
             # Auto occasion: use season, material, tag matching, and embeddings
             season_tags = item.get("season_tags") or []
@@ -2629,67 +2654,20 @@ async def get_daily_outfits(
         # Get occasion name for query text (better retrieval) and filtering
         occasion_name = occasion_info.get("occasion", "casual")
         
-        # Build query texts - use raw mood if provided, otherwise use predefined occasion
-        # This allows ANY mood description to work (beach day, funeral, etc.)
-        query_texts = []
-        for slot in slots:
-            if mood:
-                query_text = build_query_text(base_item, direction, slot, {}, mood_text=mood)
-            else:
-                query_text = build_query_text(base_item, direction, slot, {}, occasion=occasion_name)
-            query_texts.append(query_text)
-        
-        # Get embeddings
-        query_embeddings = get_batch_embeddings(query_texts)
-        candidates_by_slot = {}
-        for i, slot in enumerate(slots):
-            try:
-                # First try without re-using items from other outfits
-                # Use mood_text if provided (direct embedding), otherwise occasion (predefined)
-                candidates = retrieve_for_slot(
-                    base_item=base_item,
-                    direction=direction,
-                    slot=slot,
-                    exclude_ids=list(used_ids_global),  # Prefer diversity
-                    chosen_items={},
-                    k=10,
-                    precomputed_embedding=query_embeddings[i],
-                    use_closet=True,
-                    user_id=user_id,
-                    mood_text=mood if mood else None,  # Direct embedding for any mood!
-                    occasion=occasion_name if not mood else None
-                )
-                # If no good candidates, allow re-use
-                if not candidates:
-                    candidates = retrieve_for_slot(
-                        base_item=base_item,
-                        direction=direction,
-                        slot=slot,
-                        exclude_ids=[],  # Allow re-use as fallback
-                        chosen_items={},
-                        k=10,
-                        precomputed_embedding=query_embeddings[i],
-                        use_closet=True,
-                        user_id=user_id,
-                        mood_text=mood if mood else None,
-                        occasion=occasion_name if not mood else None
-                    )
-                candidates_by_slot[slot] = candidates
-            except Exception as e:
-                logger.error(f"Retrieval error for {slot}: {e}")
-                candidates_by_slot[slot] = []
-        
-        # Generate and score
-        # If weather forces layer, make it required
-        require_layer = weather_adjustments.get("force_layer", False) if weather_adjustments else False
-        candidate_outfits = generate_candidate_outfits(
-            slots=slots,
-            candidates_by_slot=candidates_by_slot,
-            max_candidates=8,
-            require_layer=require_layer
+        # Use cascade retrieval (same pipeline as single-item generation)
+        from services.outfit_generator import _cascade_one_outfit
+        full_item = {**base_item, "id": base_item["id"], "name": base_item["name"],
+                     "image_url": base_item["image_url"], "embedding": embedding}
+
+        cascade_result = _cascade_one_outfit(
+            full_item, base_item, embedding, direction, idx,
+            used_ids_global,
+            use_closet=True, user_id=user_id,
+            occasion=occasion_name if not mood else None,
+            mood_text=mood if mood else None,
         )
 
-        if not candidate_outfits:
+        if cascade_result is None:
             outfit = {
                 "direction": f"Outfit {idx + 1}",
                 "base_item": base_item,
@@ -2698,20 +2676,12 @@ async def get_daily_outfits(
                 "collage_url": None
             }
         else:
-            best_items, score_details = select_best_outfit(
-                candidate_outfits=candidate_outfits,
-                base_item=base_item,
-                direction=direction,
-                base_embedding=embedding,
-                taste_vector=taste_vector,
-                dislike_vector=dislike_vector
-            )
-            
-            # Track used items
+            best_items, score_details = cascade_result
+
             for slot, item in best_items.items():
                 if item:
                     used_ids_global.add(item["id"])
-            
+
             outfit = assemble_outfit(
                 direction, base_item, best_items, embedding,
                 taste_vector=taste_vector,
