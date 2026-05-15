@@ -2391,7 +2391,28 @@ async def get_daily_outfits(
                     item["embedding"], occasion=occasion_name, item_tags=all_item_tags
                 )
                 score += semantic_score * 15
-            
+
+            item_occ = infer_outfit_occasion(item)
+            auto_occ = occasion_name or "casual"
+            _occ_to_group = {
+                "going-out": "going-out", "night-out": "going-out", "date-night": "going-out",
+                "work": "work", "office": "work",
+                "casual": "casual", "everyday": "casual",
+                "workout": "active",
+            }
+            target_group = _occ_to_group.get(auto_occ, "casual")
+            if item_occ == target_group:
+                score += 15
+            elif (target_group == "going-out" and item_occ == "casual") or \
+                 (target_group == "work" and item_occ == "active"):
+                score -= 20
+
+            formality_pt, _, _ = infer_formality_continuous(item)
+            if target_group == "going-out" and formality_pt < 2.8:
+                score -= 15
+            elif target_group == "work" and formality_pt < 3.0:
+                score -= 10
+
             if weather_adjustments:
                 material = item.get("material") or ""
                 material_score = get_material_weather_score(material, weather_adjustments)
