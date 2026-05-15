@@ -683,21 +683,40 @@ def classify_texture(item: dict) -> tuple:
     return (structure, surface)
 
 
+_FLOWY_MATERIALS = {"chiffon", "sheer", "organza", "tulle", "georgette", "crepe"}
+_STRUCTURED_MATERIALS = {"knit", "wool", "fleece", "denim", "tweed", "quilted"}
+
+
 def infer_volume_class(item: dict) -> str:
-    """Infer volume class from fit field or name keywords."""
+    """Infer volume class from fit field, name keywords, and material drape."""
     if not item:
         return "regular"
 
     fit = (item.get("fit") or "").lower()
-    if fit and fit in FIT_TO_VOLUME:
-        return FIT_TO_VOLUME[fit]
-
+    material = (item.get("material") or "").lower()
     name_lower = item.get("name", "").lower()
-    for vol_class, keywords in VOLUME_KEYWORDS.items():
-        if any(kw in name_lower for kw in keywords):
-            return vol_class
+    category = (item.get("category") or "").lower()
 
-    return "regular"
+    vol = None
+    if fit and fit in FIT_TO_VOLUME:
+        vol = FIT_TO_VOLUME[fit]
+    if not vol:
+        for vol_class, keywords in VOLUME_KEYWORDS.items():
+            if any(kw in name_lower for kw in keywords):
+                vol = vol_class
+                break
+    if not vol:
+        vol = "regular"
+
+    is_flowy = any(m in material for m in _FLOWY_MATERIALS)
+    is_structured = any(m in material for m in _STRUCTURED_MATERIALS)
+
+    if is_flowy and vol == "relaxed":
+        vol = "relaxed"
+    elif is_structured and vol == "relaxed" and category == "layer":
+        vol = "regular"
+
+    return vol
 
 
 def infer_item_role(item: dict) -> str:
@@ -883,6 +902,9 @@ def check_one_hero_rule(enriched: dict) -> float:
     return 0.15
 
 
+_VOL_ORDER = {"slim": 0, "cropped": 1, "regular": 2, "relaxed": 3, "long": 4}
+
+
 def check_proportion_balance(enriched: dict) -> float:
     """
     One-volume-at-a-time check.
@@ -917,6 +939,14 @@ def check_proportion_balance(enriched: dict) -> float:
         elif layer_vol == "cropped" and bottom_vol == "relaxed":
             score += 0.03
         elif layer_vol == "long" and bottom_vol == "slim":
+            score += 0.03
+
+    if layer_vol and top_vol:
+        layer_rank = _VOL_ORDER.get(layer_vol, 2)
+        top_rank = _VOL_ORDER.get(top_vol, 2)
+        if layer_rank < top_rank:
+            score -= 0.07
+        elif layer_rank >= top_rank + 1:
             score += 0.03
 
     return round(score, 3)
