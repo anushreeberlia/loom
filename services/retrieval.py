@@ -654,15 +654,26 @@ def build_query_text(
     # Add sequential conditioning - reference already chosen items
     chosen_items = chosen_items or {}
     context_parts = [f"{base_color} {style} {base_category}"]
-    
+
+    _NEUTRALS = {"black", "white", "gray", "grey", "beige", "brown", "navy", "metallic",
+                 "off white", "dark grey", "light beige"}
+    chosen_non_neutrals = []
     for chosen_slot, chosen_item in chosen_items.items():
         if chosen_item:
             chosen_color = chosen_item.get("primary_color", "")
-            chosen_name = chosen_item.get("name", "").split()[-1]  # Last word usually describes item
+            chosen_name = chosen_item.get("name", "").split()[-1]
             context_parts.append(f"{chosen_color} {chosen_slot}")
-    
+            if chosen_color and chosen_color.lower() not in _NEUTRALS:
+                chosen_non_neutrals.append(chosen_color.lower())
+
+    if chosen_non_neutrals and slot in ("layer", "accessory"):
+        if len(chosen_non_neutrals) >= 2:
+            color_hint = "in neutral or metallic tones (outfit already has enough color)"
+        elif len(chosen_non_neutrals) == 1:
+            color_hint = f"in neutral tones or a shade that complements {chosen_non_neutrals[0]}"
+
     context = " + ".join(context_parts)
-    
+
     return f"{base_query} to complete an outfit with {context}"
 
 

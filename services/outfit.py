@@ -1474,6 +1474,49 @@ def score_outfit(
     }
 
 
+def pick_anchor_pair(
+    base_item: dict,
+    bottom_candidates: list[dict],
+    shoes_candidates: list[dict],
+    top_k: int = 3,
+) -> tuple[dict | None, dict | None]:
+    """
+    Pick the most formality-coherent (bottom, shoes) pair to anchor the silhouette.
+    Tries top_k of each, returns the pair with the tightest formality fit to the base.
+    """
+    if not bottom_candidates and not shoes_candidates:
+        return None, None
+
+    base_enriched = {}
+    point, rmin, rmax = infer_formality_continuous(base_item)
+    base_enriched["formality"] = point
+    base_enriched["formality_range"] = (rmin, rmax)
+
+    best_pair = (None, None)
+    best_score = -999
+
+    bottoms = bottom_candidates[:top_k] if bottom_candidates else [None]
+    shoes = shoes_candidates[:top_k] if shoes_candidates else [None]
+
+    for b in bottoms:
+        for s in shoes:
+            items = {"bottom": b, "shoes": s}
+            enriched = enrich_items(base_item, items)
+
+            silhouette_score = check_proportion_balance(enriched)
+            shoe_bottom = check_shoe_bottom_harmony(enriched, items)
+            formality_pen = check_formality_coherence(enriched)
+
+            bookend = check_bookend_score(enriched, items)
+
+            pair_score = silhouette_score + shoe_bottom + bookend - formality_pen
+            if pair_score > best_score:
+                best_score = pair_score
+                best_pair = (b, s)
+
+    return best_pair
+
+
 def generate_candidate_outfits(
     slots: list[str],
     candidates_by_slot: dict[str, list[dict]],

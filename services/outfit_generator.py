@@ -16,10 +16,15 @@ from services.outfit import (
     generate_candidate_outfits,
     select_best_outfit,
     assemble_outfit,
+    pick_anchor_pair,
 )
 from services.retrieval import retrieve_for_slot, build_query_text, get_batch_embeddings
 
 logger = logging.getLogger(__name__)
+
+SILHOUETTE_SLOTS = {"bottom", "shoes"}
+THIRD_PIECE_SLOTS = {"top", "layer"}
+FINISHER_SLOTS = {"accessory"}
 
 
 def _get_slots(base_category: str, outfit_idx: int) -> list:
@@ -29,13 +34,171 @@ def _get_slots(base_category: str, outfit_idx: int) -> list:
     scoring pipeline picks whichever scores higher - no slot is forced.
     """
     slots = get_slots_for_outfit(base_category, outfit_idx)
-    # Ensure both layer and accessory are candidates so scoring picks the better one
     if base_category in ["top", "bottom", "shoes", "dress"]:
         if "layer" not in slots:
             slots = slots + ["layer"]
         if "accessory" not in slots:
             slots = slots + ["accessory"]
     return slots
+
+
+def _retrieve_one(
+    slot, base_item, direction, exclude_ids, chosen_items, *,
+    shop_domain=None, use_closet=False, user_id="default", source=None,
+    occasion=None, mood_text=None, k=15,
+):
+    """Retrieve candidates for a single slot with a fresh embedding."""
+    query_text = build_query_text(
+        base_item, direction, slot, chosen_items or {},
+        occasion=occasion, mood_text=mood_text,
+    )
+    embs = get_batch_embeddings([query_text])
+    emb = embs[0] if embs else None
+    return retrieve_for_slot(
+        base_item=base_item,
+        direction=direction,
+        slot=slot,
+        exclude_ids=exclude_ids,
+        chosen_items=chosen_items,
+        k=k,
+        precomputed_embedding=emb,
+        shop_domain=shop_domain,
+        use_closet=use_closet,
+        user_id=user_id,
+        source=source,
+        occasion=occasion,
+        mood_text=mood_text,
+    )
+
+
+def _cascade_one_outfit(
+    item: dict,
+    base_item: dict,
+    base_embedding: list,
+    direction: str,
+    outfit_idx: int,
+    used_ids: set,
+    *,
+    shop_domain=None,
+    use_closet=False,
+    user_id="default",
+    source=None,
+    occasion=None,
+    mood_text=None,
+) -> dict | None:
+    """
+    Build a single outfit via three-round cascade retrieval:
+      Round 1 - Silhouette anchor: bottom + shoes chosen for formality coherence.
+      Round 2 - Third piece: layer/top retrieved with context from round 1.
+      Round 3 - Finisher: accessory retrieved with context from rounds 1+2.
+    Final scoring runs on the complete outfit.
+    """
+    all_slots = _get_slots(base_item["category"], outfit_idx)
+    exclude_ids = [item["id"]] + list(used_ids)
+
+    retrieval_kw = dict(
+        shop_domain=shop_domain, use_closet=use_closet,
+        user_id=user_id, source=source,
+        occasion=occasion, mood_text=mood_text,
+    )
+
+    # ── Round 1: silhouette anchor (bottom + shoes) ──
+    round1_slots = [s for s in all_slots if s in SILHOUETTE_SLOTS]
+
+    round1_queries = []
+    round1_slot_order = []
+    for slot in round1_slots:
+        qt = build_query_text(base_item, direction, slot, {}, occasion=occasion, mood_text=mood_text)
+        round1_queries.append(qt)
+        round1_slot_order.append(slot)
+
+    round1_embs = get_batch_embeddings(round1_queries) if round1_queries else []
+    round1_candidates = {}
+    for i, slot in enumerate(round1_slot_order):
+        emb = round1_embs[i] if i < len(round1_embs) else None
+        cands = retrieve_for_slot(
+            base_item=base_item, direction=direction, slot=slot,
+            exclude_ids=exclude_ids, chosen_items={}, k=15,
+            precomputed_embedding=emb,
+            **retrieval_kw,
+        )
+        round1_candidates[slot] = [c for c in cands if c["id"] not in used_ids]
+
+    chosen = {}
+    if round1_slots:
+        best_bottom, best_shoes = pick_anchor_pair(
+            base_item,
+            round1_candidates.get("bottom", []),
+            round1_candidates.get("shoes", []),
+            top_k=5,
+        )
+        if best_bottom:
+            chosen["bottom"] = best_bottom
+        if best_shoes:
+            chosen["shoes"] = best_shoes
+
+    # ── Round 2: third piece (top/layer) with silhouette context ──
+    round2_slots = [s for s in all_slots if s in THIRD_PIECE_SLOTS]
+    round2_candidates = {}
+    for slot in round2_slots:
+        cands = _retrieve_one(
+            slot, base_item, direction, exclude_ids, chosen, k=15, **retrieval_kw,
+        )
+        round2_candidates[slot] = [c for c in cands if c["id"] not in used_ids]
+
+    # ── Round 3: finisher (accessory) with full context ──
+    round3_context = dict(chosen)
+    for slot in round2_slots:
+        if round2_candidates.get(slot):
+            round3_context[slot] = round2_candidates[slot][0]
+
+    round3_slots = [s for s in all_slots if s in FINISHER_SLOTS]
+    round3_candidates = {}
+    for slot in round3_slots:
+        cands = _retrieve_one(
+            slot, base_item, direction, exclude_ids, round3_context, k=15, **retrieval_kw,
+        )
+        round3_candidates[slot] = [c for c in cands if c["id"] not in used_ids]
+
+    # ── Merge all candidates into per-slot lists for final combinatorial scoring ──
+    candidates_by_slot = {}
+    for slot in all_slots:
+        pool = (
+            round1_candidates.get(slot, [])
+            + round2_candidates.get(slot, [])
+            + round3_candidates.get(slot, [])
+        )
+        seen = set()
+        deduped = []
+        for c in pool:
+            if c["id"] not in seen and c["id"] not in used_ids:
+                seen.add(c["id"])
+                deduped.append(c)
+        if slot in chosen and chosen[slot]:
+            anchor_id = chosen[slot]["id"]
+            deduped = [chosen[slot]] + [c for c in deduped if c["id"] != anchor_id]
+
+        candidates_by_slot[slot] = deduped
+
+    has_layer_candidates = bool(candidates_by_slot.get("layer"))
+    candidate_outfits = generate_candidate_outfits(
+        slots=all_slots,
+        candidates_by_slot=candidates_by_slot,
+        max_candidates=8,
+        require_layer=has_layer_candidates,
+    )
+    if not candidate_outfits:
+        return None
+
+    best_items, score_details = select_best_outfit(
+        candidate_outfits=candidate_outfits,
+        base_item=base_item,
+        direction=direction,
+        base_embedding=base_embedding or None,
+    )
+    logger.info("  [%s] score=%.3f for %s", direction, score_details.get("total", 0), item.get("name"))
+
+    return best_items, score_details
 
 
 def run_outfit_generation(
@@ -45,21 +208,16 @@ def run_outfit_generation(
     use_closet: bool = False,
     user_id: str = "default",
     source: str = None,
+    occasion: str = None,
+    mood_text: str = None,
 ) -> list[dict]:
     """
-    Build outfits for one anchor item using the same pipeline as the non-Shopify app.
+    Build outfits for one anchor item using cascade retrieval.
 
-    Args:
-        item: Processed catalog item (id, name, category, image_url, embedding, primary_color,
-              style_tags, occasion_tags, product_url?, price?, shopify_product_id?)
-        shop_domain: If set, retrieve from shopify_catalog_items.
-        use_closet: If True, retrieve from user_closet_items.
-        user_id: For use_closet mode.
-        source: For main catalog (e.g. "h_and_m").
-
-    Returns:
-        List of {direction, explanation, outfit_items}.
-        outfit_items: list of {slot, id, name, image_url, product_url, price?, shopify_product_id?, is_anchor}.
+    Three directions (Classic, Trendy, Bold), each built via:
+      Round 1 - silhouette anchor (bottom + shoes)
+      Round 2 - third piece with silhouette context
+      Round 3 - finisher with full outfit context
     """
     base_item = {
         "category": item.get("category", "top"),
@@ -73,45 +231,8 @@ def run_outfit_generation(
         "name": item.get("name", ""),
     }
     base_embedding = item.get("embedding") or []
-    base_category = base_item["category"]
     directions = ["Classic", "Trendy", "Bold"]
 
-    # Phase 1: batch query embeddings
-    retrieval_tasks = []
-    query_texts = []
-    for outfit_idx, direction in enumerate(directions):
-        for slot in _get_slots(base_category, outfit_idx):
-            query_text = build_query_text(base_item, direction, slot, {})
-            retrieval_tasks.append((outfit_idx, direction, slot))
-            query_texts.append(query_text)
-
-    if not query_texts:
-        return []
-
-    query_embeddings = get_batch_embeddings(query_texts)
-    task_embeddings = {(t[0], t[1], t[2]): emb for t, emb in zip(retrieval_tasks, query_embeddings)}
-
-    # Phase 2: retrieve candidates per slot
-    all_candidates = {}
-    for outfit_idx, direction in enumerate(directions):
-        for slot in _get_slots(base_category, outfit_idx):
-            emb = task_embeddings.get((outfit_idx, direction, slot))
-            candidates = retrieve_for_slot(
-                base_item=base_item,
-                direction=direction,
-                slot=slot,
-                exclude_ids=[item["id"]],
-                chosen_items={},
-                k=15,
-                precomputed_embedding=emb,
-                shop_domain=shop_domain,
-                use_closet=use_closet,
-                user_id=user_id,
-                source=source,
-            )
-            all_candidates[(outfit_idx, slot)] = candidates
-
-    # Phase 3: score + select + assemble
     outfits_by_idx = {}
     used_ids_global = set()
     selection_order = list(range(len(directions)))
@@ -119,31 +240,21 @@ def run_outfit_generation(
 
     for outfit_idx in selection_order:
         direction = directions[outfit_idx]
-        slots = _get_slots(base_category, outfit_idx)
-        candidates_by_slot = {}
-        for slot in slots:
-            raw = all_candidates.get((outfit_idx, slot), [])
-            filtered = [c for c in raw if c["id"] not in used_ids_global]
-            random.shuffle(filtered)
-            candidates_by_slot[slot] = filtered
 
-        has_layer_candidates = bool(candidates_by_slot.get("layer"))
-        candidate_outfits = generate_candidate_outfits(
-            slots=slots,
-            candidates_by_slot=candidates_by_slot,
-            max_candidates=8,
-            require_layer=has_layer_candidates,
+        result = _cascade_one_outfit(
+            item, base_item, base_embedding, direction, outfit_idx,
+            used_ids_global,
+            shop_domain=shop_domain,
+            use_closet=use_closet,
+            user_id=user_id,
+            source=source,
+            occasion=occasion,
+            mood_text=mood_text,
         )
-        if not candidate_outfits:
+        if result is None:
             continue
 
-        best_items, score_details = select_best_outfit(
-            candidate_outfits=candidate_outfits,
-            base_item=base_item,
-            direction=direction,
-            base_embedding=base_embedding or None,
-        )
-        logger.info("  [%s] score=%.3f for %s", direction, score_details.get("total", 0), item.get("name"))
+        best_items, score_details = result
 
         for slot_item in best_items.values():
             if slot_item:
@@ -151,7 +262,6 @@ def run_outfit_generation(
 
         outfit_data = assemble_outfit(direction, base_item, best_items, base_embedding or None)
 
-        # Build outfit_items: non-anchor from best_items (have product_url, price, shopify_product_id from retrieval)
         outfit_items = []
         for slot_name, slot_item in best_items.items():
             if not slot_item:
@@ -168,7 +278,7 @@ def run_outfit_generation(
                 "is_anchor": False,
             })
         outfit_items.insert(0, {
-            "slot": base_category,
+            "slot": base_item["category"],
             "id": item["id"],
             "shopify_product_id": item.get("shopify_product_id"),
             "name": item["name"],
