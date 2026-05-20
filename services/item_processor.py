@@ -1,9 +1,14 @@
 """
-Unified item processing: single vision call + FashionCLIP embedding.
+Unified item processing: vision analysis + segmentation + FashionCLIP embedding.
 
 Used by:
 - Shopify app (shopify_catalog_items)
 - Non-Shopify app (catalog_items, user_closet_items)
+
+Pipeline:
+1. Vision analysis (Florence/OpenAI) on ORIGINAL image for metadata extraction
+2. Segmentation (U2-Net) to produce clean garment cutout
+3. FashionCLIP embedding on SEGMENTED image for cleaner representations
 
 Call process_item_from_image() to get (description, base_item, embedding);
 then persist to your store (Shopify table, closet table, etc.).
@@ -14,6 +19,7 @@ import httpx
 
 from services.vision import analyze_image
 from services.embedding import embed_item_blended
+from services.segmentation import segment_for_embedding
 
 logger = logging.getLogger(__name__)
 
@@ -36,11 +42,23 @@ def _build_description(base_item: dict) -> str:
 
 def process_item_from_image(image_bytes: bytes, item_name: str = "", backend: str = None) -> tuple:
     """
-    Single-call vision analysis + FashionCLIP image embedding.
+    Vision analysis + segmented embedding pipeline.
+
+    1. Run vision on the ORIGINAL image (full context helps metadata extraction)
+    2. Segment the garment (remove background)
+    3. Embed the SEGMENTED cutout (cleaner representation without background noise)
+
     Returns (description, base_item, embedding) for backward compatibility.
     """
+    # Vision uses original image -- context (body, room) helps identify garment type
     base_item = analyze_image(image_bytes, backend=backend)
-    embedding = embed_item_blended(image_bytes, base_item)
+
+    # Segment before embedding -- embedding should represent garment only
+    segmented_bytes = segment_for_embedding(image_bytes)
+
+    # Embed the clean cutout with text blending
+    embedding = embed_item_blended(segmented_bytes, base_item)
+
     description = _build_description(base_item)
     if item_name:
         logger.info(f"Processed: {item_name} -> {base_item.get('category')}")

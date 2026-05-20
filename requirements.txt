@@ -15,3 +15,7 @@ bcrypt
 onnxruntime
 transformers
 huggingface_hub
+ultralytics
+scipy
+opencv-python-headless
+rembg[gpu]

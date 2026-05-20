@@ -99,7 +99,7 @@ CREATE TABLE user_closet_items (
     id SERIAL PRIMARY KEY,
     user_id TEXT DEFAULT 'default',         -- For future multi-user support
     name VARCHAR(255),                       -- Auto-generated or user-provided
-    category VARCHAR(50) NOT NULL,           -- top, bottom, shoes, layer, accessory, dress
+    category VARCHAR(50),                    -- top, bottom, shoes, layer, accessory, dress (NULL while pending)
     image_url TEXT NOT NULL,                 -- Cloudinary URL
     
     -- Colors
@@ -116,6 +116,13 @@ CREATE TABLE user_closet_items (
     -- Vector embedding for retrieval (512 dims from FashionCLIP 2.0)
     embedding vector(512),
     
+    -- Batch processing state
+    status VARCHAR(20) NOT NULL DEFAULT 'ready',  -- pending | processing | ready | error
+    batch_id UUID,                                -- Groups items uploaded together
+    processing_error TEXT,                        -- Error message if status='error'
+    processed_at TIMESTAMP,                       -- When vision+embedding completed
+    retry_count INTEGER NOT NULL DEFAULT 0,       -- Number of retry attempts
+    
     created_at TIMESTAMP DEFAULT NOW()
 );
 
@@ -125,6 +132,12 @@ CREATE INDEX idx_closet_embedding ON user_closet_items
     
 -- Index for filtering by user
 CREATE INDEX idx_closet_user ON user_closet_items(user_id);
+
+-- Partial indexes for worker queries (only index rows that matter)
+CREATE INDEX idx_closet_status_pending ON user_closet_items (status, created_at)
+    WHERE status IN ('pending', 'processing');
+CREATE INDEX idx_closet_batch ON user_closet_items (batch_id)
+    WHERE batch_id IS NOT NULL;
 
 -- top_suggestions: FIFO queue for top rotation (don't show same tops every day)
 CREATE TABLE IF NOT EXISTS top_suggestions (

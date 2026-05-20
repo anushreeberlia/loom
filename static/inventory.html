@@ -9,21 +9,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
     <!-- Client-side background removal -->
-    <script type="module">
-        try {
-            // Using esm.sh CDN which handles ESM dependencies better than jsdelivr
-            const { removeBackground } = await import('https://esm.sh/@imgly/background-removal@1.4.5');
-            window.imglyRemoveBackground = removeBackground;
-            window.bgRemovalReady = true;
-            console.log('✅ Background removal module loaded successfully');
-            window.dispatchEvent(new Event('bgRemovalReady'));
-        } catch (e) {
-            console.error('Failed to load bg removal:', e);
-            window.imglyRemoveBackground = null;
-            window.bgRemovalReady = false;
-            window.dispatchEvent(new Event('bgRemovalReady'));
-        }
-    </script>
+    <!-- BG removal now handled server-side in the processing worker -->
     <style>
         :root {
             --bg: #faf9f7;
@@ -313,7 +299,7 @@
         /* Upload Actions */
         .upload-actions {
             display: grid;
-            grid-template-columns: 1fr 1fr;
+            grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
             gap: 1rem;
             margin-bottom: 2rem;
         }
@@ -578,8 +564,62 @@
             transition: box-shadow 0.2s;
         }
 
+        .item-card.pending {
+            opacity: 0.85;
+        }
+
+        .item-card.error {
+            border-color: #e74c3c;
+        }
+
         .item-card:hover {
             box-shadow: 0 4px 12px rgba(0,0,0,0.06);
+        }
+
+        .status-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 2;
+            pointer-events: none;
+        }
+
+        .status-overlay.processing {
+            background: rgba(255,255,255,0.5);
+        }
+
+        .status-overlay.error {
+            background: rgba(231, 76, 60, 0.12);
+            cursor: pointer;
+            pointer-events: all;
+        }
+
+        .retry-label {
+            background: rgba(231, 76, 60, 0.9);
+            color: white;
+            padding: 0.3rem 0.6rem;
+            border-radius: 3px;
+            font-size: 0.7rem;
+            font-weight: 500;
+            letter-spacing: 0.03em;
+        }
+
+        .spinner-small {
+            width: 24px;
+            height: 24px;
+            border: 2px solid var(--border);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
         }
 
         .item-image {
@@ -944,6 +984,128 @@
                 padding: 1rem;
             }
         }
+
+        /* Scan mode */
+        .scan-zone {
+            cursor: pointer;
+            border-style: solid;
+            border-color: var(--accent);
+            background: rgba(196, 30, 58, 0.03);
+        }
+
+        .scan-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            z-index: 9999;
+            background: #000;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .scan-overlay video {
+            flex: 1;
+            object-fit: cover;
+            width: 100%;
+        }
+
+        .scan-overlay canvas {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%;
+            height: calc(100% - 140px);
+            pointer-events: none;
+        }
+
+        .scan-target {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -60%);
+            width: 60%;
+            aspect-ratio: 3/4;
+            border: 2px dashed rgba(255,255,255,0.4);
+            border-radius: 8px;
+            pointer-events: none;
+        }
+
+        .scan-status {
+            position: absolute;
+            top: 1.5rem;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.7);
+            color: white;
+            padding: 0.5rem 1rem;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            white-space: nowrap;
+        }
+
+        .scan-tray {
+            position: absolute;
+            bottom: 70px;
+            left: 0; right: 0;
+            display: flex;
+            gap: 0.5rem;
+            padding: 0.5rem 1rem;
+            overflow-x: auto;
+        }
+
+        .scan-tray img {
+            width: 48px;
+            height: 64px;
+            object-fit: cover;
+            border: 2px solid white;
+            border-radius: 4px;
+        }
+
+        .scan-controls {
+            position: absolute;
+            bottom: 0;
+            left: 0; right: 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1rem 1.5rem;
+            background: rgba(0,0,0,0.8);
+        }
+
+        .scan-cancel-btn, .scan-done-btn, .scan-manual-btn {
+            padding: 0.6rem 1.2rem;
+            border: none;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            font-weight: 500;
+            cursor: pointer;
+        }
+
+        .scan-cancel-btn {
+            background: rgba(255,255,255,0.2);
+            color: white;
+        }
+
+        .scan-done-btn {
+            background: var(--accent);
+            color: white;
+        }
+
+        .scan-manual-btn {
+            background: white;
+            color: var(--text);
+        }
+
+        .scan-flash {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: white;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.15s;
+        }
+
+        .scan-flash.active {
+            opacity: 0.6;
+        }
     </style>
 </head>
 <body>
@@ -981,17 +1143,43 @@
 
         <div class="upload-actions">
             <label class="upload-zone" id="upload-zone">
-                <div class="upload-zone-icon">📁</div>
+                <div class="upload-zone-icon">&#128193;</div>
                 <div class="upload-zone-text">Select photos</div>
                 <div class="upload-zone-hint">tap to choose from gallery</div>
                 <input type="file" id="file-input" accept="image/*" multiple style="position:absolute;opacity:0;width:100%;height:100%;top:0;left:0;cursor:pointer;">
             </label>
             <label class="upload-zone camera-zone" id="camera-zone">
-                <div class="upload-zone-icon">📷</div>
+                <div class="upload-zone-icon">&#128247;</div>
                 <div class="upload-zone-text">Take photo</div>
                 <div class="upload-zone-hint">open camera</div>
                 <input type="file" id="camera-input" accept="image/*" capture="environment" style="position:absolute;opacity:0;width:100%;height:100%;top:0;left:0;cursor:pointer;">
             </label>
+            <div class="upload-zone scan-zone" id="scan-zone" onclick="startScanMode()">
+                <div class="upload-zone-icon">&#128270;</div>
+                <div class="upload-zone-text">Scan</div>
+                <div class="upload-zone-hint">auto-detect items</div>
+            </div>
+            <label class="upload-zone video-zone">
+                <div class="upload-zone-icon">&#127909;</div>
+                <div class="upload-zone-text">Video</div>
+                <div class="upload-zone-hint">scan from video</div>
+                <input type="file" id="video-input" accept="video/*" style="position:absolute;opacity:0;width:100%;height:100%;top:0;left:0;cursor:pointer;">
+            </label>
+        </div>
+
+        <!-- Scan overlay (full screen camera with auto-detection) -->
+        <div id="scan-overlay" class="scan-overlay" style="display:none;">
+            <video id="scan-video" autoplay playsinline muted></video>
+            <canvas id="scan-canvas"></canvas>
+            <div class="scan-target"></div>
+            <div class="scan-status" id="scan-status">Loading detection model...</div>
+            <div class="scan-tray" id="scan-tray"></div>
+            <div class="scan-controls">
+                <button class="scan-cancel-btn" onclick="exitScanMode()">Cancel</button>
+                <button class="scan-done-btn" id="scan-done-btn" onclick="finishScan()">Done (<span id="scan-count">0</span>)</button>
+                <button class="scan-manual-btn" id="scan-manual-btn" style="display:none;" onclick="manualCapture()">Capture</button>
+            </div>
+            <div class="scan-flash" id="scan-flash"></div>
         </div>
         <!-- Bulk capture mode -->
         <div class="bulk-capture" id="bulk-capture" style="display: none;">
@@ -1065,6 +1253,8 @@
 
     <div class="toast" id="toast"></div>
 
+    <script src="/static/js/byte_track.js"></script>
+    <script src="/static/js/auto_capture.js"></script>
     <script>
         const uploadZone = document.getElementById('upload-zone');
         const fileInput = document.getElementById('file-input');
@@ -1158,6 +1348,32 @@
             const files = Array.from(e.target.files);
             if (files.length) uploadFiles(files);
             fileInput.value = '';
+        });
+
+        document.getElementById('video-input').addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            e.target.value = '';
+
+            uploadProgress.classList.add('visible');
+            progressText.textContent = 'Uploading video for processing...';
+            progressFill.style.width = '10%';
+
+            try {
+                const formData = new FormData();
+                formData.append('file', file);
+                const res = await fetch('/v1/closet/items:detect-video', { method: 'POST', body: formData });
+                if (handleAuthError(res)) return;
+                if (!res.ok) throw new Error('Video upload failed');
+                const { batch_id } = await res.json();
+                progressText.textContent = 'Extracting items from video...';
+                progressFill.style.width = '20%';
+                pollBatchStatus(batch_id, 0);
+            } catch (err) {
+                showToast(err.message || 'Video upload failed', 'error');
+                uploadProgress.classList.remove('visible');
+                progressFill.style.width = '0%';
+            }
         });
 
         // Camera zone - opens camera and enters bulk capture mode
@@ -1261,7 +1477,9 @@
         function renderItems() {
             const filtered = currentFilter === 'all' 
                 ? allItems 
-                : allItems.filter(item => item.category === currentFilter);
+                : currentFilter === 'processing'
+                    ? allItems.filter(item => item.status === 'pending' || item.status === 'processing')
+                    : allItems.filter(item => item.category === currentFilter);
 
             itemsCount.textContent = `${filtered.length} item${filtered.length !== 1 ? 's' : ''}`;
 
@@ -1272,25 +1490,40 @@
             }
 
             emptyState.style.display = 'none';
-            itemsGrid.innerHTML = filtered.map(item => `
-                <div class="item-card" data-id="${item.id}">
+            itemsGrid.innerHTML = filtered.map(item => {
+                const isPending = item.status === 'pending' || item.status === 'processing';
+                const isError = item.status === 'error';
+
+                const statusOverlay = isPending
+                    ? '<div class="status-overlay processing"><div class="spinner-small"></div></div>'
+                    : isError
+                        ? `<div class="status-overlay error" onclick="retryItem(${item.id})"><span class="retry-label">Tap to retry</span></div>`
+                        : '';
+
+                const actions = (!isPending && !isError) ? `
                     <div class="item-actions">
-                        ${item.category === 'top' ? `<button class="item-btn" onclick="markItemWorn(${item.id}, this)" title="Mark as Worn (deprioritize in suggestions)">👕</button>` : ''}
-                        <button class="item-btn" onclick="retagItem(${item.id})" title="Re-tag Item">🏷</button>
-                        <button class="item-btn" onclick="removeBgSingle(${item.id})" title="Remove Background">✂</button>
-                        <button class="item-btn" onclick="rotateItem(${item.id})" title="Rotate 90°">↻</button>
-                        <button class="item-btn delete" onclick="deleteItem(${item.id})" title="Remove">×</button>
+                        ${item.category === 'top' ? `<button class="item-btn" onclick="markItemWorn(${item.id}, this)" title="Mark as Worn (deprioritize in suggestions)">&#128085;</button>` : ''}
+                        <button class="item-btn" onclick="retagItem(${item.id})" title="Re-tag Item">&#127991;</button>
+                        <button class="item-btn" onclick="rotateItem(${item.id})" title="Rotate 90°">&#8635;</button>
+                        <button class="item-btn delete" onclick="deleteItem(${item.id})" title="Remove">&times;</button>
                     </div>
-                    <img class="item-image" src="${item.image_url}" alt="${item.name}" loading="lazy">
-                    <div class="item-info">
-                        <div class="item-category">${item.category}</div>
-                        <div class="item-name">
-                            <span class="item-color-dot color-${item.primary_color || 'grey'}"></span>
-                            ${item.name || 'Unnamed item'}
+                ` : '';
+
+                return `
+                    <div class="item-card ${isPending ? 'pending' : ''} ${isError ? 'error' : ''}" data-id="${item.id}">
+                        ${actions}
+                        ${statusOverlay}
+                        <img class="item-image" src="${item.image_url}" alt="${item.name || 'Processing...'}" loading="lazy">
+                        <div class="item-info">
+                            <div class="item-category">${item.category || (isPending ? 'processing...' : 'unknown')}</div>
+                            <div class="item-name">
+                                ${item.primary_color ? `<span class="item-color-dot color-${item.primary_color}"></span>` : ''}
+                                ${item.name || (isPending ? 'Analyzing...' : 'Unnamed item')}
+                            </div>
                         </div>
                     </div>
-                </div>
-            `).join('');
+                `;
+            }).join('');
         }
 
         // Resize image to max dimension
@@ -1323,112 +1556,123 @@
             });
         }
 
-        // Client-side background removal
-        async function removeBackground(file) {
-            // Wait for module to load (max 8s)
-            if (!window.imglyRemoveBackground) {
-                progressText.textContent = 'Waiting for background removal to load...';
-                console.log('Waiting for bg removal module...');
-                const loaded = await new Promise(resolve => {
-                    let elapsed = 0;
-                    const check = setInterval(() => {
-                        elapsed += 100;
-                        if (window.imglyRemoveBackground) {
-                            clearInterval(check);
-                            resolve(true);
-                        } else if (window.bgRemovalReady === false || elapsed > 8000) {
-                            clearInterval(check);
-                            resolve(false);
-                        }
-                    }, 100);
-                });
-                
-                if (!loaded) {
-                    console.warn('BG removal module not available, uploading original');
-                    showToast('Uploading without background removal', 'error');
-                    return file;
-                }
-            }
-            
-            // Skip bg removal if module explicitly failed to load
-            if (window.imglyRemoveBackground === null) {
-                console.warn('BG removal disabled, uploading original');
-                return file;
-            }
-            
+        async function uploadFiles(files) {
+            uploadProgress.classList.add('visible');
+            progressText.textContent = `Uploading ${files.length} item${files.length !== 1 ? 's' : ''}...`;
+            progressFill.style.width = '10%';
+
             try {
-                // Resize large images first to avoid memory issues
-                let processFile = file;
-                if (file.size > 4 * 1024 * 1024) { // > 4MB
-                    progressText.textContent = 'Resizing large image...';
-                    processFile = await resizeImage(file, 1600);
-                    console.log(`Resized from ${file.size} to ${processFile.size} bytes`);
+                const formData = new FormData();
+                files.forEach(f => formData.append('files', f));
+
+                const res = await fetch('/v1/closet/items:batch', {
+                    method: 'POST',
+                    body: formData,
+                });
+
+                if (handleAuthError(res)) return;
+                if (!res.ok) {
+                    const err = await res.json().catch(() => ({}));
+                    throw new Error(err.detail || 'Upload failed');
                 }
-                
-                progressText.textContent = 'Removing background...';
-                console.log(`Starting bg removal for ${processFile.name} (${processFile.size} bytes)`);
-                
-                // Simple call without progress callback (matches working reprocess flow)
-                const outputBlob = await window.imglyRemoveBackground(processFile);
-                console.log(`BG removed: ${outputBlob.size} bytes`);
-                
-                return new File([outputBlob], file.name.replace(/\.[^/.]+$/, '.png'), { type: 'image/png' });
+
+                const { batch_id, items } = await res.json();
+
+                // Immediately show items in grid with pending state
+                items.forEach(item => {
+                    allItems.unshift({
+                        id: item.id,
+                        image_url: item.image_url,
+                        status: 'pending',
+                        category: null,
+                        name: null,
+                        batch_id: batch_id,
+                    });
+                });
+                renderItems();
+                progressFill.style.width = '30%';
+                progressText.textContent = `Processing ${items.length} items...`;
+
+                // Poll for completion
+                pollBatchStatus(batch_id, items.length);
+
             } catch (e) {
-                console.error('Background removal failed:', e.message, e);
-                // Upload original without error toast
-                return file;
+                showToast(e.message || 'Upload failed', 'error');
+                uploadProgress.classList.remove('visible');
+                progressFill.style.width = '0%';
             }
         }
 
-        async function uploadFiles(files) {
-            uploadProgress.classList.add('visible');
-            let completed = 0;
-            const total = files.length;
+        function pollBatchStatus(batchId, total) {
+            let interval = 2000;
+            const startTime = Date.now();
 
-            for (const file of files) {
-                progressText.textContent = `Processing ${completed + 1} of ${total}...`;
-                progressFill.style.width = `${(completed / total) * 100}%`;
-
+            const poll = async () => {
                 try {
-                    // Remove background client-side
-                    const processedFile = await removeBackground(file);
-                    
-                    progressText.textContent = `Uploading ${completed + 1} of ${total}...`;
-                    
-                    const formData = new FormData();
-                    formData.append('file', processedFile);
+                    const res = await fetch(`/v1/closet/items:batch-status/${batchId}`);
+                    if (!res.ok) { setTimeout(poll, interval); return; }
+                    const data = await res.json();
 
-                    const res = await fetch('/v1/closet/items', {
-                        method: 'POST',
-                        body: formData
+                    // Update local items with server state
+                    data.items.forEach(serverItem => {
+                        const local = allItems.find(i => i.id === serverItem.id);
+                        if (local) {
+                            local.status = serverItem.status;
+                            local.name = serverItem.name;
+                            local.category = serverItem.category;
+                            local.primary_color = serverItem.primary_color;
+                        }
                     });
+                    renderItems();
 
-                    if (handleAuthError(res)) return;
-                    if (!res.ok) throw new Error('Upload failed');
+                    // Update progress bar
+                    const readyCount = data.counts.ready + data.counts.error;
+                    const pct = Math.max(30, (readyCount / data.total) * 100);
+                    progressFill.style.width = `${pct}%`;
+                    progressText.textContent = `Processed ${data.counts.ready}/${data.total}` +
+                        (data.counts.error > 0 ? ` (${data.counts.error} failed)` : '');
 
-                    const newItem = await res.json();
-                    allItems.unshift({
-                        id: newItem.id,
-                        name: newItem.name,
-                        category: newItem.category,
-                        image_url: newItem.image_url,
-                        primary_color: newItem.parsed?.primary_color
-                    });
+                    if (data.done) {
+                        progressFill.style.width = '100%';
+                        setTimeout(() => {
+                            uploadProgress.classList.remove('visible');
+                            progressFill.style.width = '0%';
+                        }, 800);
+                        if (data.counts.error > 0) {
+                            showToast(`${data.counts.ready} added, ${data.counts.error} failed — tap to retry`, 'warning');
+                        } else {
+                            showToast(`${data.total} items added to closet`, 'success');
+                        }
+                        return;
+                    }
 
-                    completed++;
+                    // Backoff after 30s
+                    if (Date.now() - startTime > 30000) interval = 5000;
+                    setTimeout(poll, interval);
                 } catch (e) {
-                    showToast(`Failed to upload ${file.name}`, 'error');
-                    completed++;
+                    setTimeout(poll, interval);
                 }
-            }
+            };
 
-            progressFill.style.width = '100%';
-            setTimeout(() => {
-                uploadProgress.classList.remove('visible');
-                progressFill.style.width = '0%';
-                renderItems();
-                showToast(`Added ${completed} item${completed !== 1 ? 's' : ''} to closet`, 'success');
-            }, 500);
+            setTimeout(poll, interval);
+        }
+
+        async function retryItem(itemId) {
+            try {
+                const res = await fetch(`/v1/closet/items/${itemId}/retry`, { method: 'POST' });
+                if (handleAuthError(res)) return;
+                if (!res.ok) throw new Error('Retry failed');
+                const item = allItems.find(i => i.id === itemId);
+                if (item) {
+                    item.status = 'pending';
+                    item.batch_id = item.batch_id || 'retry';
+                    renderItems();
+                    pollBatchStatus(item.batch_id, 1);
+                }
+                showToast('Retrying...', 'success');
+            } catch (e) {
+                showToast('Retry failed', 'error');
+            }
         }
 
         async function markItemWorn(id, btn) {
@@ -2005,6 +2249,217 @@
                 btn.disabled = false;
                 btn.textContent = 'Remove';
             }
+        }
+
+        // --- Auto-scan camera mode (YOLO + ByteTrack) ---
+        let scanActive = false;
+        let capturedBlobs = [];
+        let yoloDetector = null;
+        let captureManager = null;
+
+        const YOLO_MODEL_URL = 'https://cdn.jsdelivr.net/gh/niconielsen32/yolov8-onnx-web@main/models/yolov8n.onnx';
+        const MIN_BBOX_AREA = 0.03;
+
+        async function loadDetectionModel() {
+            try {
+                yoloDetector = new YOLODetectorBrowser(YOLO_MODEL_URL);
+                const loaded = await yoloDetector.load();
+                return loaded;
+            } catch (e) {
+                console.warn('YOLO detection unavailable:', e);
+                return false;
+            }
+        }
+
+        async function startScanMode() {
+            const overlay = document.getElementById('scan-overlay');
+            const video = document.getElementById('scan-video');
+            const statusEl = document.getElementById('scan-status');
+
+            overlay.style.display = 'flex';
+            capturedBlobs = [];
+            document.getElementById('scan-tray').innerHTML = '';
+            document.getElementById('scan-count').textContent = '0';
+
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }
+                });
+                video.srcObject = stream;
+                await video.play();
+            } catch (e) {
+                statusEl.textContent = 'Camera access denied';
+                return;
+            }
+
+            statusEl.textContent = 'Loading detection model...';
+            const modelLoaded = await loadDetectionModel();
+
+            if (modelLoaded) {
+                captureManager = new AutoCaptureManager({
+                    minStableFrames: 8,
+                    minTrackFrames: 10,
+                    cooldownMs: 1500,
+                    onCapture: async (track) => {
+                        const blob = track.bestBlob;
+                        if (!blob) return;
+                        capturedBlobs.push(blob);
+
+                        const thumb = document.createElement('img');
+                        thumb.src = URL.createObjectURL(blob);
+                        document.getElementById('scan-tray').appendChild(thumb);
+                        document.getElementById('scan-count').textContent = capturedBlobs.length;
+
+                        const flash = document.getElementById('scan-flash');
+                        flash.classList.add('active');
+                        setTimeout(() => flash.classList.remove('active'), 200);
+
+                        statusEl.textContent = `Captured! (${capturedBlobs.length} items) — keep scanning...`;
+                    },
+                    onTrackUpdate: (activeTracks) => {
+                        const approaching = activeTracks.filter(t =>
+                            !t.captured && t.framesSeen >= 5 && t.stableCount >= 4
+                        );
+                        if (approaching.length > 0 && capturedBlobs.length === 0) {
+                            statusEl.textContent = 'Hold still...';
+                        } else if (activeTracks.length > 0 && capturedBlobs.length > 0) {
+                            statusEl.textContent = `${capturedBlobs.length} captured — detecting more...`;
+                        }
+                    },
+                });
+
+                statusEl.textContent = 'Point camera at items...';
+                scanActive = true;
+                detectLoop();
+            } else {
+                statusEl.textContent = 'Tap Capture to snap items';
+                document.getElementById('scan-manual-btn').style.display = 'block';
+            }
+        }
+
+        function exitScanMode() {
+            scanActive = false;
+            const video = document.getElementById('scan-video');
+            if (video.srcObject) {
+                video.srcObject.getTracks().forEach(t => t.stop());
+                video.srcObject = null;
+            }
+            document.getElementById('scan-overlay').style.display = 'none';
+            document.getElementById('scan-manual-btn').style.display = 'none';
+            if (captureManager) captureManager.reset();
+        }
+
+        async function detectLoop() {
+            if (!scanActive || !yoloDetector) return;
+            const video = document.getElementById('scan-video');
+            const canvas = document.getElementById('scan-canvas');
+            const ctx = canvas.getContext('2d');
+
+            if (video.videoWidth && canvas.width !== video.videoWidth) {
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+            }
+
+            try {
+                // Draw video frame to canvas for quality scoring
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+                // Run YOLO detection
+                const rawDetections = await yoloDetector.detect(video);
+
+                // Filter by minimum area
+                const detections = rawDetections.filter(d => {
+                    const [, , w, h] = d.bbox;
+                    return (w * h) / (canvas.width * canvas.height) >= MIN_BBOX_AREA;
+                });
+
+                // Update tracker
+                const activeTracks = captureManager.processFrame(
+                    detections, canvas.width, canvas.height
+                );
+
+                // Update quality scores and best frames for each track
+                for (const track of activeTracks) {
+                    if (track.captured) continue;
+                    const quality = computeFrameQuality(canvas, track.bbox, canvas.width, canvas.height);
+                    if (quality > track.bestScore) {
+                        const blob = await cropBboxToBlob(video, track.bbox);
+                        captureManager.updateBestFrame(track.trackId, blob, quality);
+                    }
+                }
+
+                // Draw bounding boxes with track IDs
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                for (const track of activeTracks) {
+                    const [x, y, w, h] = track.bbox;
+                    const progress = Math.min(track.stableCount / 8, 1.0);
+                    const captured = track.captured;
+
+                    if (captured) {
+                        ctx.strokeStyle = '#4CAF50';
+                        ctx.setLineDash([5, 5]);
+                    } else if (progress > 0.5) {
+                        ctx.strokeStyle = '#4CAF50';
+                        ctx.setLineDash([]);
+                    } else {
+                        ctx.strokeStyle = '#FFC107';
+                        ctx.setLineDash([]);
+                    }
+
+                    ctx.lineWidth = 3;
+                    ctx.strokeRect(x, y, w, h);
+                    ctx.setLineDash([]);
+
+                    // Track ID label
+                    const label = captured ? `#${track.trackId} ✓` : `#${track.trackId}`;
+                    ctx.font = '14px Instrument Sans, sans-serif';
+                    ctx.fillStyle = captured ? '#4CAF50' : '#FFC107';
+                    ctx.fillText(label, x + 4, y - 6);
+
+                    // Stability progress bar
+                    if (!captured && progress > 0) {
+                        ctx.fillStyle = `rgba(76, 175, 80, ${progress * 0.7})`;
+                        ctx.fillRect(x, y + h + 2, w * progress, 4);
+                    }
+                }
+
+                if (activeTracks.length === 0 && capturedBlobs.length === 0) {
+                    document.getElementById('scan-status').textContent = 'Point camera at items...';
+                }
+            } catch (e) {
+                console.warn('Detection error:', e);
+            }
+
+            if (scanActive) requestAnimationFrame(detectLoop);
+        }
+
+        function manualCapture() {
+            const video = document.getElementById('scan-video');
+            const w = video.videoWidth * 0.7;
+            const h = video.videoHeight * 0.7;
+            const x = video.videoWidth * 0.15;
+            const y = video.videoHeight * 0.15;
+            cropBboxToBlob(video, [x, y, w, h]).then(blob => {
+                if (!blob) return;
+                capturedBlobs.push(blob);
+                const thumb = document.createElement('img');
+                thumb.src = URL.createObjectURL(blob);
+                document.getElementById('scan-tray').appendChild(thumb);
+                document.getElementById('scan-count').textContent = capturedBlobs.length;
+
+                const flash = document.getElementById('scan-flash');
+                flash.classList.add('active');
+                setTimeout(() => flash.classList.remove('active'), 200);
+            });
+        }
+
+        async function finishScan() {
+            if (capturedBlobs.length === 0) { exitScanMode(); return; }
+
+            exitScanMode();
+            await uploadFiles(capturedBlobs.map((blob, i) =>
+                new File([blob], `scan_${i}.jpg`, { type: 'image/jpeg' })
+            ));
         }
     </script>
 </body>

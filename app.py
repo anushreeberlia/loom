@@ -1,8 +1,8 @@
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request, Cookie, Response
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request, Cookie, Response, BackgroundTasks
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, RedirectResponse
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List
 import asyncio
 import uuid
 import random
@@ -21,6 +21,7 @@ from services.outfit import get_slots_for_outfit, assemble_outfit
 from services.collage import generate_outfit_collage
 from services.weather import fetch_weather, get_weather_outfit_adjustments, get_occasion_from_time, get_material_weather_score, WeatherData
 from services.image_processor import process_clothing_image
+from services.ingestion_worker import process_batch_items, recover_stale_items, orphan_sweep_loop
 from services.auth import (
     get_google_auth_url,
     exchange_code_for_tokens,
@@ -79,6 +80,8 @@ from shopify_app import app as shopify_app_instance
 async def _startup():
     from services.fashion_clip import warmup
     warmup()
+    recover_stale_items()
+    asyncio.create_task(orphan_sweep_loop())
 
 
 # Ensure directories exist
@@ -1369,7 +1372,8 @@ async def list_closet_items(auth_token: Optional[str] = Cookie(None)):
     try:
         cursor.execute(
             """SELECT id, name, category, image_url, primary_color, secondary_colors,
-                      style_tags, season_tags, occasion_tags, material, fit, created_at
+                      style_tags, season_tags, occasion_tags, material, fit, created_at,
+                      status, batch_id
                FROM user_closet_items 
                WHERE user_id = %s
                ORDER BY created_at DESC""",
@@ -1391,7 +1395,9 @@ async def list_closet_items(auth_token: Optional[str] = Cookie(None)):
                 "occasion_tags": row[8],
                 "material": row[9],
                 "fit": row[10],
-                "created_at": row[11].isoformat() if row[11] else None
+                "created_at": row[11].isoformat() if row[11] else None,
+                "status": row[12] if row[12] else "ready",
+                "batch_id": row[13],
             })
         
         return {"items": items, "count": len(items)}
@@ -1400,106 +1406,394 @@ async def list_closet_items(auth_token: Optional[str] = Cookie(None)):
         conn.close()
 
 
-@app.post("/v1/closet/items")
-async def add_closet_item(request: Request, file: UploadFile = File(...)):
+MAX_BATCH_SIZE = 50
+MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
+
+
+def _cloudinary_upload_safe(image_bytes: bytes) -> dict | None:
+    """Upload one image to Cloudinary after processing. Returns None on failure."""
+    try:
+        processed = process_clothing_image(image_bytes)
+        result = cloudinary.uploader.upload(
+            processed, folder="closet", resource_type="image"
+        )
+        return {"image_url": result["secure_url"]}
+    except Exception as e:
+        logger.error(f"Cloudinary upload failed (skipping): {e}")
+        return None
+
+
+@app.post("/v1/closet/items:batch")
+async def batch_upload(
+    request: Request,
+    files: List[UploadFile] = File(...),
+    background_tasks: BackgroundTasks = BackgroundTasks(),
+):
     """
-    Upload a new item to user's closet. Requires authentication.
-    Processes image through vision/parser pipeline and stores with embedding.
+    Upload N images in one request. Returns immediately with batch_id and
+    Cloudinary URLs for instant thumbnails. Processing happens in background.
+    """
+    auth_token = request.cookies.get("auth_token")
+    user_id = require_auth(auth_token)
+
+    if len(files) > MAX_BATCH_SIZE:
+        raise HTTPException(400, f"Maximum {MAX_BATCH_SIZE} files per batch")
+
+    raw_images = []
+    for f in files:
+        data = await f.read()
+        if not data or len(data) > MAX_FILE_SIZE:
+            continue
+        raw_images.append(data)
+
+    if not raw_images:
+        raise HTTPException(400, "No valid images provided")
+
+    batch_id = str(uuid.uuid4())
+
+    # Parallel Cloudinary upload (I/O bound, ~2-3s for 20 images)
+    uploaded = []
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        futures = [pool.submit(_cloudinary_upload_safe, img) for img in raw_images]
+        for future in as_completed(futures):
+            result = future.result()
+            if result is not None:
+                uploaded.append(result)
+
+    if not uploaded:
+        raise HTTPException(500, "All image uploads failed")
+
+    # Bulk INSERT as pending
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        item_rows = []
+        for u in uploaded:
+            cur.execute(
+                """INSERT INTO user_closet_items
+                   (user_id, image_url, status, batch_id)
+                   VALUES (%s, %s, 'pending', %s)
+                   RETURNING id""",
+                (user_id, u["image_url"], batch_id),
+            )
+            item_id = cur.fetchone()[0]
+            item_rows.append({"id": item_id, "image_url": u["image_url"]})
+        conn.commit()
+    finally:
+        cur.close()
+        conn.close()
+
+    # Kick off background processing
+    background_tasks.add_task(
+        process_batch_items, batch_id,
+        [(r["id"], r["image_url"]) for r in item_rows]
+    )
+
+    return {
+        "batch_id": batch_id,
+        "count": len(item_rows),
+        "items": [
+            {"id": r["id"], "image_url": r["image_url"], "status": "pending"}
+            for r in item_rows
+        ],
+    }
+
+
+@app.get("/v1/closet/items:batch-status/{batch_id}")
+async def batch_status(batch_id: str, request: Request):
+    """Poll processing progress for a batch."""
+    auth_token = request.cookies.get("auth_token")
+    user_id = require_auth(auth_token)
+
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """SELECT id, image_url, name, category, status, processing_error
+               FROM user_closet_items
+               WHERE batch_id = %s AND user_id = %s
+               ORDER BY id""",
+            (batch_id, user_id),
+        )
+        rows = cur.fetchall()
+    finally:
+        cur.close()
+        conn.close()
+
+    items = []
+    counts = {"pending": 0, "processing": 0, "ready": 0, "error": 0}
+    for row in rows:
+        status = row[4]
+        counts[status] = counts.get(status, 0) + 1
+        items.append({
+            "id": row[0],
+            "image_url": row[1],
+            "name": row[2],
+            "category": row[3],
+            "status": status,
+            "error": row[5] if status == "error" else None,
+        })
+
+    total = len(items)
+    return {
+        "batch_id": batch_id,
+        "total": total,
+        "counts": counts,
+        "done": (counts["ready"] + counts["error"]) == total and total > 0,
+        "items": items,
+    }
+
+
+@app.post("/v1/closet/items/{item_id}/retry")
+async def retry_item(
+    item_id: int,
+    request: Request,
+    background_tasks: BackgroundTasks = BackgroundTasks(),
+):
+    """Retry a failed item."""
+    auth_token = request.cookies.get("auth_token")
+    user_id = require_auth(auth_token)
+
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """UPDATE user_closet_items
+               SET status = 'pending', processing_error = NULL, retry_count = 0
+               WHERE id = %s AND user_id = %s AND status = 'error'
+               RETURNING image_url""",
+            (item_id, user_id),
+        )
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(404, "Item not found or not in error state")
+        conn.commit()
+        image_url = row[0]
+    finally:
+        cur.close()
+        conn.close()
+
+    background_tasks.add_task(process_batch_items, "retry", [(item_id, image_url)])
+    return {"status": "retrying", "id": item_id}
+
+
+@app.post("/v1/closet/items")
+async def add_closet_item(
+    request: Request,
+    file: UploadFile = File(...),
+    background_tasks: BackgroundTasks = BackgroundTasks(),
+):
+    """
+    Upload a single item to user's closet. Now routes through the batch pipeline
+    for consistent processing (blended embedding, proper error handling).
     """
     auth_token = request.cookies.get("auth_token")
     user_id = require_auth(auth_token)
     logger.info(f"Adding closet item for user: {user_id}")
-    
-    # Read and validate file
+
     contents = await file.read()
     if not contents:
         raise HTTPException(status_code=400, detail="No image uploaded")
-    
-    # 1. Process image locally (background removal, trim, pad)
+
+    batch_id = str(uuid.uuid4())
+
+    # Process and upload to Cloudinary (same image used for storage + vision)
     try:
-        logger.info("Processing image locally...")
         processed_bytes = process_clothing_image(contents)
-        logger.info("Image processed, uploading to Cloudinary...")
     except Exception as e:
         logger.error(f"Image processing error: {e}")
-        # Fall back to uploading original if processing fails
         processed_bytes = contents
-    
-    # 2. Upload processed image to Cloudinary (just storage, no transformations)
+
     try:
         upload_result = cloudinary.uploader.upload(
-            processed_bytes,
-            folder="closet",
-            resource_type="image"
+            processed_bytes, folder="closet", resource_type="image"
         )
         image_url = upload_result["secure_url"]
-        logger.info(f"Uploaded to Cloudinary: {image_url}")
     except Exception as e:
         logger.error(f"Cloudinary upload error: {e}")
         raise HTTPException(status_code=500, detail=f"Image upload failed: {str(e)}")
-    
-    # 2. Vision: Single-call image analysis (GPT-4o-mini vision → structured JSON)
-    try:
-        parsed = analyze_image(contents)
-        logger.info(f"Parsed item: {parsed}")
-    except Exception as e:
-        logger.error(f"Vision analysis error: {e}")
-        raise HTTPException(status_code=500, detail=f"Vision analysis error: {str(e)}")
-    
-    # 4. Embedding: Generate FashionCLIP image embedding
-    try:
-        embedding = embed_item_image(contents)
-        logger.info(f"FashionCLIP embedding generated (dim={len(embedding)})")
-    except Exception as e:
-        logger.error(f"Embedding error: {e}")
-        raise HTTPException(status_code=500, detail=f"Embedding error: {str(e)}")
-    
-    # 5. Store in database
+
+    # Insert as pending
     conn = get_db_connection()
-    cursor = conn.cursor()
+    cur = conn.cursor()
     try:
-        # Generate name from description
-        name = f"{parsed.get('primary_color', '')} {parsed.get('category', 'item')}".strip().title()
-        
-        cursor.execute(
-            """INSERT INTO user_closet_items 
-               (user_id, name, category, image_url, primary_color, secondary_colors,
-                style_tags, season_tags, occasion_tags, material, fit, embedding)
-               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        cur.execute(
+            """INSERT INTO user_closet_items
+               (user_id, image_url, status, batch_id)
+               VALUES (%s, %s, 'pending', %s)
                RETURNING id""",
-            (
-                user_id,
-                name,
-                parsed.get("category", "top"),
-                image_url,
-                parsed.get("primary_color"),
-                parsed.get("secondary_colors"),
-                parsed.get("style_tags"),
-                parsed.get("season_tags"),
-                parsed.get("occasion_tags"),
-                parsed.get("material"),
-                parsed.get("fit"),
-                embedding
-            )
+            (user_id, image_url, batch_id),
         )
-        item_id = cursor.fetchone()[0]
+        item_id = cur.fetchone()[0]
         conn.commit()
-        logger.info(f"Closet item created: id={item_id}")
-        
-        return {
-            "id": item_id,
-            "name": name,
-            "category": parsed.get("category"),
-            "image_url": image_url,
-            "parsed": parsed
-        }
-    except Exception as e:
-        conn.rollback()
-        logger.error(f"Database error: {e}")
-        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
     finally:
-        cursor.close()
+        cur.close()
         conn.close()
+
+    # Process in background (vision + blended embedding)
+    background_tasks.add_task(process_batch_items, batch_id, [(item_id, image_url)])
+
+    return {
+        "id": item_id,
+        "name": None,
+        "category": None,
+        "image_url": image_url,
+        "status": "pending",
+        "batch_id": batch_id,
+    }
+
+
+MAX_VIDEO_SIZE = 100 * 1024 * 1024  # 100MB
+
+
+@app.post("/v1/closet/items:detect-video")
+async def detect_from_video(
+    request: Request,
+    file: UploadFile = File(...),
+    background_tasks: BackgroundTasks = BackgroundTasks(),
+):
+    """
+    Upload a video. Server extracts frames, detects clothing items per frame,
+    deduplicates by embedding similarity, and processes unique items.
+    Returns batch_id immediately; extraction + processing happen in background.
+    """
+    auth_token = request.cookies.get("auth_token")
+    user_id = require_auth(auth_token)
+
+    video_bytes = await file.read()
+    if len(video_bytes) > MAX_VIDEO_SIZE:
+        raise HTTPException(400, "Video too large (max 100MB)")
+
+    batch_id = str(uuid.uuid4())
+
+    import tempfile
+    tmp = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False)
+    tmp.write(video_bytes)
+    tmp.close()
+
+    background_tasks.add_task(
+        _extract_and_process_video, tmp.name, user_id, batch_id
+    )
+
+    return {"batch_id": batch_id, "status": "extracting"}
+
+
+def _extract_and_process_video(video_path: str, user_id: str, batch_id: str):
+    """
+    Full pipeline: extract frames -> YOLO detect -> ByteTrack -> best crop per object -> upload -> process.
+    Handles multiple items in a single video via persistent object tracking.
+    """
+    import subprocess
+    import tempfile
+    import os
+    from pathlib import Path
+    from PIL import Image
+    import io
+
+    from services.object_tracker import process_video_frames
+
+    VIDEO_FPS = 3  # Extract 3 frames/sec for tracking continuity
+    MIN_TRACK_FRAMES = 5
+
+    try:
+        # 1. Extract frames with ffmpeg at higher FPS for tracking
+        frames_dir = tempfile.mkdtemp()
+        output_pattern = os.path.join(frames_dir, "frame_%06d.jpg")
+
+        subprocess.run(
+            [
+                "ffmpeg", "-i", video_path,
+                "-vf", f"fps={VIDEO_FPS},scale=1280:-1",
+                "-q:v", "2", "-y",
+                output_pattern,
+            ],
+            capture_output=True, check=True, timeout=120,
+        )
+
+        frame_paths = sorted(Path(frames_dir).glob("frame_*.jpg"))
+        logger.info(f"Video: extracted {len(frame_paths)} frames at {VIDEO_FPS} fps")
+
+        if not frame_paths:
+            logger.warning("No frames extracted from video")
+            return
+
+        # 2. Load frames as (bytes, width, height) tuples
+        frames = []
+        for fp in frame_paths:
+            try:
+                img_bytes = fp.read_bytes()
+                img = Image.open(io.BytesIO(img_bytes))
+                frames.append((img_bytes, img.width, img.height))
+            except Exception as e:
+                logger.warning(f"Frame {fp.name} failed to load: {e}")
+
+        if not frames:
+            return
+
+        # 3. Run YOLO + ByteTrack pipeline
+        crop_results = process_video_frames(
+            frames, fps=VIDEO_FPS, min_frames=MIN_TRACK_FRAMES
+        )
+
+        logger.info(f"Video: tracked {len(crop_results)} unique items")
+
+        if not crop_results:
+            logger.info("Video: no items detected with sufficient confidence")
+            return
+
+        # 4. Upload best crops to Cloudinary (maintain order for embedding mapping)
+        upload_futures = {}
+        with ThreadPoolExecutor(max_workers=6) as pool:
+            for i, crop in enumerate(crop_results):
+                future = pool.submit(_cloudinary_upload_safe, crop.crop_bytes)
+                upload_futures[future] = i
+
+        uploaded = []  # (index, cloudinary_result)
+        for future in as_completed(upload_futures):
+            result = future.result()
+            if result:
+                uploaded.append((upload_futures[future], result))
+
+        uploaded.sort(key=lambda x: x[0])
+
+        # 5. Insert into DB as pending, with pre-computed temporal embeddings
+        conn = get_db_connection()
+        cur = conn.cursor()
+        items_to_process = []
+        items_with_embeddings = {}  # item_id -> temporal_embedding
+        try:
+            for idx, u in uploaded:
+                crop = crop_results[idx]
+                cur.execute(
+                    """INSERT INTO user_closet_items
+                       (user_id, image_url, status, batch_id)
+                       VALUES (%s, %s, 'pending', %s)
+                       RETURNING id""",
+                    (user_id, u["image_url"], batch_id),
+                )
+                item_id = cur.fetchone()[0]
+                items_to_process.append((item_id, u["image_url"]))
+
+                if crop.temporal_embedding:
+                    items_with_embeddings[item_id] = crop.temporal_embedding
+            conn.commit()
+        finally:
+            cur.close()
+            conn.close()
+
+        # 6. Process through ingestion worker with pre-computed embeddings
+        if items_to_process:
+            process_batch_items(batch_id, items_to_process, precomputed_embeddings=items_with_embeddings)
+
+    except subprocess.TimeoutExpired:
+        logger.error("ffmpeg timed out processing video")
+    except Exception as e:
+        logger.error(f"Video extraction failed: {e}", exc_info=True)
+    finally:
+        try:
+            os.unlink(video_path)
+        except OSError:
+            pass
 
 
 @app.delete("/v1/closet/items/{item_id}")
