@@ -116,7 +116,7 @@ async def _process_single_item(
         )
 
         if result["success"]:
-            _save_processed_item(item_id, result["base_item"], result["embedding"])
+            _save_processed_item(item_id, result["base_item"], result["embedding"], result.get("multihead"))
             logger.info(f"Item {item_id} ready: {result['base_item'].get('category')}")
         else:
             _handle_failure(item_id, result["error"], result.get("is_transient", False))
@@ -158,11 +158,22 @@ def _blocking_process(
             from services.vision import analyze_image
             base_item = analyze_image(image_bytes)
             embedding = precomputed_embedding
+            multihead_result = None
+            try:
+                from services.dinov2 import embed_image as dinov2_embed
+                from services.multihead import compute_multihead_embeddings
+                from services.segmentation import segment_for_embedding
+                seg_bytes = segment_for_embedding(image_bytes)
+                backbone = dinov2_embed(seg_bytes)
+                heads = compute_multihead_embeddings(backbone)
+                multihead_result = {"backbone": backbone, **heads}
+            except Exception as e:
+                logger.warning(f"Item {item_id}: DINOv2 multi-head failed (non-fatal): {e}")
             logger.debug(f"Item {item_id}: using temporal aggregated embedding")
         else:
-            _description, base_item, embedding = process_item_from_image(image_bytes)
+            _description, base_item, embedding, multihead_result = process_item_from_image(image_bytes)
 
-        return {"success": True, "base_item": base_item, "embedding": embedding}
+        return {"success": True, "base_item": base_item, "embedding": embedding, "multihead": multihead_result}
 
     except Exception as e:
         err_str = str(e)
@@ -214,42 +225,87 @@ def _handle_failure(item_id: int, error: str, is_transient: bool):
         conn.close()
 
 
-def _save_processed_item(item_id: int, base_item: dict, embedding: list):
-    """Update item with vision results and embedding. Marks status='ready'."""
+def _save_processed_item(item_id: int, base_item: dict, embedding: list, multihead: dict | None = None):
+    """Update item with vision results, legacy embedding, and multi-head embeddings. Marks status='ready'."""
     conn = _get_conn()
     cur = conn.cursor()
     try:
         name = f"{base_item.get('primary_color', '')} {base_item.get('category', 'item')}".strip().title()
-        cur.execute(
-            """UPDATE user_closet_items SET
-               status = 'ready',
-               name = %s,
-               category = %s,
-               primary_color = %s,
-               secondary_colors = %s,
-               style_tags = %s,
-               season_tags = %s,
-               occasion_tags = %s,
-               material = %s,
-               fit = %s,
-               embedding = %s,
-               processed_at = NOW(),
-               processing_error = NULL
-            WHERE id = %s""",
-            (
-                name,
-                base_item.get("category", "top"),
-                base_item.get("primary_color"),
-                base_item.get("secondary_colors"),
-                base_item.get("style_tags"),
-                base_item.get("season_tags"),
-                base_item.get("occasion_tags"),
-                base_item.get("material"),
-                base_item.get("fit"),
-                embedding,
-                item_id,
-            ),
-        )
+
+        if multihead:
+            cur.execute(
+                """UPDATE user_closet_items SET
+                   status = 'ready',
+                   name = %s,
+                   category = %s,
+                   primary_color = %s,
+                   secondary_colors = %s,
+                   style_tags = %s,
+                   season_tags = %s,
+                   occasion_tags = %s,
+                   material = %s,
+                   fit = %s,
+                   embedding = %s,
+                   backbone_embedding = %s,
+                   style_embedding = %s,
+                   fit_embedding = %s,
+                   material_embedding = %s,
+                   compat_embedding = %s,
+                   occasion_embedding = %s,
+                   processed_at = NOW(),
+                   processing_error = NULL
+                WHERE id = %s""",
+                (
+                    name,
+                    base_item.get("category", "top"),
+                    base_item.get("primary_color"),
+                    base_item.get("secondary_colors"),
+                    base_item.get("style_tags"),
+                    base_item.get("season_tags"),
+                    base_item.get("occasion_tags"),
+                    base_item.get("material"),
+                    base_item.get("fit"),
+                    embedding,
+                    multihead["backbone"].tolist(),
+                    multihead["style"].tolist(),
+                    multihead["fit"].tolist(),
+                    multihead["material"].tolist(),
+                    multihead["compat"].tolist(),
+                    multihead["occasion"].tolist(),
+                    item_id,
+                ),
+            )
+        else:
+            cur.execute(
+                """UPDATE user_closet_items SET
+                   status = 'ready',
+                   name = %s,
+                   category = %s,
+                   primary_color = %s,
+                   secondary_colors = %s,
+                   style_tags = %s,
+                   season_tags = %s,
+                   occasion_tags = %s,
+                   material = %s,
+                   fit = %s,
+                   embedding = %s,
+                   processed_at = NOW(),
+                   processing_error = NULL
+                WHERE id = %s""",
+                (
+                    name,
+                    base_item.get("category", "top"),
+                    base_item.get("primary_color"),
+                    base_item.get("secondary_colors"),
+                    base_item.get("style_tags"),
+                    base_item.get("season_tags"),
+                    base_item.get("occasion_tags"),
+                    base_item.get("material"),
+                    base_item.get("fit"),
+                    embedding,
+                    item_id,
+                ),
+            )
         conn.commit()
     finally:
         cur.close()

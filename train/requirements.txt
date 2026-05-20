@@ -1,0 +1,8 @@
+# Training dependencies (separate from production)
+torch
+torchvision
+numpy
+h5py
+pyyaml
+scikit-learn
+matplotlib

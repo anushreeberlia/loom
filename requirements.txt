@@ -19,3 +19,5 @@ ultralytics
 scipy
 opencv-python-headless
 rembg[gpu]
+torch
+torchvision

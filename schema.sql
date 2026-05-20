@@ -113,8 +113,16 @@ CREATE TABLE user_closet_items (
     material VARCHAR(100),
     fit VARCHAR(50),
     
-    -- Vector embedding for retrieval (512 dims from FashionCLIP 2.0)
+    -- Vector embedding for retrieval (512 dims from FashionCLIP 2.0) -- legacy
     embedding vector(512),
+    
+    -- DINOv2 multi-head embeddings (northstar)
+    backbone_embedding vector(768),    -- raw DINOv2 CLS token (for re-projection)
+    style_embedding vector(128),       -- aesthetic identity
+    fit_embedding vector(128),         -- silhouette/cut
+    material_embedding vector(128),    -- fabric/texture
+    compat_embedding vector(128),      -- co-outfit compatibility
+    occasion_embedding vector(128),    -- context appropriateness
     
     -- Batch processing state
     status VARCHAR(20) NOT NULL DEFAULT 'ready',  -- pending | processing | ready | error
@@ -129,6 +137,14 @@ CREATE TABLE user_closet_items (
 -- Index for vector similarity search on closet items (HNSW for better recall)
 CREATE INDEX idx_closet_embedding ON user_closet_items 
     USING hnsw (embedding vector_cosine_ops) WITH (m = 16, ef_construction = 64);
+
+-- Multi-head HNSW indexes (compatibility for outfit retrieval, style for direction, occasion for filtering)
+CREATE INDEX idx_closet_compat_emb ON user_closet_items
+    USING hnsw (compat_embedding vector_cosine_ops) WITH (m = 16, ef_construction = 64);
+CREATE INDEX idx_closet_style_emb ON user_closet_items
+    USING hnsw (style_embedding vector_cosine_ops) WITH (m = 16, ef_construction = 64);
+CREATE INDEX idx_closet_occasion_emb ON user_closet_items
+    USING hnsw (occasion_embedding vector_cosine_ops) WITH (m = 16, ef_construction = 64);
     
 -- Index for filtering by user
 CREATE INDEX idx_closet_user ON user_closet_items(user_id);
