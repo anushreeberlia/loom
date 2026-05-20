@@ -30,17 +30,11 @@ def _get_rembg_session():
 
     try:
         import rembg
-        _rembg_session = rembg.new_session(model_name="u2net_cloth_seg")
-        logger.info("rembg session loaded (u2net_cloth_seg)")
+        _rembg_session = rembg.new_session(model_name="isnet-general-use")
+        logger.info("rembg session loaded (isnet-general-use)")
     except ImportError:
-        logger.warning("rembg not installed, trying isnet-general-use fallback")
-        try:
-            import rembg
-            _rembg_session = rembg.new_session(model_name="isnet-general-use")
-            logger.info("rembg session loaded (isnet-general-use)")
-        except Exception as e:
-            logger.error(f"Failed to load any rembg model: {e}")
-            _rembg_session = None
+        logger.error("rembg not installed")
+        _rembg_session = None
     except Exception as e:
         logger.error(f"rembg session creation failed: {e}")
         _rembg_session = None
@@ -72,9 +66,7 @@ def segment_garment(image_bytes: bytes, output_format: str = "PNG") -> bytes:
         result_bytes = rembg.remove(
             image_bytes,
             session=session,
-            alpha_matting=True,
-            alpha_matting_foreground_threshold=240,
-            alpha_matting_background_threshold=10,
+            alpha_matting=False,
         )
 
         if output_format == "JPEG":
