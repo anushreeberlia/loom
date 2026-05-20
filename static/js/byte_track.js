@@ -86,7 +86,7 @@ class TrackedObject {
     this.bestBlob = null;
     this.bestScore = 0;
 
-    this._centerThreshold = 0.05;
+    this._centerThreshold = 0.08;
   }
 
   update(detection) {
@@ -115,12 +115,12 @@ class TrackedObject {
     this._frameH = h;
   }
 
-  shouldCapture(minStable = 8, minFrames = 10) {
+  shouldCapture(minStable = 5, minFrames = 8, qualityThreshold = 0.3) {
     return (
       !this.captured &&
       this.framesSeen >= minFrames &&
       this.stableCount >= minStable &&
-      this.bestScore > 0.3
+      this.bestScore > qualityThreshold
     );
   }
 

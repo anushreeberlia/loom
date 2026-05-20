@@ -2254,16 +2254,17 @@
         let yoloDetector = null;
         let captureManager = null;
 
-        const YOLO_MODEL_URL = 'https://cdn.jsdelivr.net/gh/niconielsen32/yolov8-onnx-web@main/models/yolov8n.onnx';
+        const YOLO_MODEL_URL = '/static/models/yolov8n.onnx';
         const MIN_BBOX_AREA = 0.03;
 
         async function loadDetectionModel() {
             try {
                 yoloDetector = new YOLODetectorBrowser(YOLO_MODEL_URL);
                 const loaded = await yoloDetector.load();
+                if (!loaded) console.error('YOLO model load returned false');
                 return loaded;
             } catch (e) {
-                console.warn('YOLO detection unavailable:', e);
+                console.error('YOLO detection unavailable:', e);
                 return false;
             }
         }
@@ -2294,8 +2295,8 @@
 
             if (modelLoaded) {
                 captureManager = new AutoCaptureManager({
-                    minStableFrames: 8,
-                    minTrackFrames: 10,
+                    minStableFrames: 5,
+                    minTrackFrames: 8,
                     cooldownMs: 1500,
                     onCapture: async (track) => {
                         const blob = track.bestBlob;
@@ -2315,7 +2316,7 @@
                     },
                     onTrackUpdate: (activeTracks) => {
                         const approaching = activeTracks.filter(t =>
-                            !t.captured && t.framesSeen >= 5 && t.stableCount >= 4
+                            !t.captured && t.framesSeen >= 4 && t.stableCount >= 2
                         );
                         if (approaching.length > 0 && capturedBlobs.length === 0) {
                             statusEl.textContent = 'Hold still...';
@@ -2385,11 +2386,14 @@
                     }
                 }
 
+                // Check for auto-captures AFTER quality is updated
+                captureManager.checkCaptures();
+
                 // Draw bounding boxes with track IDs
                 ctx.clearRect(0, 0, canvas.width, canvas.height);
                 for (const track of activeTracks) {
                     const [x, y, w, h] = track.bbox;
-                    const progress = Math.min(track.stableCount / 8, 1.0);
+                    const progress = Math.min(track.stableCount / 5, 1.0);
                     const captured = track.captured;
 
                     if (captured) {

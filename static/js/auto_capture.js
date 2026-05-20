@@ -37,21 +37,28 @@ class AutoCaptureManager {
 
     this._onTrackUpdate(activeTracks);
 
-    // Check for capturable objects (respecting cooldown)
+    return activeTracks;
+  }
+
+  /**
+   * Check and trigger captures. Call AFTER quality scores are updated.
+   */
+  checkCaptures() {
     const now = Date.now();
     if (now - this._lastCaptureTime < this.cooldownMs) {
-      return activeTracks;
+      return;
     }
 
-    const capturable = this.tracker.getCapturable();
-    if (capturable.length > 0) {
+    const ready = this.tracker.tracks.filter(t =>
+      t.shouldCapture(this.minStableFrames, this.minTrackFrames, this.qualityThreshold)
+    );
+    if (ready.length > 0) {
       this._lastCaptureTime = now;
-      for (const track of capturable) {
+      for (const track of ready) {
+        track.markCaptured();
         this._onCapture(track);
       }
     }
-
-    return activeTracks;
   }
 
   /**
