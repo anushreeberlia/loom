@@ -1,0 +1,38 @@
+{
+  "timestamp": "20260512_215952",
+  "n_anchors": 50,
+  "ablations": [
+    "full",
+    "no_material"
+  ],
+  "metrics": {
+    "full": {
+      "n_anchors": 50,
+      "total_outfits": 150,
+      "outfits_per_anchor": 3.0,
+      "mean_score": 0.219,
+      "mean_sim": 0.465,
+      "mean_dir_bonus": 0.168,
+      "hard_violation_pct": 7.3,
+      "mean_latency_ms": 4497.2,
+      "p95_latency_ms": 5512.7,
+      "mean_color_spread": 7.5,
+      "mean_slot_diversity": 4.78,
+      "ablation": "full"
+    },
+    "no_material": {
+      "n_anchors": 50,
+      "total_outfits": 150,
+      "outfits_per_anchor": 3.0,
+      "mean_score": 0.243,
+      "mean_sim": 0.466,
+      "mean_dir_bonus": 0.169,
+      "hard_violation_pct": 5.3,
+      "mean_latency_ms": 4455.5,
+      "p95_latency_ms": 5341.5,
+      "mean_color_spread": 7.1,
+      "mean_slot_diversity": 4.78,
+      "ablation": "no_material"
+    }
+  }
+}

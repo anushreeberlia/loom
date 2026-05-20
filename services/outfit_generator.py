@@ -9,12 +9,14 @@ Returns list of {direction, explanation, outfit_items} (no collage_url).
 """
 
 import logging
+import os
 import random
 
 from services.outfit import (
     get_slots_for_outfit,
     generate_candidate_outfits,
     select_best_outfit,
+    select_best_outfit_multihead,
     assemble_outfit,
     pick_anchor_pair,
     infer_outfit_occasion,
@@ -22,6 +24,8 @@ from services.outfit import (
 from services.retrieval import retrieve_for_slot, build_query_text, get_batch_embeddings
 
 logger = logging.getLogger(__name__)
+
+USE_MULTIHEAD = os.getenv("USE_MULTIHEAD", "true").lower() == "true"
 
 SILHOUETTE_SLOTS = {"bottom", "shoes"}
 THIRD_PIECE_SLOTS = {"top", "layer"}
@@ -198,7 +202,8 @@ def _cascade_one_outfit(
     if not candidate_outfits:
         return None
 
-    best_items, score_details = select_best_outfit(
+    _selector = select_best_outfit_multihead if USE_MULTIHEAD else select_best_outfit
+    best_items, score_details = _selector(
         candidate_outfits=candidate_outfits,
         base_item=base_item,
         direction=direction,
@@ -243,6 +248,13 @@ def run_outfit_generation(
         "name": item.get("name", ""),
     }
     base_embedding = item.get("embedding") or []
+    if base_embedding:
+        base_item["embedding"] = base_embedding
+    if USE_MULTIHEAD:
+        for hk in ("compat_embedding", "style_embedding", "occasion_embedding",
+                    "fit_embedding", "material_embedding"):
+            if item.get(hk):
+                base_item[hk] = item[hk]
     directions = ["Classic", "Trendy", "Bold"]
 
     effective_occasion = occasion

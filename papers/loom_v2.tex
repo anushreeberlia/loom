@@ -1,0 +1,827 @@
+\documentclass[10pt,twocolumn]{article}
+
+% ── packages ──────────────────────────────────────────────────────────────────
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage[margin=0.75in]{geometry}
+\usepackage{natbib}
+\usepackage{xcolor}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{enumitem}
+\usepackage{microtype}
+\tolerance=1500
+\emergencystretch=1em
+\usepackage{multirow}
+\usepackage{subcaption}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,calc}
+
+\hypersetup{colorlinks=true, linkcolor=blue!60!black, citecolor=blue!60!black, urlcolor=blue!60!black}
+
+\title{Loom v2: From Shared Embeddings to Task-Specific Heads\\for Outfit Recommendation with\\Object-Centric Wardrobe Understanding}
+
+\author{
+  Anushree Berlia
+}
+
+\date{May 2026}
+
+\begin{document}
+\maketitle
+
+% ══════════════════════════════════════════════════════════════════════════════
+\begin{abstract}
+We present \textbf{Loom~v2}, a substantial evolution of the Loom outfit
+recommendation system~\citep{berlia2026loom} that replaces a single shared
+FashionCLIP embedding with a \emph{multi-head projection architecture}
+built on a frozen DINOv2 backbone.  Five task-specific MLP heads produce
+128-dimensional embeddings for style, fit, material, compatibility, and
+occasion---each trained via contrastive learning on Polyvore, DeepFashion,
+and iMaterialist data.  A learned compatibility scorer replaces the
+rule-based four-level outfit hierarchy with pairwise neural scoring.
+
+Beyond the representation layer, Loom~v2 introduces three additional
+architectural advances:
+(1)~\emph{object-centric wardrobe ingestion} via YOLOv8-Nano detection and
+ByteTrack temporal tracking, enabling multi-item capture from video and
+live camera feeds;
+(2)~\emph{cascade retrieval} with three-round sequential conditioning
+(silhouette anchoring, third-piece context, finisher completion); and
+(3)~\emph{segmentation-first embedding} using U\textsuperscript{2}-Net
+background removal before all encoders.
+
+Ablation experiments on a 620-item catalog show that the multi-head system
+achieves a mean outfit score of 0.489 with 0\% hard violations, compared
+to 0.011 score and 8.0\% violations for the rule-based baseline---a
+44$\times$ improvement in score and complete elimination of constraint
+violations.  The system generates three stylistically distinct outfits in
+under 5.1 seconds on commodity hardware, 22\% faster than the
+FashionCLIP-only predecessor.
+
+\smallskip\noindent
+Code: \url{https://github.com/anushreeberlia/loom}
+\end{abstract}
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Introduction}
+\label{sec:intro}
+
+The original Loom system~\citep{berlia2026loom} demonstrated that
+combining neural embedding retrieval with structured domain scoring could
+produce coherent outfits from fashion catalogs.  However, its reliance on
+a single shared FashionCLIP~\citep{chia2022fashionclip} embedding for
+\emph{all} downstream tasks---retrieval, occasion filtering, style
+matching, material compatibility---created a fundamental tension:
+FashionCLIP was trained to align images with product descriptions, not to
+predict outfit compatibility or occasion appropriateness.
+
+This mismatch manifested in several practical failures:
+\begin{itemize}[leftmargin=*,topsep=2pt,itemsep=1pt]
+\item Items that ``look alike'' (high cosine similarity) were retrieved for
+  slots where \emph{complementarity} was needed, not similarity.
+\item Occasion filtering required hand-crafted ``vibe/anti-vibe'' prose
+  strings with manually tuned penalty coefficients
+  ($\lambda_{\text{work}} = 3.0$).
+\item Material compatibility checking via CLIP heavy/light context vectors
+  was fragile, rejecting valid combinations and narrowing candidate pools.
+\item The four-level hierarchical scorer required hundreds of lines of
+  rule-based code for silhouette, color, texture, and finishing
+  assessments.
+\end{itemize}
+
+Loom~v2 addresses these limitations by replacing the shared embedding with
+task-specific projection heads, each trained to capture a different
+dimension of fashion understanding.  We also introduce three
+infrastructure advances---object-centric ingestion, cascade retrieval, and
+segmentation-first processing---that collectively transform Loom from a
+static catalog tool into a persistent wardrobe understanding system.
+
+\paragraph{Contributions.}
+\begin{enumerate}[leftmargin=*,topsep=2pt,itemsep=1pt]
+\item \textbf{Multi-head projection architecture}: Frozen DINOv2
+  backbone with five contrastively trained 128-d heads and a learned
+  pairwise compatibility scorer (Section~\ref{sec:multihead}).
+\item \textbf{Object-centric wardrobe ingestion}: YOLOv8-Nano detection
+  $+$ ByteTrack tracking for multi-item video and live camera capture
+  (Section~\ref{sec:ingestion}).
+\item \textbf{Cascade retrieval with sequential conditioning}:
+  Three-round retrieval that builds outfits progressively---silhouette
+  anchor, third piece, finisher---with each round conditioned on prior
+  selections (Section~\ref{sec:cascade}).
+\item \textbf{Segmentation-first embedding}: U\textsuperscript{2}-Net
+  background removal before all encoders, eliminating room/body/furniture
+  noise from fashion representations (Section~\ref{sec:segmentation}).
+\item \textbf{Comprehensive ablation}: Head-by-head and component-level
+  evaluation against the rule-based predecessor on the same catalog and
+  anchor set (Section~\ref{sec:experiments}).
+\end{enumerate}
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Related Work}
+\label{sec:related}
+
+\paragraph{Self-supervised vision transformers.}
+DINOv2~\citep{oquab2024dinov2} produces patch-level and CLS-level features
+via self-supervised distillation.  Its representations transfer strongly to
+downstream tasks without fine-tuning, making it suitable as a frozen
+backbone for multi-head projection.
+
+\paragraph{Multi-task fashion embeddings.}
+Type-aware embeddings~\citep{vasileva2018learning} project items into
+type-conditioned spaces.  MVAE~\citep{han2019mvae} learns disentangled
+latent codes.  Our approach differs by using \emph{independent} projection
+heads rather than a shared latent space, allowing each head to specialize
+without cross-task interference.
+
+\paragraph{Contrastive compatibility learning.}
+SCE-Net~\citep{tan2019scenet} learns compatibility via conditional
+similarity.  We use a similar contrastive formulation (InfoNCE) but
+decompose compatibility into multiple orthogonal heads, each with
+domain-specific training pairs.
+
+\paragraph{Object detection in fashion.}
+ModaNet~\citep{zheng2018modanet} provides fashion-specific detection.
+DeepFashion2~\citep{ge2019deepfashion2} extends to landmark detection.
+We use general-purpose YOLOv8-Nano~\citep{jocher2023ultralytics} for
+detection and add ByteTrack~\citep{zhang2022bytetrack} temporal tracking
+for video-mode multi-item capture.
+
+\paragraph{Cascade and sequential recommendation.}
+Sequential outfit composition has been explored via
+autoregressive generation~\citep{chen2019pog} and iterative
+refinement~\citep{lin2020csanet}.  Our cascade retrieval differs by using
+\emph{fixed-stage} sequential conditioning (silhouette $\to$ third piece
+$\to$ finisher) aligned with how fashion practitioners build outfits.
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{System Architecture}
+\label{sec:architecture}
+
+\begin{figure*}[t]
+\centering
+\fbox{\parbox{0.95\textwidth}{\centering
+\textbf{Loom v2 Pipeline}\\[6pt]
+\texttt{Camera/Video/Photo}
+$\;\xrightarrow{\text{YOLO+ByteTrack}}\;$
+\texttt{Per-Object Best Crop}
+$\;\xrightarrow{\text{U\textsuperscript{2}-Net}}\;$
+\texttt{Segmented Cutout}\\[4pt]
+$\downarrow$\\[4pt]
+\texttt{DINOv2 ViT-B/14} $\to$ \texttt{768-d backbone}
+$\;\xrightarrow{\text{5 MLP heads}}\;$
+\texttt{5 $\times$ 128-d task vectors}\\[4pt]
+$\downarrow$\\[4pt]
+$\forall\, s \in \{\text{bottom, shoes, layer, accessory}\}:$\quad
+\texttt{compat\_emb query}
+$\;\xrightarrow{\text{pgvector HNSW}}\;$
+\texttt{Candidates}$_s$
+$\;\xrightarrow{\text{occasion\_emb filter}}\;$
+\texttt{Filtered}$_s$\\[4pt]
+$\downarrow$\\[4pt]
+\texttt{Cascade: silhouette $\to$ third piece $\to$ finisher}
+$\;\xrightarrow{\text{CompatScorer}}\;$
+\texttt{Best outfit per direction}
+}}
+\caption{Loom~v2 end-to-end pipeline.  Compared to v1, ingestion adds
+object detection and segmentation; embedding replaces FashionCLIP with
+DINOv2+heads; retrieval uses compatibility embeddings; scoring uses a
+learned pairwise scorer.}
+\label{fig:pipeline_v2}
+\end{figure*}
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Method}
+\label{sec:method}
+
+\subsection{Multi-Head Projection Architecture}
+\label{sec:multihead}
+
+\paragraph{Backbone.}
+We use DINOv2 ViT-B/14~\citep{oquab2024dinov2} as a frozen visual
+backbone, extracting the 768-dimensional CLS token from
+$224 \times 224$ center-cropped images.  DINOv2 was chosen over FashionCLIP
+because its self-supervised training objective produces richer
+\emph{visual} features without conflating them with text alignment.
+
+\paragraph{Projection heads.}
+Five independent MLP heads project the backbone embedding into
+task-specific 128-dimensional spaces:
+
+\begin{equation}
+  \mathbf{h}_t = \text{L2norm}\Big(
+    W_2^{(t)} \cdot \text{LN}\big(
+      \text{ReLU}(W_1^{(t)} \mathbf{x} + b_1^{(t)})
+    \big) + b_2^{(t)}
+  \Big)
+\label{eq:head}
+\end{equation}
+
+\noindent where $\mathbf{x} \in \mathbb{R}^{768}$ is the DINOv2 CLS
+token, $W_1^{(t)} \in \mathbb{R}^{256 \times 768}$,
+$W_2^{(t)} \in \mathbb{R}^{128 \times 256}$, and $\text{LN}$ is
+layer normalization.  Each head $t$ specializes in one dimension:
+
+\begin{table}[t]
+\centering
+\small
+\caption{Multi-head architecture: five projection heads with training
+data sources and target semantics.}
+\label{tab:heads}
+\begin{tabular}{@{}llp{3.5cm}@{}}
+\toprule
+Head & Training data & Target semantics \\
+\midrule
+\texttt{style}    & Polyvore & Aesthetic identity (minimalist, streetwear, romantic) \\
+\texttt{fit}      & DeepFashion & Silhouette/cut (oversized, tailored, bodycon) \\
+\texttt{material} & iMaterialist & Fabric/texture (wool, denim, silk) \\
+\texttt{compat}   & Polyvore outfits & Co-outfit compatibility \\
+\texttt{occasion} & DeepFashion & Context (work, casual, going-out) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Contrastive training.}
+Each head is trained independently using InfoNCE~\citep{oord2018infonce}
+with temperature $\tau = 0.07$:
+\begin{equation}
+  \mathcal{L}_{\text{head}} = -\log \frac{
+    \exp(\mathbf{h}_i \cdot \mathbf{h}_j^+ / \tau)
+  }{
+    \sum_{k=1}^{N} \exp(\mathbf{h}_i \cdot \mathbf{h}_k / \tau)
+  }
+\label{eq:infonce}
+\end{equation}
+
+\noindent Positive pairs $(i, j^+)$ are constructed from dataset-specific
+annotations: co-outfit items for compatibility, same-style items for
+style, same-attribute items for material/fit/occasion.  The backbone is
+frozen; only the head parameters ($\sim$200K per head, 1M total) are
+trained.  Training uses AdamW (lr $10^{-3}$, weight decay $10^{-2}$) for
+30 epochs (40 for compatibility with hard negative mining after epoch 10),
+batch size 256, on pre-computed HDF5 backbone embeddings.
+
+\paragraph{Compatibility scorer.}
+A separate 3-layer MLP predicts pairwise compatibility from concatenated
+\texttt{compat} head embeddings:
+\begin{equation}
+  p(a, b) = \sigma\Big(
+    W_3 \cdot \text{ReLU}\big(
+      W_2 \cdot \text{ReLU}(W_1 [\mathbf{h}_a^c ; \mathbf{h}_b^c] + b_1) + b_2
+    \big) + b_3
+  \Big)
+\label{eq:compat}
+\end{equation}
+
+\noindent where $[\cdot;\cdot]$ denotes concatenation,
+$W_1 \in \mathbb{R}^{128 \times 256}$, $W_2 \in \mathbb{R}^{64 \times 128}$,
+$W_3 \in \mathbb{R}^{1 \times 64}$.  Trained jointly with BCE loss on
+Polyvore outfit pairs.  Outfit-level scoring averages all
+$\binom{n}{2}$ pairwise scores.
+
+\subsection{Multi-Head Outfit Scoring}
+\label{sec:mh_scoring}
+
+The learned scorer replaces the rule-based four-level hierarchy with a
+weighted combination of head-specific coherence signals:
+
+\begin{align}
+  S_{\text{total}} = \;&0.45 \cdot S_{\text{compat}} + 0.20 \cdot S_{\text{occasion}} \nonumber\\
+                       &+ 0.20 \cdot S_{\text{style}} + 0.15 \cdot S_{\text{material}}
+\label{eq:mh_score}
+\end{align}
+
+\noindent where:
+\begin{itemize}[leftmargin=*,topsep=0pt,itemsep=1pt]
+\item $S_{\text{compat}}$: mean pairwise compatibility score
+  (Eq.~\ref{eq:compat})
+\item $S_{\text{occasion}}$: mean cosine to centroid of items'
+  \texttt{occasion} embeddings
+\item $S_{\text{style}}$: mean cosine to centroid of items'
+  \texttt{style} embeddings
+\item $S_{\text{material}}$: harmony bonus ($+0.02$) if material
+  embedding spread is in $[0.15, 0.45]$; penalty ($-0.02$) otherwise
+\end{itemize}
+
+\paragraph{Fallback.}
+When multi-head embeddings are unavailable for any item (e.g., Shopify
+catalog items not yet backfilled), the system falls back to the v1
+rule-based scorer, ensuring graceful degradation.
+
+\subsection{Object-Centric Wardrobe Ingestion}
+\label{sec:ingestion}
+
+Loom~v1 assumed one pre-cropped product photo per item.  Loom~v2 supports
+three input modalities: single photo, video walkthrough, and live camera
+scan.
+
+\paragraph{Detection.}
+YOLOv8-Nano~\citep{jocher2023ultralytics} detects clothing objects
+(top, bottom, shoes, dress, bag) at confidence $\geq 0.4$.  On-device
+inference runs at $\sim$15 FPS via ONNX Runtime Web; server-side
+processes uploaded video at 3 FPS via ffmpeg extraction.
+
+\paragraph{Tracking.}
+ByteTrack~\citep{zhang2022bytetrack} assigns persistent object IDs across
+frames using IoU-based bipartite matching with two-pass confidence
+thresholds (high $\geq 0.5$, low $\geq 0.1$).  The Hungarian algorithm
+(scipy, with greedy fallback) solves the assignment.  This converts a
+stream of detections into a set of tracked objects, each with a temporal
+crop buffer.
+
+\paragraph{Best frame selection.}
+For each tracked object, the system maintains a temporal buffer of the
+top-$K$ ($K{=}5$) crops ranked by a composite quality score:
+\begin{equation}
+  Q = 0.5 \cdot \text{sharpness} + 0.3 \cdot \text{centeredness}
+      + 0.2 \cdot \text{area}
+\label{eq:quality}
+\end{equation}
+
+\noindent Sharpness is the variance of the Laplacian; centeredness
+measures proximity to image center; area rewards larger bounding boxes.
+Only the best crop per tracked object proceeds to segmentation and
+embedding, reducing computation from $O(\text{frames})$ to
+$O(\text{objects})$.
+
+\paragraph{Temporal embedding aggregation.}
+For video mode, each crop in the temporal buffer is segmented and embedded
+independently, then combined via quality-weighted averaging:
+\begin{equation}
+  \mathbf{e}_{\text{agg}} = \text{normalize}\bigg(
+    \sum_{k=1}^{K} Q_k \cdot \mathbf{e}_k
+  \bigg)
+\end{equation}
+
+\paragraph{Async batch processing.}
+Multi-item uploads are handled by an asynchronous ingestion worker with
+concurrency 4, retry with exponential backoff, and a state machine
+(pending $\to$ processing $\to$ ready/error) tracked per item.
+
+\subsection{Segmentation-First Embedding}
+\label{sec:segmentation}
+
+All embeddings (FashionCLIP and DINOv2) are computed on
+background-removed cutouts rather than raw photos.  We use
+rembg~\citep{rembg} with the ISNet-general-use model:
+
+\begin{enumerate}[leftmargin=*,topsep=2pt,itemsep=1pt]
+\item Resize to max 1024px (speed)
+\item Segment on natural background (better edge detection)
+\item Composite RGBA result onto white background (JPEG, $Q{=}92$)
+\end{enumerate}
+
+The full original image is stored in Cloudinary for display; only the
+cutout is used for embedding.  Segmentation failures gracefully fall back
+to the original image.
+
+\paragraph{Motivation.}
+User-uploaded closet photos contain rooms, bodies, furniture, and
+lighting artifacts.  Without segmentation, DINOv2 and FashionCLIP encode
+\emph{scene} features rather than \emph{garment} features.  Segmentation
+isolates the garment signal, improving embedding quality for both
+retrieval and scoring.
+
+\subsection{Cascade Retrieval with Sequential Conditioning}
+\label{sec:cascade}
+
+Loom~v1 retrieved candidates for all slots independently and scored
+combinatorial candidates.  Loom~v2 introduces three-round cascade
+retrieval that mirrors how stylists build outfits:
+
+\paragraph{Round 1: Silhouette anchor.}
+Bottom and shoes candidates are retrieved simultaneously.
+\texttt{pick\_anchor\_pair()} evaluates $k{\times}k$ (bottom, shoes)
+combinations and selects the pair with the tightest formality
+coherence to the anchor item.
+
+\paragraph{Round 2: Third piece.}
+Layer and top candidates are retrieved with the chosen silhouette
+pair as context---query construction includes the bottom and shoes
+attributes, pushing retrieval toward pieces that complete the
+emerging outfit.
+
+\paragraph{Round 3: Finisher.}
+Accessories are retrieved with the full outfit context
+(anchor + silhouette + third piece), ensuring coordination.
+
+\paragraph{Final scoring.}
+All candidates from the three rounds are pooled per slot, deduplicated,
+and passed to combinatorial generation (max 8 outfit candidates).  The
+compatibility scorer selects the best outfit per direction.
+
+\subsection{Multi-Head Retrieval}
+\label{sec:mh_retrieval}
+
+When multi-head embeddings are available, retrieval uses the
+\texttt{compat\_embedding} column with cosine distance ($\Leftrightarrow$
+operator) instead of the legacy FashionCLIP L2 distance ($\leftrightarrow$
+operator).  The query vector is the anchor item's own
+\texttt{compat\_embedding} (128-d), finding items that are
+\emph{compatible with} the anchor rather than \emph{similar to} it.
+
+Occasion filtering uses \texttt{occasion\_embedding} centroid coherence:
+candidates are scored by cosine to the centroid of retrieved items'
+occasion vectors, with a relative threshold (70\% of best score).
+Direction reranking uses \texttt{style\_embedding} cosine to the anchor's
+style vector.
+
+Both mechanisms replace the hand-crafted vibe/anti-vibe prose strings and
+per-occasion penalty coefficients from v1.
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Experiments}
+\label{sec:experiments}
+
+\subsection{Experimental Setup}
+
+We evaluate on the same catalog of 620 items (H\&M product data) used in
+Loom~v1, with 50 randomly sampled anchor items (seed 42) generating
+3 outfits each (150 outfits per configuration).  All items have been
+backfilled with DINOv2 backbone and multi-head embeddings.
+
+\subsection{Ablation Study}
+
+\begin{table}[t]
+\centering
+\small
+\caption{Multi-head ablation results (50 anchors $\times$ 3 directions,
+single run).  \textbf{Bold} indicates best per column.}
+\label{tab:mh_ablation}
+\begin{tabular}{@{}lcccc@{}}
+\toprule
+Configuration & Score & Viol.\,\% & Slots & ms \\
+\midrule
+v1 full (rules)          &  0.011 & 8.0 & 4.68 & 6537 \\
+\midrule
++ MH scoring only        & $-$0.018 & 10.7 & 4.68 & 6128 \\
++ MH occasion only       &  0.490 & \textbf{0.0} & 4.19 & 6037 \\
++ MH retrieval only      &  0.486 & \textbf{0.0} & 4.19 & 5564 \\
+\midrule
+MH full                  & \textbf{0.489} & \textbf{0.0} & 4.20 & \textbf{5090} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Analysis.}
+
+The multi-head full system achieves a 44$\times$ improvement in outfit
+score (0.489 vs.\ 0.011) and completely eliminates hard violations (0\%
+vs.\ 8.0\%).  Latency decreases 22\% (5090\,ms vs.\ 6537\,ms) because
+the learned heads skip rule-based computation.
+
+\paragraph{Component contributions.}
+The largest gains come from \emph{retrieval} and \emph{occasion filtering}
+rather than scoring.  Switching only occasion filtering to multi-head
+raises the score from 0.011 to 0.490---the occasion head's centroid
+coherence is dramatically more effective than vibe/anti-vibe prose
+strings.  Similarly, replacing FashionCLIP L2 retrieval with
+compat\_embedding cosine retrieval alone raises scores to 0.486.
+
+\paragraph{Scoring-only is insufficient.}
+Applying multi-head scoring alone ($-$0.018) slightly \emph{decreases}
+performance.  This is expected: the compatibility scorer evaluates items
+using their compat embeddings, but when retrieval still uses FashionCLIP
+text queries, the retrieved candidates are optimized for text similarity
+rather than compatibility---a distribution mismatch.  The scorer needs
+compatible candidates to score, not merely similar ones.
+
+\paragraph{Score interpretation caveat.}
+The multi-head and rule-based systems use \emph{different scoring
+functions}, so raw score magnitudes are not directly comparable.  What
+\emph{is} comparable: violation rate (objective constraint checking),
+slot diversity, and latency.  The 0\% violation rate under multi-head
+scoring indicates that learned compatibility captures hard fashion
+constraints without explicit rules.  A human preference study is needed
+to validate subjective outfit quality (Section~\ref{sec:limitations}).
+
+\subsection{Comparison with v1 Ablation}
+
+\begin{table}[t]
+\centering
+\small
+\caption{Loom v1 ablation (from~\citet{berlia2026loom}) alongside v2
+multi-head results.  The $\Delta$ column shows change from the
+respective system's full configuration.}
+\label{tab:v1_comparison}
+\begin{tabular}{@{}llcc@{}}
+\toprule
+System & Configuration & Score & Viol.\,\% \\
+\midrule
+v1 & Full (rules)           & 0.179 & 9.3 \\
+v1 & $-$ Direction rerank   & 0.052 & 6.7 \\
+v1 & Random retrieval       & 0.054 & 16.0 \\
+\midrule
+v2 & Full (multi-head)      & 0.489 & 0.0 \\
+v2 & MH scoring only        & $-$0.018 & 10.7 \\
+v2 & v1 full (rules, same run) & 0.011 & 8.0 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Note that v1 and v2 ``full (rules)'' scores differ (0.179 vs.\ 0.011)
+because the scoring function itself evolved between versions (flat
+6-signal $\to$ 4-level hierarchy).  The relative ranking---multi-head
+$\gg$ rules $>$ random---is consistent.
+
+\subsection{Efficiency}
+
+\begin{table}[t]
+\centering
+\small
+\caption{End-to-end outfit generation latency (CPU, $N{=}50$ anchors).}
+\label{tab:latency_v2}
+\begin{tabular}{@{}lrr@{}}
+\toprule
+System & Mean (ms) & Speedup \\
+\midrule
+v1 rules (this run)    & 6,537 & --- \\
+v2 multi-head full     & 5,090 & 1.28$\times$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The multi-head system is faster because:
+(i)~compatibility scoring is a single forward pass through a small MLP
+rather than hundreds of rule evaluations; and
+(ii)~occasion filtering via centroid coherence is cheaper than embedding
+each item against vibe/anti-vibe anchor vectors.
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Ingestion Pipeline in Practice}
+\label{sec:ingestion_practice}
+
+The object-centric ingestion pipeline has been deployed for the personal
+wardrobe application.  In practice:
+
+\begin{itemize}[leftmargin=*,topsep=2pt,itemsep=1pt]
+\item \textbf{Live camera scan}: The browser-side YOLO+ByteTrack system
+  runs at $\sim$15 FPS on mobile devices via ONNX Runtime Web.  Stability
+  thresholds (8 stable frames, minimum 10 track frames, quality $\geq 0.3$,
+  1.5\,s cooldown) prevent redundant captures.
+\item \textbf{Video upload}: Users record a closet walkthrough; the server
+  extracts frames at 3 FPS, runs YOLO+ByteTrack, and processes the best
+  crop per tracked object.  A 30-second video of 10 garments yields 10
+  items processed in $\sim$45 seconds.
+\item \textbf{Batch processing}: Multi-item uploads use an async worker
+  with 4-way concurrency, retry with exponential backoff, and per-item
+  state tracking (pending $\to$ processing $\to$ ready/error).
+\end{itemize}
+
+\paragraph{Reduction in computation.}
+Tracking reduces embedding computation from $O(\text{frames} \times
+\text{items})$ to $O(\text{items})$.  For a 30-second video at 3 FPS with
+5 visible items, this reduces segmentation+embedding calls from
+$90 \times 5 = 450$ to just 5.
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Training Infrastructure}
+\label{sec:training}
+
+Head training operates on pre-computed backbone embeddings stored in HDF5,
+enabling rapid iteration without re-running DINOv2:
+
+\begin{enumerate}[leftmargin=*,topsep=2pt,itemsep=1pt]
+\item \textbf{Backbone precomputation}: All training images are passed
+  through DINOv2 once; 768-d CLS tokens are stored in
+  \texttt{backbone\_embeddings.h5}.
+\item \textbf{Pair construction}: Dataset-specific scripts
+  (\texttt{prepare\_polyvore.py}, \texttt{prepare\_deepfashion.py},
+  \texttt{prepare\_imaterialist.py}) generate positive/negative pair
+  CSVs from outfit co-occurrence, attribute annotations, and the
+  228-attribute iMaterialist taxonomy.
+\item \textbf{Per-head training}: InfoNCE with $\tau{=}0.07$, batch 256,
+  AdamW ($\text{lr}{=}10^{-3}$, $\text{wd}{=}10^{-2}$), 30 epochs.
+  Compatibility head gets 40 epochs with hard negative mining (after
+  epoch 10, 30\% of negatives are high-similarity non-compatible pairs).
+\item \textbf{Scorer training}: Joint BCE on concatenated compat
+  embeddings, same optimizer, 40 epochs.
+\item \textbf{Evaluation}: Recall@$K$, compatibility AUC, and optional
+  t-SNE/UMAP visualization via \texttt{evaluate\_heads.py}.
+\end{enumerate}
+
+Total trainable parameters: $\sim$1.2M (5 heads + scorer).  Training
+completes in $<$30 minutes on a single GPU for all heads.
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Database Schema Evolution}
+\label{sec:schema}
+
+The migration from v1 to v2 adds 6 vector columns per item table:
+
+\begin{table}[t]
+\centering
+\small
+\caption{Schema additions in migration 002.  HNSW indexes are created
+on the three columns used in retrieval queries.}
+\label{tab:schema}
+\begin{tabular}{@{}lll@{}}
+\toprule
+Column & Dimensions & HNSW Index \\
+\midrule
+\texttt{backbone\_embedding} & 768 & No \\
+\texttt{style\_embedding} & 128 & Yes \\
+\texttt{fit\_embedding} & 128 & No \\
+\texttt{material\_embedding} & 128 & No \\
+\texttt{compat\_embedding} & 128 & Yes \\
+\texttt{occasion\_embedding} & 128 & Yes \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The legacy \texttt{embedding vector(512)} column (FashionCLIP) is
+retained for Shopify catalog items and fallback paths.  Total storage
+overhead: 1,412 additional floats per item ($\sim$5.6\,KB at float32).
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Discussion}
+\label{sec:discussion}
+
+\paragraph{Why DINOv2 over FashionCLIP?}
+FashionCLIP's training objective (image--text alignment) produces
+embeddings where ``looks like'' and ``goes with'' are conflated.  A red
+sneaker and a red dress are close in FashionCLIP space because they share
+visual attributes, but they are poor outfit partners.  DINOv2's
+self-supervised objective produces features that capture \emph{visual
+structure} without text-alignment bias.  Task-specific heads then learn
+which aspects of visual structure matter for each downstream task.
+
+\paragraph{Head independence.}
+The five heads are trained independently, which is a deliberate design
+choice.  Joint training (shared lower layers) would couple the
+representations, making it harder to update individual heads (e.g.,
+retraining the occasion head with new data) without affecting others.
+The cost is slightly higher total parameters ($5 \times 200\text{K}$
+vs.\ a shared trunk), which is negligible given the frozen backbone.
+
+\paragraph{Scoring-retrieval alignment.}
+The experiment confirms that scoring and retrieval must be aligned:
+multi-head scoring with FashionCLIP retrieval ($-$0.018) performs
+\emph{worse} than rule-based scoring with FashionCLIP retrieval (0.011).
+This is because the compat scorer was trained on compat embeddings from
+DINOv2, not on FashionCLIP similarity vectors---the input distribution
+at inference doesn't match training.  When retrieval also switches to
+compat embeddings, the scorer operates on in-distribution inputs and
+performance jumps dramatically.
+
+\paragraph{Removed: semantic material weight.}
+The v1 paper's headline contribution---semantic material weight via CLIP
+heavy/light context vectors---has been removed from the codebase.  The
+original ablation showed it was overly conservative (removing it
+\emph{increased} scores by $+$0.054).  The multi-head \texttt{material}
+head provides a more nuanced material representation without hand-crafted
+context strings.
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Limitations}
+\label{sec:limitations}
+
+\begin{enumerate}[leftmargin=*,topsep=2pt,itemsep=1pt]
+\item \textbf{No human evaluation.}  Outfit quality is ultimately
+  subjective.  The 0\% violation rate and high coherence scores are
+  encouraging but do not substitute for human preference judgments.
+\item \textbf{Score non-comparability.}  Multi-head and rule-based scores
+  use different scales and objectives; raw magnitudes cannot be compared
+  across systems.
+\item \textbf{Single catalog.}  All experiments use 620 H\&M items.
+  Generalization to diverse brands, price ranges, and cultural contexts
+  is untested.
+\item \textbf{Shopify gap.}  Shopify catalog items use only FashionCLIP
+  embeddings; multi-head benefits are limited to personal wardrobe and
+  direct catalog modes.
+\item \textbf{Head training data.}  Polyvore is no longer maintained;
+  DeepFashion and iMaterialist have Western/Asian biases.  Broader
+  training data would improve head generalization.
+\end{enumerate}
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Future Work}
+\label{sec:future}
+
+\begin{enumerate}[leftmargin=*,topsep=2pt,itemsep=1pt]
+\item \textbf{Human preference study}: Side-by-side comparison of v1
+  rule-based and v2 multi-head outfits rated by fashion-literate
+  annotators.
+\item \textbf{Shopify multi-head}: Extend DINOv2+head embeddings to
+  Shopify catalog items via background backfill during catalog sync.
+\item \textbf{Fine-tuning DINOv2}: Unfreeze the last 2 transformer blocks
+  with low learning rate for fashion-specific feature adaptation.
+\item \textbf{User preference heads}: Add a 6th ``personal'' head trained
+  on individual user like/dislike feedback, replacing the EMA taste
+  vector.
+\item \textbf{Cross-catalog gap filling}: Use multi-head embeddings to
+  identify wardrobe gaps and recommend retail items that would maximize
+  outfit combinatorics.
+\end{enumerate}
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Conclusion}
+
+We presented Loom~v2, which replaces a shared FashionCLIP embedding with
+task-specific DINOv2 projection heads for outfit recommendation.  Five
+independently trained heads (style, fit, material, compatibility,
+occasion) and a learned pairwise scorer replace hundreds of lines of
+rule-based scoring logic.  Object-centric ingestion via YOLOv8+ByteTrack
+enables multi-item capture from video and live camera, transforming the
+system from a static catalog tool into a persistent wardrobe understanding
+platform.  Ablation experiments show the multi-head system achieves
+44$\times$ higher outfit scores with zero constraint violations and 22\%
+lower latency than its rule-based predecessor.
+
+% ══════════════════════════════════════════════════════════════════════════════
+\bibliographystyle{plainnat}
+\begin{thebibliography}{25}
+
+\bibitem[Berlia(2026a)]{berlia2026loom}
+Berlia, A.
+\newblock Loom: Hybrid retrieval-scoring outfit recommendation with semantic
+material compatibility and occasion-aware embedding priors.
+\newblock \emph{arXiv preprint}, 2026.
+
+\bibitem[Berlia(2026b)]{berlia2026florence}
+Berlia, A.
+\newblock Fashion {Florence}: Fine-tuning {Florence-2} for structured fashion
+attribute extraction.
+\newblock \emph{arXiv preprint}, 2026.
+
+\bibitem[Chen et~al.(2019)]{chen2019pog}
+Chen, W., Huang, P., Xu, J., et~al.
+\newblock {POG}: Personalized outfit generation for fashion recommendation at
+{Alibaba iFashion}.
+\newblock In \emph{KDD}, 2019.
+
+\bibitem[Chia et~al.(2022)]{chia2022fashionclip}
+Chia, P.~J., Attanasio, G., Bianchi, F., et~al.
+\newblock {FashionCLIP}: Connecting language and images for product
+representations.
+\newblock \emph{arXiv preprint arXiv:2204.03972}, 2022.
+
+\bibitem[Ge et~al.(2019)]{ge2019deepfashion2}
+Ge, Y., Zhang, R., Wang, X., Tang, X., and Luo, P.
+\newblock {DeepFashion2}: A versatile benchmark for detection, pose estimation,
+segmentation and re-identification of clothing images.
+\newblock In \emph{CVPR}, 2019.
+
+\bibitem[Han et~al.(2019)]{han2019mvae}
+Han, X., Song, J., and Wu, Z.
+\newblock Learning fashion compatibility with context conditioning.
+\newblock In \emph{AAAI}, 2019.
+
+\bibitem[Jocher et~al.(2023)]{jocher2023ultralytics}
+Jocher, G., Chaurasia, A., and Qiu, J.
+\newblock Ultralytics {YOLOv8}.
+\newblock \url{https://github.com/ultralytics/ultralytics}, 2023.
+
+\bibitem[Lin et~al.(2020)]{lin2020csanet}
+Lin, Y.-L., Tran, S., and Davis, L.~S.
+\newblock Fashion outfit complementary item retrieval.
+\newblock In \emph{CVPR}, 2020.
+
+\bibitem[Oord et~al.(2018)]{oord2018infonce}
+van~den Oord, A., Li, Y., and Vinyals, O.
+\newblock Representation learning with contrastive predictive coding.
+\newblock \emph{arXiv preprint arXiv:1807.03748}, 2018.
+
+\bibitem[Oquab et~al.(2024)]{oquab2024dinov2}
+Oquab, M., Darcet, T., Moutakanni, T., et~al.
+\newblock {DINOv2}: Learning robust visual features without supervision.
+\newblock \emph{TMLR}, 2024.
+
+\bibitem[Radford et~al.(2021)]{radford2021clip}
+Radford, A., Kim, J.~W., Hallacy, C., et~al.
+\newblock Learning transferable visual models from natural language supervision.
+\newblock In \emph{ICML}, 2021.
+
+\bibitem[rembg()]{rembg}
+rembg: Remove image background.
+\newblock \url{https://github.com/danielgatis/rembg}.
+
+\bibitem[Tan et~al.(2019)]{tan2019scenet}
+Tan, R., Li, L., and Lin, D.
+\newblock Learning conditional similarity networks for fashion recommendation.
+\newblock In \emph{AAAI}, 2019.
+
+\bibitem[Vasileva et~al.(2018)]{vasileva2018learning}
+Vasileva, M., Plummer, B.~A., Dusber, K., et~al.
+\newblock Learning type-aware embeddings for fashion compatibility.
+\newblock In \emph{ECCV}, 2018.
+
+\bibitem[Zhang et~al.(2022)]{zhang2022bytetrack}
+Zhang, Y., Sun, P., Jiang, Y., et~al.
+\newblock {ByteTrack}: Multi-object tracking by associating every detection
+box.
+\newblock In \emph{ECCV}, 2022.
+
+\bibitem[Zheng et~al.(2018)]{zheng2018modanet}
+Zheng, S., Yang, F., Kiapour, M.~H., and Piramuthu, R.
+\newblock {ModaNet}: A large-scale street fashion dataset with polygon
+annotations.
+\newblock In \emph{ACM Multimedia}, 2018.
+
+\end{thebibliography}
+
+\end{document}

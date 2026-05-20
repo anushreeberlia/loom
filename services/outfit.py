@@ -424,35 +424,6 @@ def get_avoid_colors(direction: str, base_color: str, slot: str) -> set[str]:
     return avoid
 
 
-def enforce_monochrome_cap(items_by_slot: dict, base_color: str, max_matching: int = 1) -> dict:
-    """
-    Ensure we don't have too many items matching the base color.
-    
-    Args:
-        items_by_slot: Dict of slot → item
-        base_color: The input item's primary color
-        max_matching: Max items allowed to match base color
-    
-    Returns:
-        Modified items_by_slot (may set some to None if over cap)
-    """
-    matching_slots = []
-    for slot, item in items_by_slot.items():
-        if item and item.get("primary_color") == base_color:
-            matching_slots.append(slot)
-    
-    # If over cap, we'd need to flag slots to re-retrieve
-    # For V1, just log the issue
-    if len(matching_slots) > max_matching:
-        # Priority to drop: accessory > shoes > bottom
-        drop_priority = ["accessory", "shoes", "layer", "bottom", "top"]
-        for drop_slot in drop_priority:
-            if drop_slot in matching_slots and len(matching_slots) > max_matching:
-                items_by_slot[drop_slot] = None  # Will need re-retrieval
-                matching_slots.remove(drop_slot)
-    
-    return items_by_slot
-
 
 def get_slots_for_outfit(base_category: str, outfit_index: int = 0) -> list[str]:
     """
@@ -1017,16 +988,6 @@ def check_color_composition(base_item: dict, items_by_slot: dict) -> float:
         score -= 0.08 * (count - 2)
 
     return round(score, 3)
-
-
-def check_one_hero_rule(enriched: dict) -> float:
-    """Penalize multiple statement pieces."""
-    statement_count = sum(1 for v in enriched.values() if v["role"] == "statement")
-    if statement_count <= 1:
-        return 0.0
-    if statement_count == 2:
-        return 0.08
-    return 0.15
 
 
 _VOL_ORDER = {"slim": 0, "cropped": 1, "regular": 2, "relaxed": 3, "long": 4}
@@ -1701,7 +1662,44 @@ def check_hard_violations(
             sc = shoes.get("primary_color", "")
             if bc == sc and bc in NEUTRALS and bc not in {"black", "white"}:
                 violations.append(f"trendy same-neutral: {bc} bottom + shoes")
-    
+
+    # Proportion gate: both top and bottom oversized/relaxed is a silhouette failure
+    top_item = items_by_slot.get("top") or base_item
+    bottom_item = items_by_slot.get("bottom")
+    if bottom_item:
+        top_vol = infer_volume_class(top_item)
+        bot_vol = infer_volume_class(bottom_item)
+        if top_vol in ("relaxed", "oversized") and bot_vol in ("relaxed", "oversized"):
+            violations.append(f"proportion: {top_vol} top + {bot_vol} bottom")
+
+    # Formality gate: >3.5 gap between any two pieces is structurally incoherent
+    # (e.g., flip-flops with a sequin gown, gym shorts with stilettos)
+    # Threshold is generous because embedding-based formality has wide variance
+    all_pieces = [base_item] + [v for v in items_by_slot.values() if v]
+    formalities = []
+    for piece in all_pieces:
+        point, _, _ = infer_formality_continuous(piece)
+        formalities.append(point)
+    if len(formalities) >= 2:
+        gap = max(formalities) - min(formalities)
+        if gap > 3.5:
+            violations.append(f"formality gap: {gap:.1f} (max 3.5)")
+
+    # Occasion gate: activewear with work/going-out is always wrong
+    _OCC_BLOCK_SCORING = {
+        "going-out": {"active"},
+        "work": {"active"},
+        "active": {"going-out", "work"},
+    }
+    base_occ = infer_outfit_occasion(base_item)
+    blocked = _OCC_BLOCK_SCORING.get(base_occ, set())
+    if blocked:
+        for slot, item in items_by_slot.items():
+            if item:
+                item_occ = infer_outfit_occasion(item)
+                if item_occ in blocked:
+                    violations.append(f"occasion clash: {base_occ} base + {item_occ} {slot}")
+
     return violations
 
 
@@ -1988,6 +1986,37 @@ def select_best_outfit(
     return best_outfit or candidate_outfits[0], best_details
 
 
+def select_best_outfit_multihead(
+    candidate_outfits: list[dict[str, dict]],
+    base_item: dict,
+    direction: str,
+    base_embedding: list = None,
+    taste_vector: list = None,
+    dislike_vector: list = None,
+    weather_context: dict = None,
+) -> tuple[dict[str, dict], dict]:
+    """select_best_outfit variant using learned multi-head scoring."""
+    best_outfit = None
+    best_score = -999
+    best_details = {}
+
+    for items_by_slot in candidate_outfits:
+        score_result = score_outfit_multihead(
+            base_item, items_by_slot, direction,
+            base_embedding=base_embedding,
+            taste_vector=taste_vector,
+            dislike_vector=dislike_vector,
+            weather_context=weather_context,
+        )
+
+        if score_result["total"] > best_score:
+            best_score = score_result["total"]
+            best_outfit = items_by_slot
+            best_details = score_result
+
+    return best_outfit or candidate_outfits[0], best_details
+
+
 def assemble_outfit(
     direction: str,
     base_item: dict,
@@ -2022,7 +2051,12 @@ def assemble_outfit(
         base_embedding, direction, taste_vector, dislike_vector
     ) if base_embedding else None
 
-    score_result = score_outfit(
+    has_heads = any(
+        it.get("compat_embedding") for it in items_by_slot.values() if it
+    ) and base_item.get("compat_embedding")
+
+    _scorer = score_outfit_multihead if has_heads else score_outfit
+    score_result = _scorer(
         base_item, items_by_slot, direction,
         base_embedding=base_embedding,
         intent_vector=intent_vector,
@@ -2030,7 +2064,7 @@ def assemble_outfit(
         dislike_vector=dislike_vector,
         weather_context=weather_context,
     )
-    
+
     return {
         "direction": direction,
         "items": items,
@@ -2041,29 +2075,166 @@ def assemble_outfit(
     }
 
 
-def apply_diversity_rule(outfits: list[dict]) -> list[dict]:
+# ── Multi-head learned scoring (augments rule-based hierarchy) ────────────────
+
+
+def score_outfit_multihead(
+    base_item: dict,
+    items_by_slot: dict[str, dict],
+    direction: str,
+    base_embedding: list = None,
+    intent_vector: list = None,
+    taste_vector: list = None,
+    dislike_vector: list = None,
+    weather_context: dict = None,
+) -> dict:
     """
-    Ensure variety across outfits - avoid same item in multiple outfits.
-    
-    Simple V1 rule: if outfit 1 and 2 have same item in a slot,
-    outfit 2 should use the backup candidate.
-    
-    This is called after initial selection with backup candidates available.
+    Three-phase scoring modeled on how a human stylist evaluates an outfit:
+
+    Phase 1 -- Hard Gates (pass/fail):
+        Expanded check_hard_violations: banned items, duplicate accent,
+        proportion balance, formality gap, occasion clash.
+        Any violation -> score = -1, outfit rejected.
+
+    Phase 2 -- Learned Head Ranking (100% of score):
+        0.35 * compat   (do these belong in the same outfit?)
+        0.20 * style    (aesthetic coherence)
+        0.20 * occasion (context appropriateness)
+        0.15 * fit      (silhouette complementarity)
+        0.10 * material (texture contrast via inverted-U spread)
+
+    Phase 3 -- Personal Taste Bonus (additive):
+        +0.10 * intent_alignment (taste vector match)
+        +direction_bonus (Classic/Trendy/Bold, capped 0.05)
+
+    Falls back to pure rule-based score_outfit() if fewer than 2 items
+    have multi-head embeddings.
     """
-    # Track used item IDs per slot
-    used_by_slot = {}
-    
-    for outfit in outfits:
-        for item in outfit.get("items", []):
-            slot = item["slot"]
-            item_id = item["item_id"]
-            
-            if slot not in used_by_slot:
-                used_by_slot[slot] = set()
-            
-            # If already used, we'd need to swap with backup
-            # For V1, we just flag it (actual swap happens in retrieval)
-            used_by_slot[slot].add(item_id)
-    
-    return outfits
+    import numpy as np
+    from services.multihead import get_compatibility_scorer
+
+    all_items = [base_item] + [v for v in items_by_slot.values() if v]
+
+    compat_vecs = []
+    for it in all_items:
+        ce = it.get("compat_embedding")
+        if ce:
+            compat_vecs.append(np.array(ce, dtype=np.float32))
+
+    if len(compat_vecs) < 2:
+        return score_outfit(
+            base_item, items_by_slot, direction,
+            base_embedding=base_embedding,
+            intent_vector=intent_vector,
+            taste_vector=taste_vector,
+            dislike_vector=dislike_vector,
+            weather_context=weather_context,
+        )
+
+    # ── Phase 1: Hard Gates ──
+    violations = check_hard_violations(base_item, items_by_slot, direction)
+    if violations:
+        return {"total": -1.0, "violations": violations, "breakdown": {}}
+
+    # ── Phase 2: 100% Head-Driven Ranking ──
+
+    # Compat: pairwise compatibility scorer or centroid fallback (35%)
+    scorer = get_compatibility_scorer()
+    if scorer:
+        compat_score = scorer.score_outfit(compat_vecs)
+    else:
+        centroid = np.mean(compat_vecs, axis=0)
+        centroid /= max(np.linalg.norm(centroid), 1e-8)
+        compat_score = float(np.mean([np.dot(v, centroid) for v in compat_vecs]))
+
+    def _head_coherence(head_name):
+        vecs = []
+        for it in all_items:
+            v = it.get(f"{head_name}_embedding")
+            if v:
+                vecs.append(np.array(v, dtype=np.float32))
+        if len(vecs) < 2:
+            return 0.5
+        c = np.mean(vecs, axis=0)
+        norm = np.linalg.norm(c)
+        if norm < 1e-8:
+            return 0.5
+        c /= norm
+        return float(np.mean([np.dot(v, c) for v in vecs]))
+
+    # Style: aesthetic coherence (20%)
+    style_score = _head_coherence("style")
+
+    # Occasion: context appropriateness (20%)
+    occasion_score = _head_coherence("occasion")
+
+    # Fit: silhouette complementarity (15%)
+    fit_score = _head_coherence("fit")
+
+    # Material: texture contrast via inverted-U spread (10%)
+    # A stylist wants moderate diversity (not all-cotton, not random fabrics)
+    mat_vecs = [np.array(it["material_embedding"], dtype=np.float32)
+                for it in all_items if it.get("material_embedding")]
+    if len(mat_vecs) >= 2:
+        c = np.mean(mat_vecs, axis=0)
+        c /= max(np.linalg.norm(c), 1e-8)
+        spread = 1.0 - float(np.mean([np.dot(v, c) for v in mat_vecs]))
+        # Inverted-U: peak at spread ~0.30, drops off at extremes
+        # score = 1 - 4*(spread - 0.30)^2, clamped to [0, 1]
+        material_score = max(0.0, min(1.0, 1.0 - 4.0 * (spread - 0.30) ** 2))
+    else:
+        material_score = 0.5
+
+    head_total = (
+        0.35 * compat_score +
+        0.20 * style_score +
+        0.20 * occasion_score +
+        0.15 * fit_score +
+        0.10 * material_score
+    )
+
+    # ── Phase 3: Personal Taste Bonus (additive) ──
+    taste_bonus = 0.0
+    all_embs = [it.get("embedding") for it in all_items if it.get("embedding")]
+    if intent_vector and all_embs:
+        emb_arrays = [np.array(e, dtype=np.float32) for e in all_embs]
+        outfit_centroid = np.mean(emb_arrays, axis=0)
+        norm = np.linalg.norm(outfit_centroid)
+        if norm > 1e-8:
+            outfit_centroid /= norm
+            iv = np.array(intent_vector, dtype=np.float32)
+            iv /= max(np.linalg.norm(iv), 1e-8)
+            taste_bonus = 0.10 * float(np.dot(outfit_centroid, iv))
+    elif not intent_vector and base_embedding:
+        iv = compute_outfit_intent_vector(
+            base_embedding, direction, taste_vector, dislike_vector
+        )
+        if iv is not None and all_embs:
+            emb_arrays = [np.array(e, dtype=np.float32) for e in all_embs]
+            outfit_centroid = np.mean(emb_arrays, axis=0)
+            norm = np.linalg.norm(outfit_centroid)
+            if norm > 1e-8:
+                outfit_centroid /= norm
+                iv_arr = np.array(iv, dtype=np.float32)
+                iv_arr /= max(np.linalg.norm(iv_arr), 1e-8)
+                taste_bonus = 0.10 * float(np.dot(outfit_centroid, iv_arr))
+
+    dir_bonus = min(compute_direction_bonus(base_item, items_by_slot, direction), 0.05)
+
+    total = head_total + taste_bonus + dir_bonus
+
+    return {
+        "total": round(total, 4),
+        "violations": [],
+        "breakdown": {
+            "compat": round(compat_score, 4),
+            "style": round(style_score, 4),
+            "occasion": round(occasion_score, 4),
+            "fit": round(fit_score, 4),
+            "material": round(material_score, 4),
+            "head_total": round(head_total, 4),
+            "taste_bonus": round(taste_bonus, 4),
+            "direction_bonus": round(dir_bonus, 4),
+        },
+    }
 

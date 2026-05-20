@@ -1,0 +1,67 @@
+{
+  "timestamp": "20260520_011421",
+  "seed": 42,
+  "n_samples": 10,
+  "pairs": [
+    {
+      "anchor_id": 1757,
+      "anchor_name": "OL OSBORNE PQ loafer",
+      "rules_n_outfits": 3,
+      "multihead_n_outfits": 3
+    },
+    {
+      "anchor_id": 1543,
+      "anchor_name": "PQ SULLY SILK MIX SKIRT",
+      "rules_n_outfits": 3,
+      "multihead_n_outfits": 3
+    },
+    {
+      "anchor_id": 1714,
+      "anchor_name": "Maximo",
+      "rules_n_outfits": 3,
+      "multihead_n_outfits": 3
+    },
+    {
+      "anchor_id": 1454,
+      "anchor_name": "King Charles v5",
+      "rules_n_outfits": 3,
+      "multihead_n_outfits": 3
+    },
+    {
+      "anchor_id": 1775,
+      "anchor_name": "TURIN",
+      "rules_n_outfits": 3,
+      "multihead_n_outfits": 3
+    },
+    {
+      "anchor_id": 1666,
+      "anchor_name": "Macy sandal runner",
+      "rules_n_outfits": 3,
+      "multihead_n_outfits": 3
+    },
+    {
+      "anchor_id": 1854,
+      "anchor_name": "Class Carro earrings RT",
+      "rules_n_outfits": 3,
+      "multihead_n_outfits": 3
+    },
+    {
+      "anchor_id": 1429,
+      "anchor_name": "J Minnie T EQ",
+      "rules_n_outfits": 3,
+      "multihead_n_outfits": 3
+    },
+    {
+      "anchor_id": 1592,
+      "anchor_name": "Waleo HW wide full",
+      "rules_n_outfits": 3,
+      "multihead_n_outfits": 3
+    },
+    {
+      "anchor_id": 1449,
+      "anchor_name": "Miniemouse",
+      "rules_n_outfits": 3,
+      "multihead_n_outfits": 3
+    }
+  ]
+}

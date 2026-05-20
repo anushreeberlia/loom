@@ -67,17 +67,29 @@ def download_one(item_id: str, url: str, images_dir: Path) -> bool:
     if output_path.exists() and output_path.stat().st_size > 100:
         return True
 
-    # Try original URL first
-    urls_to_try = [url]
+    # Extract tid from URL for web archive lookup
+    tid = ""
+    if "tid=" in url:
+        tid = url.split("tid=")[-1].split("&")[0]
 
-    # Try web archive as fallback
-    if "polyvore.com" in url or "polyvore-int" in url:
-        urls_to_try.append(f"https://web.archive.org/web/2018/{url}")
+    urls_to_try = []
+
+    # Polyvore CDN is dead (redirects to ssense.com HTML) -- go straight to web archive
+    if "polyvore" in url:
+        if tid:
+            urls_to_try.append(
+                f"https://web.archive.org/web/2018im_/http://img1.polyvoreimg.com/cgi/img-thing?.out=jpg&size=m&tid={tid}"
+            )
+            urls_to_try.append(
+                f"https://web.archive.org/web/2018/{url}"
+            )
+    else:
+        urls_to_try.append(url)
 
     for try_url in urls_to_try:
         try:
-            resp = httpx.get(try_url, timeout=10.0, follow_redirects=True)
-            if resp.status_code == 200 and len(resp.content) > 100:
+            resp = httpx.get(try_url, timeout=15.0, follow_redirects=True)
+            if resp.status_code == 200 and len(resp.content) > 500:
                 content_type = resp.headers.get("content-type", "")
                 if "image" in content_type or resp.content[:3] in [b'\xff\xd8\xff', b'\x89PN']:
                     output_path.write_bytes(resp.content)

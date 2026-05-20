@@ -69,6 +69,10 @@ ALL_ABLATIONS = [
     "no_direction", "no_formality", "no_noise",
 ]
 
+MULTIHEAD_ABLATIONS = [
+    "multihead_scoring", "multihead_occasion", "multihead_retrieval", "multihead_full",
+]
+
 
 # ── Load anchor items from DB ─────────────────────────────────────────────────
 
@@ -95,7 +99,10 @@ def load_anchor_items(n: int, shop_domain: str = None, source: str = None, seed:
             query = """
                 SELECT id, name, category, image_url,
                        primary_color, secondary_colors, style_tags, season_tags,
-                       occasion_tags, material, fit, embedding::text
+                       occasion_tags, material, fit, embedding::text,
+                       compat_embedding::text, style_embedding::text,
+                       occasion_embedding::text, fit_embedding::text,
+                       material_embedding::text
                 FROM catalog_items
                 WHERE embedding IS NOT NULL
             """
@@ -121,11 +128,22 @@ def load_anchor_items(n: int, shop_domain: str = None, source: str = None, seed:
         else:
             cols = ["id", "name", "category", "image_url",
                     "primary_color", "secondary_colors", "style_tags", "season_tags",
-                    "occasion_tags", "material", "fit", "embedding_text"]
+                    "occasion_tags", "material", "fit", "embedding_text",
+                    "compat_embedding_text", "style_embedding_text",
+                    "occasion_embedding_text", "fit_embedding_text",
+                    "material_embedding_text"]
 
         d = dict(zip(cols, row))
         emb_text = d.pop("embedding_text", None)
         d["embedding"] = [float(x) for x in emb_text.strip("[]").split(",")] if emb_text else []
+
+        for head_col in ["compat_embedding_text", "style_embedding_text",
+                         "occasion_embedding_text", "fit_embedding_text",
+                         "material_embedding_text"]:
+            head_text = d.pop(head_col, None)
+            key = head_col.replace("_text", "")
+            d[key] = [float(x) for x in head_text.strip("[]").split(",")] if head_text else None
+
         if d["embedding"]:
             items.append(d)
 
@@ -256,6 +274,24 @@ def _make_ablation_patches(ablation: str) -> list:
         patches.append(patch.object(outfit_mod, "check_formality_coherence",
                                     lambda *a, **kw: 0.0))
 
+    # ── Ensure rules-only baselines disable multihead ───────────────────────
+    if ablation not in ("multihead_scoring", "multihead_occasion",
+                         "multihead_retrieval", "multihead_full"):
+        import services.outfit_generator as gen_mod_base
+        import services.retrieval as ret_mod_base
+        patches.append(patch.object(gen_mod_base, "USE_MULTIHEAD", False))
+        patches.append(patch.object(ret_mod_base, "USE_MULTIHEAD", False))
+
+    # ── Multi-head ablation variants ─────────────────────────────────────────
+    if ablation in ("multihead_scoring", "multihead_occasion",
+                     "multihead_retrieval", "multihead_full"):
+        import services.outfit_generator as gen_mod_mh
+        patches.append(patch.object(gen_mod_mh, "USE_MULTIHEAD", True))
+
+    if ablation in ("multihead_occasion", "multihead_retrieval", "multihead_full"):
+        import services.retrieval as ret_mod
+        patches.append(patch.object(ret_mod, "USE_MULTIHEAD", True))
+
     return patches
 
 
@@ -283,7 +319,9 @@ def generate_with_ablation(item: dict, ablation: str, shop_domain: str = None,
     _captured_scores.clear()
 
     orig_select = gen_mod.select_best_outfit
+    orig_select_mh = gen_mod.select_best_outfit_multihead
     gen_mod.select_best_outfit = _score_interceptor(orig_select)
+    gen_mod.select_best_outfit_multihead = _score_interceptor(orig_select_mh)
 
     t0 = time.time()
     active_patches = [p.__enter__() for p in patches]
@@ -300,6 +338,7 @@ def generate_with_ablation(item: dict, ablation: str, shop_domain: str = None,
         for p in reversed(patches):
             p.__exit__(None, None, None)
         gen_mod.select_best_outfit = orig_select
+        gen_mod.select_best_outfit_multihead = orig_select_mh
 
     elapsed_ms = (time.time() - t0) * 1000
     scores_copy = list(_captured_scores)
@@ -416,7 +455,8 @@ def main():
     parser.add_argument("--n-anchors", type=int, default=100,
                         help="Number of anchor items to test")
     parser.add_argument("--ablations", default=",".join(ALL_ABLATIONS),
-                        help="Comma-separated ablation configs")
+                        help="Comma-separated ablation configs (also: " +
+                             ",".join(MULTIHEAD_ABLATIONS) + ")")
     parser.add_argument("--shop-domain", default=None,
                         help="Shopify shop domain (uses shopify_catalog_items)")
     parser.add_argument("--source", default=None,

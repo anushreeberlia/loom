@@ -90,11 +90,18 @@ class PairDataset:
         self.shuffle = shuffle
 
         self.pairs = []
+        self._positive_pairs = []
+        self._negative_pairs = []
         with open(csv_path) as f:
             reader = csv.DictReader(f)
             for row in reader:
                 if row["item_a"] in store.id_to_idx and row["item_b"] in store.id_to_idx:
-                    self.pairs.append((row["item_a"], row["item_b"], int(row["label"])))
+                    triple = (row["item_a"], row["item_b"], int(row["label"]))
+                    self.pairs.append(triple)
+                    if triple[2] == 1:
+                        self._positive_pairs.append(triple)
+                    else:
+                        self._negative_pairs.append(triple)
 
         logger.info("PairDataset: %d valid pairs from %s", len(self.pairs), csv_path)
 
@@ -119,6 +126,18 @@ class PairDataset:
             emb_b = np.array([self.store.get(id_) for id_ in ids_b])
 
             yield emb_a, emb_b, labels
+
+    def replace_negatives_with_hard(self, hard_negatives: list[tuple]):
+        """Swap random negatives for hard-mined ones (partial replacement)."""
+        n_replace = min(len(hard_negatives), len(self._negative_pairs) // 2)
+        if n_replace == 0:
+            return
+
+        kept_negatives = self._negative_pairs[n_replace:]
+        self._negative_pairs = kept_negatives + hard_negatives[:n_replace]
+        self.pairs = self._positive_pairs + self._negative_pairs
+        np.random.shuffle(self.pairs)
+        logger.info("  Replaced %d negatives with hard-mined samples", n_replace)
 
 
 # ── Model Definitions (Torch) ────────────────────────────────────────────────
@@ -203,6 +222,69 @@ def bce_loss_fn(predictions, labels):
     return F.binary_cross_entropy(predictions.squeeze(), labels)
 
 
+# ── Hard Negative Mining ──────────────────────────────────────────────────────
+
+
+def mine_hard_negatives(
+    head,
+    dataset: PairDataset,
+    n_hard: int = 5000,
+    device: str = "cpu",
+) -> list[tuple]:
+    """
+    Mine hard negatives: negative pairs that the current model scores highly.
+
+    For each positive anchor, find the highest-scoring negative in a random pool.
+    These are the pairs the model is most confused about, so training on them
+    gives the strongest gradient signal.
+    """
+    import torch
+
+    head.eval()
+    store = dataset.store
+    all_ids = store.item_ids
+    positives = dataset._positive_pairs
+
+    if not positives or not all_ids:
+        return []
+
+    pool_size = min(500, len(all_ids))
+    hard_negs = []
+
+    sample_anchors = positives[:min(n_hard * 2, len(positives))]
+    np.random.shuffle(sample_anchors)
+
+    with torch.no_grad():
+        for anchor_id, _, _ in sample_anchors[:n_hard]:
+            anchor_emb = store.get(anchor_id)
+            if anchor_emb is None:
+                continue
+
+            candidates = np.random.choice(len(all_ids), size=pool_size, replace=False)
+            cand_ids = [all_ids[c] for c in candidates]
+            cand_embs = np.array([store.get(cid) for cid in cand_ids if store.get(cid) is not None])
+
+            if len(cand_embs) < 2:
+                continue
+
+            anchor_t = torch.tensor(anchor_emb, dtype=torch.float32, device=device).unsqueeze(0)
+            cand_t = torch.tensor(cand_embs, dtype=torch.float32, device=device)
+
+            proj_anchor = head(anchor_t)
+            proj_cand = head(cand_t)
+
+            sims = torch.mm(proj_anchor, proj_cand.T).squeeze(0)
+            hardest_idx = sims.argmax().item()
+            hard_negs.append((anchor_id, cand_ids[hardest_idx], 0))
+
+            if len(hard_negs) >= n_hard:
+                break
+
+    logger.info("  Mined %d hard negatives", len(hard_negs))
+    head.train()
+    return hard_negs
+
+
 # ── Training Loop ─────────────────────────────────────────────────────────────
 
 
@@ -247,14 +329,25 @@ def train_single_head(
         params += list(scorer.parameters())
     optimizer = optim.AdamW(params, lr=lr, weight_decay=config["training"]["weight_decay"])
 
+    # Hard negative mining config
+    use_hard_neg = config["training"].get("hard_negative_mining", False)
+    hard_neg_start = config["training"].get("hard_neg_start_epoch", 10)
+
     # Training
     best_val_loss = float("inf")
     patience_counter = 0
 
-    logger.info("Training %s_head: %d epochs, lr=%.1e, tau=%.3f, device=%s",
-                head_name, epochs, lr, temperature, device)
+    logger.info("Training %s_head: %d epochs, lr=%.1e, tau=%.3f, device=%s, hard_neg=%s (epoch %d+)",
+                head_name, epochs, lr, temperature, device, use_hard_neg, hard_neg_start)
 
     for epoch in range(epochs):
+        # Hard negative mining: replace easy negatives with hard ones
+        if use_hard_neg and epoch == hard_neg_start:
+            logger.info("Epoch %d: mining hard negatives...", epoch + 1)
+            hard_negs = mine_hard_negatives(head, dataset, n_hard=5000, device=device)
+            if hard_negs:
+                dataset.replace_negatives_with_hard(hard_negs)
+
         head.train()
         if scorer:
             scorer.train()

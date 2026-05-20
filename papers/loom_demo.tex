@@ -1,0 +1,367 @@
+\documentclass[sigconf]{acmart}
+
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{url}
+
+\settopmatter{printacmref=false}
+\renewcommand\footnotetextcopyrightpermission[1]{}
+\pagestyle{plain}
+
+\title{Loom: An Open-Source Outfit Recommendation Engine\\with Semantic Scoring and Shopify Integration}
+
+\author{Anushree Berlia}
+\affiliation{%
+  \institution{Independent Researcher}
+}
+\email{anushree.berlia@gmail.com}
+
+\begin{document}
+
+\begin{abstract}
+We demonstrate \textbf{Loom}, an open-source outfit recommendation system
+that generates complete, occasion-appropriate outfits from fashion catalogs.
+Loom combines FashionCLIP embedding retrieval with a multi-signal scoring
+function incorporating semantic material compatibility, vibe/anti-vibe
+occasion priors, and style direction diversity.  The system is deployed in
+two modes: (1)~a personal wardrobe app with weather-aware suggestions and
+taste learning, and (2)~a Shopify storefront extension that adds ``Shop the
+Look'' outfit recommendations to product pages.  Given a single anchor
+garment, Loom generates three stylistically distinct outfits (Classic,
+Trendy, Bold) in under 5 seconds on commodity hardware.  The system is
+fully open-source and available at
+\url{https://github.com/anushreeberlia/loom}.
+\end{abstract}
+
+\keywords{outfit recommendation, fashion AI, FashionCLIP, multimodal
+embeddings, Shopify, recommendation systems}
+
+\maketitle
+
+\section{Introduction}
+
+Outfit recommendation differs from single-item recommendation in that
+the system must compose a \emph{set} of mutually compatible garments
+satisfying visual, textual, and contextual constraints simultaneously.
+Users expect outfits to respect color harmony, formality consistency,
+occasion appropriateness, and material layering logic, constraints that
+purely embedding-based systems struggle to enforce.
+
+Prior systems address this through learned compatibility
+embeddings~\cite{vasileva2018learning}, graph neural
+networks~\cite{cui2019dressing}, or transformer-based set
+completion~\cite{sarkar2023outfittransformer}.  However, these methods
+capture statistical co-occurrence patterns but cannot enforce hard domain
+constraints (e.g., a formal blazer should never pair with gym sneakers,
+regardless of embedding proximity).  Industrial systems at Stitch Fix and
+Zalando operate at scale but remain proprietary.
+
+We present Loom, a fully open-source hybrid retrieval-scoring system that
+addresses these challenges through:
+\begin{itemize}
+\item Slot-constrained ANN retrieval over FashionCLIP embeddings stored
+  in PostgreSQL with pgvector (HNSW indexing).
+\item A composite scoring function that integrates six signals: embedding
+  similarity, color harmony, formality, occasion coherence, style direction,
+  and diversity.
+\item Two novel techniques: \emph{semantic material weight} (using CLIP
+  geometry to infer garment heaviness) and \emph{vibe/anti-vibe occasion
+  priors} (embedding prose occasion descriptions as scoring anchors).
+\item Two deployment modes: a personal wardrobe app and a Shopify
+  storefront extension for e-commerce merchants.
+\end{itemize}
+
+To our knowledge, Loom is the first open-source outfit recommendation
+system that combines multimodal embedding retrieval with structured
+fashion domain scoring and ships with both consumer and B2B deployment
+targets.
+
+\section{System Architecture}
+
+\begin{figure}[t]
+\centering
+\fbox{\parbox{0.92\columnwidth}{\small\centering
+\textbf{Loom Pipeline}\\[4pt]
+\texttt{Anchor Image}
+$\xrightarrow{\text{Fashion Florence}}$
+\texttt{Structured Tags}
+$\xrightarrow{\text{FashionCLIP}}$
+\texttt{512-d Embedding}\\[3pt]
+$\downarrow$\\[3pt]
+$\forall\, s \in \{\text{bottom, shoes, layer, acc.}\}$:\\
+\texttt{Query}$_s$ $\xrightarrow{\text{pgvector}}$ \texttt{Candidates}$_s$
+$\xrightarrow{\text{filter}}$ \texttt{Scored}$_s$\\[3pt]
+$\downarrow$\\[3pt]
+\texttt{3 Outfits:} Classic $|$ Trendy $|$ Bold
+}}
+\caption{End-to-end pipeline from anchor image to three outfit outputs.}
+\label{fig:pipeline}
+\end{figure}
+
+Loom processes an anchor item through four stages:
+
+\textbf{(1) Vision.} Fashion Florence~\cite{berlia2026florence}, a
+Florence-2-large model fine-tuned with LoRA, extracts structured attributes
+(category, color, material, style tags, occasion tags) from the item image
+as JSON.
+
+\textbf{(2) Embedding.} FashionCLIP~\cite{chia2022fashionclip} produces a
+512-dimensional blended embedding: $\mathbf{e} = \text{norm}(0.7 \cdot
+\mathbf{e}_{\text{img}} + 0.3 \cdot \mathbf{e}_{\text{txt}})$, where
+the text component encodes material, style, and category metadata.
+
+\textbf{(3) Retrieval.} Per-slot cosine ANN queries retrieve candidates
+from PostgreSQL via pgvector HNSW indexing ($m{=}16$,
+$\text{ef\_construction}{=}64$).  Candidates are filtered by occasion
+affinity using embedded vibe/anti-vibe prose vectors.
+
+\textbf{(4) Scoring.} Combinatorial candidates are scored by a weighted
+sum of embedding similarity, color harmony, formality consistency, occasion
+coherence, and style direction bonuses.  The top outfit per direction
+(Classic, Trendy, Bold) is selected.
+
+\section{Key Technical Contributions}
+
+\subsection{Semantic Material Weight}
+
+Rather than maintaining a hand-coded material taxonomy, we compute garment
+``heaviness'' in CLIP embedding space:
+\begin{equation}
+  w_i = \cos(\mathbf{e}_{\text{mat}(i)}, \mathbf{h}) -
+        \cos(\mathbf{e}_{\text{mat}(i)}, \mathbf{l})
+\end{equation}
+where $\mathbf{h}$ and $\mathbf{l}$ are pre-embedded heavy/light context
+strings.  A layer is compatible if $w_{\text{layer}} \geq w_{\text{top}}
+- 0.15$.
+
+\subsection{Vibe/Anti-Vibe Occasion Priors}
+
+Each occasion (work, casual, going-out, etc.) is defined by two embedded
+prose strings capturing what the occasion ``feels like'' and what it
+explicitly rejects.  Items are scored by differential affinity:
+\begin{equation}
+  S_{\text{occ}}(i, o) = \cos(\mathbf{e}_i, \mathbf{v}_o) -
+    \lambda_o \cdot \max(0, \cos(\mathbf{e}_i, \mathbf{a}_o) -
+    \cos(\mathbf{e}_i, \mathbf{v}_o))
+\end{equation}
+New occasions require only writing new prose; no retraining is needed.
+
+\section{Deployment Modes}
+
+\subsection{Personal Wardrobe App}
+
+Users photograph closet items, which are processed through the full
+pipeline.  The system provides daily outfit suggestions that adapt to:
+\begin{itemize}
+\item \textbf{Weather}: OpenWeatherMap data adjusts material preferences
+  (rain avoids suede, cold forces layers).
+\item \textbf{Taste}: Like/dislike feedback updates an EMA-based taste
+  vector that enters retrieval and scoring.
+\item \textbf{Rotation}: A per-user FIFO queue penalizes recently worn
+  items.
+\end{itemize}
+Authentication uses JWT with Google OAuth; data resides in PostgreSQL.
+
+\subsection{Shopify Storefront Extension}
+
+Merchants install Loom as an embedded Shopify app:
+\begin{enumerate}
+\item Catalog sync via Shopify Admin GraphQL API.
+\item Automatic attribute extraction via Fashion Florence.
+\item Pre-computed outfit generation with incremental cache invalidation.
+\item ``Shop the Look'' theme extension on product detail pages.
+\end{enumerate}
+
+The Shopify integration uses React Router with Prisma session management.
+Outfits are pre-generated and cached; adding a new product triggers
+selective invalidation based on a category dependency map.
+
+\section{Evaluation}
+
+We evaluate Loom on an internal catalog of 620 items (230 tops, 170
+bottoms, 140 shoes, 50 dresses, 30 accessories) sourced from H\&M
+product data.
+
+\subsection{Ablation Study}
+
+\begin{table}[t]
+\centering
+\small
+\caption{Ablation results (50 anchors, 150 outfits per config).}
+\label{tab:ablation}
+\begin{tabular}{lcc}
+\toprule
+Configuration & Score & Viol.\% \\
+\midrule
+Full system & 0.179 & 9.3 \\
+$-$ Direction reranking & 0.052 & 6.7 \\
+$-$ Material compat. & 0.233 & 4.7 \\
+$-$ Occasion filtering & 0.194 & 7.3 \\
+$-$ Formality check & 0.173 & 10.7 \\
+Random retrieval & 0.054 & 16.0 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Table~\ref{tab:ablation} summarizes ablation results.  The full system
+achieves a 3.3$\times$ improvement over category-constrained random
+retrieval (0.179 vs.\ 0.054) with 42\% fewer hard violations.  Direction
+reranking is the single indispensable component: removing it drops the
+score to 0.052, essentially equal to random.
+
+\subsection{Latency}
+
+\begin{table}[t]
+\centering
+\small
+\caption{End-to-end latency breakdown (CPU, N=50 anchors).}
+\label{tab:latency}
+\begin{tabular}{lr}
+\toprule
+Stage & Time (ms) \\
+\midrule
+Vision (Fashion Florence, pre-computed) & --- \\
+FashionCLIP embedding (ONNX, CPU) & 180 \\
+pgvector retrieval ($5 \times 3$ queries) & 890 \\
+Occasion filtering & 420 \\
+Combinatorial scoring & 2,740 \\
+\midrule
+\textbf{Total (3 outfits)} & \textbf{4,395} \\
+P95 & 5,354 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Table~\ref{tab:latency} shows the latency breakdown.  The system
+generates three complete outfits in 4.4 seconds on a single CPU core
+without GPU acceleration.  Vision processing (Fashion Florence) is
+pre-computed at catalog ingestion time.
+
+\subsection{Diversity}
+
+Across 50 anchor items, the system produces an average of 7.4 distinct
+colors and 4.9 distinct category slots across the three style directions,
+confirming meaningful aesthetic variation between Classic, Trendy, and Bold
+outputs.
+
+\section{Demonstration Scenarios}
+
+The demonstration walks attendees through four scenarios that highlight
+the system's capabilities:
+
+\textbf{Scenario 1: Upload and Recommend.}
+The user uploads a photo of a navy blazer.  Fashion Florence extracts
+\texttt{\{category: "layer", color: "navy", material: "wool",
+style\_tags: ["classic", "chic"], occasion\_tags: ["work"]\}}.  Loom
+generates three outfits: a Classic look with tailored trousers and
+oxford shoes, a Trendy option with dark jeans and white sneakers, and a
+Bold combination with a patterned midi skirt and statement earrings.
+
+\textbf{Scenario 2: Occasion Switching.}
+Starting from the same navy blazer, the user switches the occasion from
+``work'' to ``going-out.''  The system re-scores candidates using the
+going-out vibe/anti-vibe vectors, producing outputs with sequined tops,
+heeled boots, and clutch bags, items that would have been penalized under
+the work occasion prior.
+
+\textbf{Scenario 3: Taste Learning.}
+The user ``likes'' outfits with earth tones and ``dislikes'' those with
+bold prints.  The EMA taste vector shifts accordingly, and subsequent
+recommendations favor muted palettes and solid fabrics.
+
+\textbf{Scenario 4: Shopify ``Shop the Look.''}
+A merchant's product detail page displays three complete outfit
+recommendations below the main product image.  Each recommended item links
+directly to its product page with an ``Add to Cart'' button, enabling
+cross-sell conversion.
+
+\medskip
+\noindent A live demo is accessible via the Hugging Face Space at
+\url{https://huggingface.co/spaces/anushreeberlia/fashion-florence}.
+
+\noindent Source code: \url{https://github.com/anushreeberlia/loom}.
+
+%% TODO: Add figure with screenshot grid showing the four scenarios
+%% \begin{figure}[t]
+%% \centering
+%% \includegraphics[width=\columnwidth]{figures/demo_screenshots.pdf}
+%% \caption{Screenshots of the four demonstration scenarios.}
+%% \label{fig:screenshots}
+%% \end{figure}
+
+\section{Comparison with Existing Systems}
+
+\begin{table}[t]
+\centering
+\small
+\caption{Comparison with related outfit recommendation systems.}
+\label{tab:comparison}
+\begin{tabular}{lccccc}
+\toprule
+System & Open & Domain & Deploy & Occasion \\
+       & Source & Rules & Modes & Aware \\
+\midrule
+Polyvore-based~\cite{vasileva2018learning} & \checkmark & -- & 0 & -- \\
+OutfitTransformer~\cite{sarkar2023outfittransformer} & -- & -- & 0 & -- \\
+DiFashion~\cite{xu2024difashion} & \checkmark & -- & 0 & -- \\
+Stitch Fix & -- & \checkmark & 1 & \checkmark \\
+\textbf{Loom (ours)} & \checkmark & \checkmark & 2 & \checkmark \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Table~\ref{tab:comparison} positions Loom among existing systems.  Loom
+is unique in combining open-source availability, explicit domain
+constraints, multiple deployment modes, and occasion-aware scoring.
+
+\section{Conclusion}
+
+Loom demonstrates that combining neural embedding retrieval with
+structured domain scoring produces coherent, diverse outfits that respect
+fashion constraints.  The system is fully open-source, runs on commodity
+hardware, and is deployed in both personal and commercial (Shopify)
+contexts.  All code, models, and evaluation scripts are publicly available.
+
+\begin{acks}
+This work uses FashionCLIP~\cite{chia2022fashionclip} and
+Florence-2~\cite{xiao2024florence} as foundational components.
+\end{acks}
+
+\bibliographystyle{ACM-Reference-Format}
+\begin{thebibliography}{7}
+
+\bibitem[Berlia 2026]{berlia2026florence}
+Anushree Berlia. 2026. Fashion Florence: Fine-tuning Florence-2 for
+structured fashion attribute extraction. \emph{arXiv preprint}.
+
+\bibitem[Chia et~al. 2022]{chia2022fashionclip}
+Patrick~John Chia, Giuseppe Attanasio, Federico Bianchi, et~al. 2022.
+FashionCLIP: Connecting language and images for product representations.
+\emph{arXiv preprint arXiv:2204.03972}.
+
+\bibitem[Cui et~al. 2019]{cui2019dressing}
+Zeyu Cui, Zekun Li, Shu Wu, Xiaoyu Zhang, and Liang Wang. 2019.
+Dressing as a whole: Outfit compatibility learning based on node-wise
+graph neural networks. In \emph{WWW}.
+
+\bibitem[Sarkar et~al. 2023]{sarkar2023outfittransformer}
+Rohan Sarkar, Navaneeth Bodla, Mariya Vasileva, et~al. 2023.
+OutfitTransformer: Learning outfit representations for fashion
+recommendation. In \emph{WACV}.
+
+\bibitem[Vasileva et~al. 2018]{vasileva2018learning}
+Mariya~I. Vasileva, Bryan~A. Plummer, Krishna Dusber, et~al. 2018.
+Learning type-aware embeddings for fashion compatibility. In \emph{ECCV}.
+
+\bibitem[Xiao et~al. 2024]{xiao2024florence}
+Bin Xiao, Haiping Wu, Weijian Xu, et~al. 2024. Florence-2: Advancing a
+unified representation for a variety of vision tasks. In \emph{CVPR}.
+
+\bibitem[Xu et~al. 2024]{xu2024difashion}
+Yiyan Xu, Yongqi Yan, and Deng Lin. 2024.
+DiFashion: Generative fashion outfit recommendation with diffusion
+models. In \emph{SIGIR}.
+
+\end{thebibliography}
+
+\end{document}

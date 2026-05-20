@@ -47,6 +47,7 @@ def precompute_embeddings(
     output_path: Path,
     batch_size: int = 32,
     segment: bool = True,
+    data_dir: Path | None = None,
 ):
     """
     Run DINOv2 on all item images and save embeddings to HDF5.
@@ -63,10 +64,14 @@ def precompute_embeddings(
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # Filter to items with existing images
+    # Filter to items with existing images (try both absolute and relative to data_dir)
     valid_items = []
     for item in items:
-        if Path(item["image_path"]).exists():
+        img_path = Path(item["image_path"])
+        if img_path.exists():
+            valid_items.append(item)
+        elif data_dir and (data_dir / item["image_path"]).exists():
+            item["image_path"] = str(data_dir / item["image_path"])
             valid_items.append(item)
 
     if not valid_items:
@@ -146,7 +151,8 @@ def main():
     items = load_item_index(args.data_dir)
 
     t0 = time.time()
-    precompute_embeddings(items, args.output, args.batch_size, segment=not args.no_segment)
+    precompute_embeddings(items, args.output, args.batch_size, segment=not args.no_segment,
+                          data_dir=args.data_dir)
     elapsed = time.time() - t0
     logger.info("Total time: %.1f minutes (%.2f items/sec)",
                 elapsed / 60, len(items) / elapsed)

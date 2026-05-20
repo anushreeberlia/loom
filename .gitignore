@@ -1,3 +1,10 @@
+# Training data (large, downloaded separately)
+/data/
+
+# Embedded repos (templates)
+papers/bmvc_template/
+train/notebooks/loom/
+
 # Uploads (user images)
 uploads/
 

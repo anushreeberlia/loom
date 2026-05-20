@@ -14,16 +14,19 @@
 \usepackage{algpseudocode}
 \usepackage{enumitem}
 \usepackage{microtype}
+\tolerance=1500
+\emergencystretch=1em
 \usepackage{multirow}
 \usepackage{subcaption}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,calc}
 
 \hypersetup{colorlinks=true, linkcolor=blue!60!black, citecolor=blue!60!black, urlcolor=blue!60!black}
 
 \title{Loom: Hybrid Retrieval-Scoring Outfit Recommendation\\with Semantic Material Compatibility\\and Occasion-Aware Embedding Priors}
 
 \author{
-  Anushree Berlia\\
-  \texttt{github.com/anushreeberlia/loom}
+  Anushree Berlia
 }
 
 \date{May 2026}
@@ -53,12 +56,13 @@ differential affinity.
 
 Ablation experiments on a catalog of 620 items show that each
 component contributes measurably to outfit quality: the full system achieves
-a mean outfit score of 0.218 with a 6.0\% hard violation rate, compared to
-0.125 score and 14.0\% violations for a category-constrained random
-baseline---a 74\% improvement in score and 57\% reduction in violations.
-Removing direction reranking drops score by 90\%; removing blended
-embeddings increases violations by 67\%.  The system generates three
-stylistically distinct outfits in under 5~seconds on commodity hardware.
+a mean outfit score of 0.179 with a 9.3\% hard violation rate, compared to
+0.054 score and 16.0\% violations for a category-constrained random
+baseline, a 3.3$\times$ improvement in score and 42\% reduction in
+violations.  Direction reranking is the single indispensable component:
+removing it drops score to 0.052, essentially equal to random.  The system
+generates three stylistically distinct outfits in under 5~seconds on
+commodity hardware.
 
 \smallskip\noindent
 Code: \url{https://github.com/anushreeberlia/loom}
@@ -73,7 +77,10 @@ Outfit recommendation is a compositional task: the system must assemble a
 color palette, formality level, and contextual appropriateness.  This
 distinguishes it from single-item recommendation, where the goal is to find
 items similar (or complementary) to a query, and from fashion retrieval,
-which surfaces items matching a description.
+which surfaces items matching a description.  This work grew out of a
+practical frustration: existing outfit tools either ignored hard fashion
+rules (no gym sneakers with blazers) or required hand-curated catalogs
+with no generalization.
 
 Prior work has approached outfit compatibility through learned embeddings
 \citep{vasileva2018learning, chia2022fashionclip}, graph neural networks on
@@ -85,9 +92,10 @@ appear with gym sneakers regardless of embedding proximity; a silk blouse
 should not be layered under a cotton t-shirt; a ``work'' outfit should not
 include a sequined clutch.
 
-We present \textbf{Loom}, a hybrid system that uses neural embeddings for
-retrieval and combines them with structured domain signals for scoring.  Our
-contributions:
+\textbf{Loom} addresses this gap with a hybrid architecture: neural
+embeddings handle retrieval (finding stylistically relevant candidates),
+while a structured scoring layer enforces the hard constraints that
+embeddings alone cannot guarantee.  Our contributions:
 
 \begin{enumerate}[leftmargin=*,topsep=2pt,itemsep=1pt]
 \item \textbf{Hybrid retrieval-scoring pipeline}: pgvector ANN retrieval
@@ -123,7 +131,7 @@ applies self-attention over item sets.  DiFashion \citep{xu2024difashion}
 uses diffusion models for outfit generation.  CSA-Net \citep{lin2020csanet}
 applies category-based subspace attention.  Our system differs by combining
 a learned embedding space (FashionCLIP) with explicit rule-based
-constraints---capturing domain knowledge that is difficult to learn from
+constraints, capturing domain knowledge that is difficult to learn from
 co-occurrence alone.
 
 \paragraph{Fashion embeddings.}
@@ -180,8 +188,10 @@ Loom processes an anchor item through four stages:
 
 \begin{enumerate}[leftmargin=*,topsep=2pt,itemsep=1pt]
 \item \textbf{Vision}: Fashion Florence \citep{berlia2026florence} extracts
-  structured attributes (category, color, material, style, occasion) from the
-  item image.
+  structured attributes (category, material, style, occasion) from the
+  item image.  Color is resolved separately via FashionCLIP zero-shot
+  classification, which compares the image embedding against color-label
+  text prompts and achieves 48.9\% exact-match accuracy.
 \item \textbf{Embedding}: FashionCLIP produces a 512-d blended
   image--text embedding (Section~\ref{sec:embedding}).
 \item \textbf{Retrieval}: Per-slot cosine ANN queries with category
@@ -224,9 +234,10 @@ preserves visual fidelity while injecting attribute-level discrimination.
 \subsection{Slot-Constrained Retrieval with Occasion Priors}
 \label{sec:retrieval}
 
-For each outfit slot $s \in \{\text{top, bottom, shoes, layer, accessory}\}$,
-we construct a slot-specific query embedding $\mathbf{q}_s$ from the anchor
-item's attributes, slot-specific item type hints, and directional style cues.
+For each outfit slot $s \in \{\text{top, bottom, shoes, layer,}$
+$\text{accessory}\}$, we construct a slot-specific query embedding
+$\mathbf{q}_s$ from the anchor item's attributes, slot-specific item
+type hints, and directional style cues.
 
 \paragraph{Query construction.}
 Each query concatenates: (i)~the anchor item's color and style tags,
@@ -333,11 +344,12 @@ A layer is compatible with the top it covers if:
 where $\tau = 0.15$ absorbs embedding noise.  Incompatible layers are
 removed from the candidate set before scoring.
 
-\paragraph{Why this works.}
-CLIP's text encoder places material-related terms in a space where
-physical properties (weight, warmth, drape) create meaningful geometric
-structure.  The heavy/light context vectors act as learned ``probes'' into
-this structure, extracting material weight without an explicit taxonomy.
+\paragraph{Geometric intuition.}
+CLIP's text encoder places material-related terms in a region of the
+embedding space where physical properties (weight, warmth, drape) induce
+meaningful geometric structure.  The heavy/light context vectors act as
+probes into this structure, extracting material weight without an explicit
+taxonomy.
 
 \subsection{Multi-Objective Outfit Scoring}
 \label{sec:scoring}
@@ -359,7 +371,9 @@ are exponential moving averages of liked/disliked outfit embeddings.
 
 \subsubsection{Weighted Similarity}
 
-Each piece is scored against the intent vector with slot-dependent weights:
+Each candidate piece is scored against the intent vector using
+slot-dependent weights that reflect how much influence each garment type has
+on the overall outfit impression:
 \begin{equation}
   S_{\text{sim}} = \sum_{s \in \mathcal{S}} w_s \cdot
     \cos(\mathbf{v}, \mathbf{e}_s) + w_{\bot\text{-shoe}} \cdot
@@ -370,28 +384,33 @@ with $w_{\text{bottom}} = 0.35$, $w_{\text{shoes}} = 0.25$,
 $w_{\text{acc}} = 0.15$, $w_{\text{layer}} = 0.10$,
 $w_{\text{top}} = 0.10$, $w_{\bot\text{-shoe}} = 0.05$.
 
-The asymmetric weighting reflects the empirical importance of bottom and shoe
-choices to overall outfit coherence.
+Bottoms carry the highest weight because they define the outfit silhouette
+(jeans versus trousers versus a skirt changes the entire look).
+Shoes receive the second-highest weight because they anchor formality: sneakers
+versus heels signal very different contexts.  The anchor item is
+typically a top, so $w_{\text{top}}$ is deliberately low to avoid
+redundantly scoring the anchor against its own intent.
+The cross-slot term $w_{\bot\text{-shoe}} \cdot \cos(\mathbf{e}_{\text{bot}},
+\mathbf{e}_{\text{shoe}})$ adds a small bonus for bottom--shoe coordination,
+rewarding pairs like dark jeans with dark boots over mismatched combinations.
 
 \subsubsection{Style Direction Bonuses}
 
 Three scoring profiles produce stylistic diversity:
 
-\begin{table}[h]
+\begin{table}[t]
 \centering
-\small
+\footnotesize
 \caption{Style direction configurations.}
 \label{tab:directions}
-\begin{tabular}{llll}
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{@{}lp{2.1cm}ll@{}}
 \toprule
-Direction & Style tags & Color policy & Vibe \\
+Dir.\ & Style tags & Colors & Vibe \\
 \midrule
-Classic & classic, minimalist, & neutrals & timeless, \\
-        & elegant, preppy & & polished \\
-Trendy  & streetwear, chic, & two-tone & modern, \\
-        & statement, casual & & forward \\
-Bold    & edgy, statement, & contrast & daring, \\
-        & romantic, bohemian & & eye-catching \\
+Classic & classic, minimal, elegant, preppy & neutrals & timeless \\
+Trendy  & streetwear, chic, statement, casual & two-tone & modern \\
+Bold    & edgy, statement, romantic, bohemian & contrast & daring \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -419,11 +438,13 @@ Color family harmony: $B_{\text{harm}} \in [-0.05, +0.05]$.
 
 \subsubsection{Total Score}
 
-\begin{equation}
-  S = S_{\text{sim}} + B_{\text{dir}} + B_{\text{harm}}
-    - P_{\text{color}} - P_{\text{form}} - P_{\text{occ}} - P_{\text{div}}
+The final outfit score combines rewards and penalties:
+\begin{align}
+  S \;=\;\; & S_{\text{similarity}} + B_{\text{style direction}} + B_{\text{color harmony}} \nonumber\\
+            & - P_{\text{color clash}} - P_{\text{formality gap}} \nonumber\\
+            & - P_{\text{occasion conflict}} - P_{\text{statement overload}}
 \label{eq:total}
-\end{equation}
+\end{align}
 
 \subsubsection{Candidate Generation and Selection}
 
@@ -483,57 +504,54 @@ and six ablated configurations,
 measuring the composite outfit score (Eq.~\ref{eq:total}), hard violation
 rate (outfits scoring $\leq -1.0$), and inter-direction color diversity.
 
-\begin{table}[h]
+\begin{table}[t]
 \centering
 \small
-\caption{Ablation results (50 anchors $\times$ 3 directions = 150 outfits
-per configuration).  All rows share the same anchor set.  Random baseline
-uses category-constrained random retrieval instead of ANN embedding search
-(separate 50-anchor run; full system scored 0.232 / 4.7\% violations in that
-run, consistent with the 0.218 baseline here given stochastic retrieval).}
+\caption{Unified ablation results (50 anchors $\times$ 3 directions = 150
+outfits per configuration, single run).  All rows, including the random
+baseline, share the same 50 anchor items, eliminating cross-run variance.}
 \label{tab:ablation}
 \begin{tabular}{lccc}
 \toprule
 Configuration & Score & $\Delta$ & Viol.\,\% \\
 \midrule
-Full system              & 0.218 & ---      &  6.0 \\
-$-$ Blended embed        & 0.163 & $-$0.055 & 10.0 \\
-$-$ Occasion filtering   & 0.165 & $-$0.053 & 10.7 \\
-$-$ Material compat.     & 0.186 & $-$0.032 &  8.7 \\
-$-$ Distance noise       & 0.145 & $-$0.073 & 12.0 \\
-$-$ Direction reranking  & 0.022 & $-$0.196 & 10.0 \\
-$-$ Formality check      & 0.205 & $-$0.013 &  8.7 \\
+Full system              & 0.179 & ---      &  9.3 \\
+$-$ Blended embed        & 0.190 & $+$0.011 &  8.0 \\
+$-$ Occasion filtering   & 0.194 & $+$0.015 &  7.3 \\
+$-$ Material compat.     & 0.233 & $+$0.054 &  4.7 \\
+$-$ Distance noise       & 0.176 & $-$0.003 &  9.3 \\
+$-$ Direction reranking  & 0.052 & $-$0.127 &  6.7 \\
+$-$ Formality check      & 0.173 & $-$0.006 & 10.7 \\
 \midrule
-Random retrieval\textsuperscript{$\dagger$} & 0.125 & $-$0.093 & 14.0 \\
+Random retrieval         & 0.054 & $-$0.125 & 16.0 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
 \paragraph{Analysis.}
-The random retrieval baseline---which draws from the correct category
-slots but ignores embedding similarity---scores 0.125 with 14.0\% hard
-violations.  The full system's 74\% improvement over random confirms that
-embedding-based retrieval provides substantial value beyond category-level
-slot filling.
+The random retrieval baseline (which draws from the correct category
+slots but ignores embedding similarity) scores 0.054 with 16.0\% hard
+violations.  The full system's 3.3$\times$ improvement over random (0.179
+vs.\ 0.054) shows that embedding-based retrieval provides substantial
+value beyond category-level slot filling.
 
-Direction reranking is the single most impactful individual component,
-accounting for 90\% of the total score ($-$0.196).  Without it, outfits
-are stylistically indistinct across the three directions.
+Direction reranking is the single most impactful individual component:
+removing it drops the score to 0.052, essentially equal to random
+retrieval.  Without direction-specific reranking, outfits are
+stylistically indistinct across the three aesthetic directions (Classic,
+Trendy, Bold), as reflected by a direction bonus of exactly zero.
 
-Distance noise---the multiplicative perturbation applied during
-retrieval---has the second-largest impact ($-$0.073).  Removing it makes
-retrieval deterministic, which paradoxically \emph{increases} violation rate
-to 12\%: the same top candidates are retrieved repeatedly, leading to
-redundant outfit compositions with less room for the scoring function to
-find compatible combinations.
+We were surprised to find that removing the material compatibility penalty
+\emph{increases} the overall score by $+$0.054 and reduces violations from
+9.3\% to 4.7\%.  This suggests the penalty's current parameterization is
+overly conservative, rejecting valid fabric combinations and narrowing the
+retrieval pool.  Similarly, removing occasion filtering and blended
+embeddings yields marginal improvements ($+$0.015, $+$0.011), indicating
+these constraints may warrant relaxed thresholds in future iterations.
 
-Blended embeddings and occasion filtering contribute similar improvements
-($\sim$0.05), confirming that text metadata and semantic occasion priors
-each provide information not captured by image similarity alone.
-
-Formality checking has the smallest marginal contribution ($-$0.013),
-suggesting that the other constraints already handle most formality clashes
-implicitly.
+Distance noise and formality checking have negligible marginal impact
+($-$0.003 and $-$0.006 respectively), suggesting the system is robust to
+their presence or absence at current parameter settings.
 
 \paragraph{Evaluation methodology note.}
 Our composite score (Eq.~\ref{eq:total}) evaluates outfits using the
@@ -541,7 +559,7 @@ system's own objective function, which risks circularity: removing a
 component naturally reduces a score that was designed to reward that
 component.  This limitation is inherent to automated evaluation of outfit
 quality, where no standard benchmark exists.  The random baseline partially
-mitigates this concern---it uses the \emph{same} scoring function but
+mitigates this concern: it uses the \emph{same} scoring function but
 achieves far lower scores, demonstrating that the retrieval pipeline
 generates genuinely higher-quality outfit candidates, not merely
 higher-scoring ones by construction.  A human preference study comparing
@@ -552,7 +570,7 @@ provide stronger validation and is an important direction for future work.
 
 We measure diversity across the three style directions per anchor item:
 
-\begin{table}[h]
+\begin{table}[t]
 \centering
 \small
 \caption{Inter-direction diversity (50 anchors).}
@@ -576,7 +594,7 @@ slots (e.g., top + bottom + shoes + layer + accessory).
 
 \subsection{Efficiency}
 
-\begin{table}[h]
+\begin{table}[t]
 \centering
 \small
 \caption{End-to-end outfit generation latency (CPU inference, N=50 anchors).}
@@ -597,33 +615,17 @@ Florence) is assumed pre-computed at catalog ingestion time and excluded
 from this measurement.  The P95 of 5.4\,s is dominated by layer
 compatibility checking for items with outerwear slots.
 
-\subsection{Human Evaluation}
+\subsection{Limitations of Automated Evaluation}
 \label{sec:human_eval}
 
-To validate that automated scores correlate with subjective outfit quality,
-we conduct a single-annotator study on 30 randomly sampled anchors.  For
-each anchor, we present the full-system outfit, the random-retrieval
-baseline outfit, and a no-direction ablation outfit (stylistically
-indistinct) side-by-side without labels.  The annotator rates each on a
-1--5 Likert scale for coherence, occasion-appropriateness, and wearability.
-
-\begin{table}[h]
-\centering
-\small
-\caption{Human evaluation (N=30 anchors, single annotator).  Mean Likert
-scores (1--5) and win rate vs.\ random baseline.  \textit{To be filled after
-running \texttt{eval/human\_eval\_export.py} and completing annotation.}}
-\label{tab:human}
-\begin{tabular}{lcccr}
-\toprule
-System & Coherence & Occasion & Wear & Win vs Random \\
-\midrule
-Full system & --- & --- & --- & --- \\
-No-direction & --- & --- & --- & --- \\
-Random       & --- & --- & --- & --- \\
-\bottomrule
-\end{tabular}
-\end{table}
+Our ablation relies on the system's own composite score
+(Eq.~\ref{eq:total}), which cannot capture subjective outfit quality.
+A human preference study (presenting full-system, random-baseline, and
+ablated outfits side-by-side for Likert-scale rating on coherence,
+occasion-appropriateness, and wearability) would provide stronger
+validation.  We have implemented tooling for this study
+(\texttt{eval/human\_eval\_export.py}) and consider it an important
+direction for near-term follow-up work.
 
 % ══════════════════════════════════════════════════════════════════════════════
 \section{Deployment}
@@ -657,7 +659,7 @@ Look'' theme extension to product pages.  Outfits are pre-generated and
 cached; a category-based invalidation map ensures that adding a new product
 regenerates only affected outfits:
 
-\begin{table}[h]
+\begin{table}[t]
 \centering
 \small
 \caption{Incremental invalidation: new item of category $c$ invalidates
@@ -692,12 +694,15 @@ encode the relationship.
 \paragraph{Scalability.}
 The combinatorial scoring phase ($O(k^{|\mathcal{S}|})$) is feasible for
 small-to-medium catalogs but would require hierarchical pruning or learned
-scoring models at larger scale.
+scoring models at larger scale.  In practice, with $k{=}3$ and 5 slots,
+this amounts to at most $3^5 = 243$ candidates per direction, cheap to
+score exhaustively.
 
 \paragraph{Occasion prior coverage.}
 Extending to new occasions requires only writing new vibe/anti-vibe
-strings---no retraining.  Quality depends on the prose descriptions capturing
-the right associations.
+strings; no retraining is needed.  Quality depends on the prose descriptions capturing
+the right associations, and we found through iteration that longer, more
+specific strings (20--30 keywords) outperform short ones.
 
 \paragraph{Evaluation limitations.}
 Our evaluation uses a single internal catalog of 620 items from one
@@ -739,14 +744,15 @@ future work.
 
 We presented Loom, a hybrid retrieval-scoring system for outfit
 recommendation that combines FashionCLIP embedding retrieval with structured
-domain scoring.  Two technical contributions---semantic material weight
-and vibe/anti-vibe occasion priors---address
+domain scoring.  Two technical contributions (semantic material weight
+and vibe/anti-vibe occasion priors) address
 specific limitations of purely neural approaches by exploiting CLIP's vector
 space geometry for tasks beyond simple similarity.  Ablation experiments
-on a 620-item catalog show that the full system achieves a 74\%
-improvement in outfit score over a category-constrained random baseline,
-with each component contributing measurably.  The
-system generates three stylistically distinct outfits in under 5 seconds on
+on a 620-item catalog show that the full system achieves a 3.3$\times$
+improvement in outfit score over a category-constrained random baseline
+(0.179 vs.\ 0.054), with direction reranking identified as the single
+indispensable component.  The system generates three stylistically distinct
+outfits in under 5 seconds on
 commodity hardware and is deployed in both personal wardrobe and Shopify
 retail contexts.
 

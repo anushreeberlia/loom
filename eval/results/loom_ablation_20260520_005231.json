@@ -1,0 +1,93 @@
+{
+  "timestamp": "20260520_005231",
+  "n_anchors": 50,
+  "ablations": [
+    "full",
+    "multihead_scoring",
+    "multihead_occasion",
+    "multihead_retrieval",
+    "multihead_full"
+  ],
+  "metrics": {
+    "full": {
+      "n_anchors": 50,
+      "total_outfits": 150,
+      "outfits_per_anchor": 3.0,
+      "mean_score": 0.0107,
+      "mean_silhouette": 0.031,
+      "mean_color": 0.0164,
+      "mean_narrative": 0.0579,
+      "mean_finishing": 0.3846,
+      "hard_violation_pct": 8.0,
+      "mean_latency_ms": 6537.1,
+      "p95_latency_ms": 15050.6,
+      "mean_color_spread": 7.58,
+      "mean_slot_diversity": 4.68,
+      "ablation": "full"
+    },
+    "multihead_scoring": {
+      "n_anchors": 50,
+      "total_outfits": 150,
+      "outfits_per_anchor": 3.0,
+      "mean_score": -0.018,
+      "mean_silhouette": 0.0324,
+      "mean_color": 0.0129,
+      "mean_narrative": 0.0518,
+      "mean_finishing": 0.398,
+      "hard_violation_pct": 10.7,
+      "mean_latency_ms": 6128.1,
+      "p95_latency_ms": 9781.5,
+      "mean_color_spread": 7.64,
+      "mean_slot_diversity": 4.68,
+      "ablation": "multihead_scoring"
+    },
+    "multihead_occasion": {
+      "n_anchors": 50,
+      "total_outfits": 150,
+      "outfits_per_anchor": 3.0,
+      "mean_score": 0.4898,
+      "mean_silhouette": 0.3161,
+      "mean_color": 0.8255,
+      "mean_narrative": -0.0003,
+      "mean_finishing": 0.5373,
+      "hard_violation_pct": 0.0,
+      "mean_latency_ms": 6037.2,
+      "p95_latency_ms": 8859.2,
+      "mean_color_spread": 6.68,
+      "mean_slot_diversity": 4.1867,
+      "ablation": "multihead_occasion"
+    },
+    "multihead_retrieval": {
+      "n_anchors": 50,
+      "total_outfits": 150,
+      "outfits_per_anchor": 3.0,
+      "mean_score": 0.4864,
+      "mean_silhouette": 0.3102,
+      "mean_color": 0.8249,
+      "mean_narrative": 0.0,
+      "mean_finishing": 0.534,
+      "hard_violation_pct": 0.0,
+      "mean_latency_ms": 5564.5,
+      "p95_latency_ms": 7797.8,
+      "mean_color_spread": 6.92,
+      "mean_slot_diversity": 4.1933,
+      "ablation": "multihead_retrieval"
+    },
+    "multihead_full": {
+      "n_anchors": 50,
+      "total_outfits": 150,
+      "outfits_per_anchor": 3.0,
+      "mean_score": 0.4893,
+      "mean_silhouette": 0.317,
+      "mean_color": 0.8234,
+      "mean_narrative": 0.0005,
+      "mean_finishing": 0.5345,
+      "hard_violation_pct": 0.0,
+      "mean_latency_ms": 5090.4,
+      "p95_latency_ms": 5821.2,
+      "mean_color_spread": 6.96,
+      "mean_slot_diversity": 4.2,
+      "ablation": "multihead_full"
+    }
+  }
+}

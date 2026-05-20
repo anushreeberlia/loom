@@ -1,5 +1,11 @@
 """
 Vector search and candidate retrieval logic.
+
+USE_MULTIHEAD is enabled by default. Retrieval uses compat_embedding for
+vector search (better similarity space) then reranks with text-conditioned
+FashionCLIP queries to preserve slot/direction/context awareness. Occasion
+filtering uses occasion_embedding. Legacy FashionCLIP-only path is available
+for A/B testing by setting USE_MULTIHEAD=false.
 """
 
 import os
@@ -9,6 +15,8 @@ import psycopg2
 from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
+
+USE_MULTIHEAD = os.getenv("USE_MULTIHEAD", "true").lower() == "true"
 
 from services.outfit import (
     STYLE_DIRECTIONS, 
@@ -326,6 +334,68 @@ _OCCASION_SOFT_COMPAT = {
 }
 
 
+def _filter_occasion_multihead(candidates: list[dict], occasion: str = None,
+                               mood_text: str = None, slot: str = None) -> list[dict]:
+    """Occasion filtering: hard blocks first, then occasion_embedding centroid coherence."""
+    if not candidates:
+        return candidates
+
+    target = occasion or mood_text or "casual"
+    target_group = _OCCASION_ALIAS.get(target, "casual") if occasion else None
+    if not target_group and mood_text:
+        target_group = classify_mood_to_group(mood_text)
+
+    blocked_groups = set()
+    if target_group:
+        blocked_groups = set(_OCCASION_HARD_BLOCK.get(target_group, set()))
+        if slot == "layer":
+            blocked_groups |= _OCCASION_HARD_BLOCK_LAYER.get(target_group, set())
+
+    filtered = []
+    n_blocked = 0
+    for c in candidates:
+        item_group = infer_outfit_occasion(c)
+        if item_group in blocked_groups:
+            n_blocked += 1
+            continue
+        filtered.append(c)
+
+    with_occ = [c for c in filtered if c.get("occasion_embedding")]
+    if len(with_occ) < 3:
+        return filtered
+
+    occ_vecs = np.array([c["occasion_embedding"] for c in with_occ], dtype=np.float32)
+    centroid = np.mean(occ_vecs, axis=0)
+    norm = np.linalg.norm(centroid)
+    if norm < 1e-8:
+        return filtered
+    centroid /= norm
+
+    for c in with_occ:
+        ov = np.array(c["occasion_embedding"], dtype=np.float32)
+        c["_occasion_score"] = float(np.dot(ov, centroid))
+
+    without_occ = [c for c in filtered if not c.get("occasion_embedding")]
+    for c in without_occ:
+        c["_occasion_score"] = 0.0
+
+    all_c = with_occ + without_occ
+    all_c.sort(key=lambda c: c.get("_occasion_score", 0), reverse=True)
+
+    if len(all_c) <= 3:
+        return all_c
+
+    best = all_c[0].get("_occasion_score", 0)
+    cutoff = best * 0.7
+    kept = [c for c in all_c if c.get("_occasion_score", 0) >= cutoff]
+    if len(kept) < 3:
+        kept = all_c[:max(3, len(all_c))]
+
+    logger.info("Multihead occasion filter (%s): kept %d/%d (hard-blocked %d)",
+                target, len(kept), len(all_c), n_blocked)
+    return kept
+
+
 def filter_by_occasion_semantic(candidates: list[dict], occasion: str = None,
                                 mood_text: str = None, threshold: float = -0.02,
                                 slot: str = None) -> list[dict]:
@@ -334,6 +404,9 @@ def filter_by_occasion_semantic(candidates: list[dict], occasion: str = None,
     Combines hard occasion-group filtering with CLIP semantic similarity.
     For layers, applies stricter blocking (e.g. casual layers blocked for going-out).
     """
+    if USE_MULTIHEAD and any(c.get("occasion_embedding") for c in candidates):
+        return _filter_occasion_multihead(candidates, occasion, mood_text, slot=slot)
+
     if not mood_text and occasion not in OCCASION_SEMANTIC_CONTEXTS:
         return candidates
 
@@ -550,10 +623,61 @@ def apply_direction_rerank(
     - Trendy: avoid beige-on-beige, prefer variety
     - Classic: prefer neutrals (more for shoes/bags, less for bottoms)
     - Bold: prefer contrast or statement pieces (not just "more color")
+
+    Default path: uses style_embedding cosine similarity with direction-
+    specific bonuses.  Legacy path (USE_MULTIHEAD=false): rule-based reranking.
     """
     if not candidates:
         return candidates
-    
+
+    if USE_MULTIHEAD and base_item and base_item.get("style_embedding"):
+        with_style = [c for c in candidates if c.get("style_embedding")]
+        if len(with_style) >= 3:
+            base_sv = np.array(base_item["style_embedding"], dtype=np.float32)
+            base_sv /= max(np.linalg.norm(base_sv), 1e-8)
+
+            base_fv = None
+            if base_item.get("fit_embedding"):
+                base_fv = np.array(base_item["fit_embedding"], dtype=np.float32)
+                base_fv /= max(np.linalg.norm(base_fv), 1e-8)
+
+            for c in with_style:
+                sv = np.array(c["style_embedding"], dtype=np.float32)
+                style_sim = float(np.dot(sv, base_sv))
+                dir_bonus = 0.0
+                color = c.get("primary_color", "")
+                name_lower = c.get("name", "").lower()
+
+                # Fit-aware direction preference
+                fit_adj = 0.0
+                if base_fv is not None and c.get("fit_embedding"):
+                    c_fv = np.array(c["fit_embedding"], dtype=np.float32)
+                    fit_sim = float(np.dot(c_fv, base_fv))
+                    if direction == "Classic":
+                        fit_adj = 0.08 * fit_sim
+                    elif direction == "Bold":
+                        fit_adj = 0.05 * (1.0 - fit_sim)
+                    elif direction == "Trendy":
+                        fit_adj = 0.03 * (1.0 - fit_sim)
+
+                if direction == "Classic":
+                    if is_neutral_color(color):
+                        dir_bonus += 0.1
+                    style_sim *= 1.1
+                elif direction == "Bold":
+                    if any(w in name_lower for w in ("statement", "structured", "heel", "clutch")):
+                        dir_bonus += 0.15
+                    style_sim *= 0.9
+                elif direction == "Trendy":
+                    dir_bonus += 0.05 * (1.0 - style_sim)
+                c["_style_sim"] = style_sim + dir_bonus + fit_adj
+            without_style = [c for c in candidates if not c.get("style_embedding")]
+            for c in without_style:
+                c["_style_sim"] = 0.0
+            all_c = with_style + without_style
+            all_c.sort(key=lambda c: (c.get("_style_sim", 0) + c.get("_occasion_score", 0) * 0.5), reverse=True)
+            return all_c
+
     chosen_items = chosen_items or {}
     base_item = base_item or {}
     
@@ -937,6 +1061,17 @@ def retrieve_candidates(
     avoid_colors = avoid_colors or set()
     
     # Choose table and columns based on mode
+    _multihead = USE_MULTIHEAD and not shop_domain
+    _head_cols = ""
+    _head_col_names = []
+    if _multihead:
+        _head_cols = (", compat_embedding::text, style_embedding::text, "
+                      "occasion_embedding::text, fit_embedding::text, "
+                      "material_embedding::text")
+        _head_col_names = ["compat_embedding_text", "style_embedding_text",
+                           "occasion_embedding_text", "fit_embedding_text",
+                           "material_embedding_text"]
+
     if use_closet:
         table = "user_closet_items"
         select_cols = "id, name, image_url, NULL as product_url, primary_color, style_tags, material, category, fit"
@@ -949,21 +1084,27 @@ def retrieve_candidates(
         table = "catalog_items"
         select_cols = "id, name, image_url, product_url, primary_color, style_tags, material, category, fit"
         base_columns = ["id", "name", "image_url", "product_url", "primary_color", "style_tags", "material", "category", "fit"]
-    
-    # Build dynamic WHERE clause
-    where_conditions = ["category = %s", "embedding IS NOT NULL"]
+
+    _query_is_compat_dim = _multihead and len(query_embedding) <= 256
+    if _multihead and _query_is_compat_dim:
+        emb_col = "compat_embedding"
+        dist_op = "<=>"
+        emb_not_null = "compat_embedding IS NOT NULL"
+    else:
+        emb_col = "embedding"
+        dist_op = "<->"
+        emb_not_null = "embedding IS NOT NULL"
+
+    where_conditions = ["category = %s", emb_not_null]
     params = [query_embedding, category]
     
-    # Closet mode: filter by user_id
     if use_closet:
         where_conditions.append("user_id = %s")
         params.append(user_id)
-    # Shopify mode: filter by shop_domain + only processed items
     elif shop_domain:
         where_conditions.append("shop_domain = %s")
         where_conditions.append("processed_at IS NOT NULL")
         params.append(shop_domain)
-    # Catalog mode: filter by source
     elif source:
         where_conditions.append("source = %s")
         params.append(source)
@@ -976,12 +1117,12 @@ def retrieve_candidates(
         where_conditions.append("(primary_color IS NULL OR primary_color != ALL(%s))")
         params.append(list(avoid_colors))
     
-    params.append(k * 2)  # LIMIT
+    params.append(k * 2)
     
     query = f"""
         SELECT {select_cols},
-               embedding::text as embedding_text,
-               embedding <-> %s::vector as distance
+               embedding::text as embedding_text{_head_cols},
+               {emb_col} {dist_op} %s::vector as distance
         FROM {table}
         WHERE {' AND '.join(where_conditions)}
         ORDER BY distance
@@ -994,17 +1135,20 @@ def retrieve_candidates(
     cursor.close()
     conn.close()
     
-    columns = base_columns + ["embedding_text", "distance"]
+    columns = base_columns + ["embedding_text"] + _head_col_names + ["distance"]
     candidates = []
     for row in rows:
         item = dict(zip(columns, row))
-        # Parse embedding from pgvector text format: "[0.1,0.2,...]"
         emb_text = item.pop("embedding_text", None)
         if emb_text:
-            # Remove brackets and split by comma
             item["embedding"] = [float(x) for x in emb_text.strip("[]").split(",")]
         else:
             item["embedding"] = []
+        for hc in _head_col_names:
+            raw = item.pop(hc, None)
+            key = hc.replace("_text", "")
+            item[key] = ([float(x) for x in raw.strip("[]").split(",")]
+                         if raw else None)
         candidates.append(item)
     
     # Apply soft scoring for preferred colors
@@ -1102,8 +1246,16 @@ def retrieve_for_slot(
     else:
         avoid_colors_soft = set()
     
-    # Use precomputed embedding or compute new one
-    if precomputed_embedding:
+    # Multihead: use compat_embedding for vector search (better similarity space)
+    # but also build a text-conditioned query for post-retrieval reranking so we
+    # don't lose the slot-aware, direction-aware, context-conditioned intelligence.
+    _text_rerank_emb = None
+    if USE_MULTIHEAD and base_item.get("compat_embedding"):
+        query_embedding = base_item["compat_embedding"]
+        query_text = build_query_text(base_item, direction, slot, chosen_items,
+                                      occasion=occasion, mood_text=mood_text)
+        _text_rerank_emb = get_query_embedding(query_text)
+    elif precomputed_embedding:
         query_embedding = precomputed_embedding
     else:
         query_text = build_query_text(base_item, direction, slot, chosen_items)
@@ -1191,5 +1343,24 @@ def retrieve_for_slot(
 
     if slot == "layer" and base_item.get("embedding"):
         candidates = _rerank_by_embedding_harmony(candidates, base_item)
+
+    # Multihead: blend compat distance rank with text-conditioned CLIP similarity
+    # so context-aware query intelligence (slot hints, direction color policy,
+    # chosen-item conditioning) still influences the final ordering.
+    if _text_rerank_emb is not None and len(candidates) > 1:
+        text_emb = np.array(_text_rerank_emb, dtype=np.float32)
+        text_emb /= max(np.linalg.norm(text_emb), 1e-8)
+        for i, c in enumerate(candidates):
+            raw = c.get("embedding")
+            if raw:
+                c_emb = np.array(raw, dtype=np.float32)
+                c_emb /= max(np.linalg.norm(c_emb), 1e-8)
+                text_sim = float(np.dot(c_emb, text_emb))
+            else:
+                text_sim = 0.0
+            rank_score = 1.0 - (i / len(candidates))
+            # 60% compat rank (from DB) + 40% text-conditioned similarity
+            c["_hybrid_score"] = 0.6 * rank_score + 0.4 * text_sim
+        candidates.sort(key=lambda c: c.get("_hybrid_score", 0), reverse=True)
 
     return candidates[:k]

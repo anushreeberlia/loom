@@ -1,0 +1,67 @@
+{
+  "timestamp": "20260520_020709",
+  "seed": 42,
+  "n_samples": 10,
+  "pairs": [
+    {
+      "anchor_id": 1669,
+      "anchor_name": "York espadrille",
+      "rules_n_outfits": 3,
+      "multihead_n_outfits": 3
+    },
+    {
+      "anchor_id": 1832,
+      "anchor_name": "Cool Bette Stud pack",
+      "rules_n_outfits": 3,
+      "multihead_n_outfits": 3
+    },
+    {
+      "anchor_id": 1381,
+      "anchor_name": "Hazel",
+      "rules_n_outfits": 3,
+      "multihead_n_outfits": 3
+    },
+    {
+      "anchor_id": 1665,
+      "anchor_name": "Henrik ballerina",
+      "rules_n_outfits": 3,
+      "multihead_n_outfits": 3
+    },
+    {
+      "anchor_id": 1591,
+      "anchor_name": "Eve HW wide trousers",
+      "rules_n_outfits": 3,
+      "multihead_n_outfits": 3
+    },
+    {
+      "anchor_id": 1499,
+      "anchor_name": "Pine HW Trousers",
+      "rules_n_outfits": 3,
+      "multihead_n_outfits": 3
+    },
+    {
+      "anchor_id": 1332,
+      "anchor_name": "Jetplane (1)",
+      "rules_n_outfits": 3,
+      "multihead_n_outfits": 3
+    },
+    {
+      "anchor_id": 1276,
+      "anchor_name": "ED Johannesburg blouse",
+      "rules_n_outfits": 3,
+      "multihead_n_outfits": 3
+    },
+    {
+      "anchor_id": 1760,
+      "anchor_name": "Mondrian Sneaker",
+      "rules_n_outfits": 3,
+      "multihead_n_outfits": 3
+    },
+    {
+      "anchor_id": 1672,
+      "anchor_name": "OL RIRI sneaker",
+      "rules_n_outfits": 3,
+      "multihead_n_outfits": 3
+    }
+  ]
+}

@@ -1,0 +1,67 @@
+{
+  "timestamp": "20260520_015154",
+  "seed": 42,
+  "n_samples": 10,
+  "pairs": [
+    {
+      "anchor_id": 52,
+      "anchor_name": "Beige Top",
+      "rules_n_outfits": 3,
+      "multihead_n_outfits": 3
+    },
+    {
+      "anchor_id": 279,
+      "anchor_name": "Gray Bottom",
+      "rules_n_outfits": 3,
+      "multihead_n_outfits": 3
+    },
+    {
+      "anchor_id": 284,
+      "anchor_name": "Red Top",
+      "rules_n_outfits": 3,
+      "multihead_n_outfits": 3
+    },
+    {
+      "anchor_id": 72,
+      "anchor_name": "Black Top",
+      "rules_n_outfits": 3,
+      "multihead_n_outfits": 3
+    },
+    {
+      "anchor_id": 264,
+      "anchor_name": "Black Top",
+      "rules_n_outfits": 3,
+      "multihead_n_outfits": 3
+    },
+    {
+      "anchor_id": 84,
+      "anchor_name": "Beige Top",
+      "rules_n_outfits": 3,
+      "multihead_n_outfits": 3
+    },
+    {
+      "anchor_id": 62,
+      "anchor_name": "Gray Top",
+      "rules_n_outfits": 3,
+      "multihead_n_outfits": 3
+    },
+    {
+      "anchor_id": 247,
+      "anchor_name": "Beige Top",
+      "rules_n_outfits": 3,
+      "multihead_n_outfits": 3
+    },
+    {
+      "anchor_id": 54,
+      "anchor_name": "Gray Top",
+      "rules_n_outfits": 3,
+      "multihead_n_outfits": 3
+    },
+    {
+      "anchor_id": 85,
+      "anchor_name": "Blue Top",
+      "rules_n_outfits": 3,
+      "multihead_n_outfits": 3
+    }
+  ]
+}

@@ -1,3 +1,4 @@
+
 """
 Prepare training data from the iMaterialist Fashion Attribute Dataset (FGVC5 @ CVPR 2018).
 

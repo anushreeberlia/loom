@@ -2234,7 +2234,10 @@ async def generate_closet_outfits(
             cursor.execute(
                 """SELECT id, name, category, image_url, primary_color, secondary_colors,
                           style_tags, season_tags, occasion_tags, material, fit,
-                          embedding::text
+                          embedding::text,
+                          compat_embedding::text, style_embedding::text,
+                          occasion_embedding::text, fit_embedding::text,
+                          material_embedding::text
                    FROM user_closet_items 
                    WHERE id = %s AND user_id = %s""",
                 (item_id, user_id)
@@ -2254,6 +2257,12 @@ async def generate_closet_outfits(
                 "fit": row[10],
             }
             embedding = [float(x) for x in row[11].strip("[]").split(",")] if row[11] else None
+            for col_idx, hk in [(12, "compat_embedding"), (13, "style_embedding"),
+                                 (14, "occasion_embedding"), (15, "fit_embedding"),
+                                 (16, "material_embedding")]:
+                raw = row[col_idx]
+                if raw:
+                    base_item[hk] = [float(x) for x in raw.strip("[]").split(",")]
             input_image_url = row[3]
             description = row[1]
             image_hash = f"closet_{item_id}"

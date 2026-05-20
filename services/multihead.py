@@ -30,7 +30,10 @@ HEAD_OUTPUT_DIM = 128
 
 HEAD_NAMES = ["style", "fit", "material", "compat", "occasion"]
 
-WEIGHTS_DIR = Path(os.getenv("MULTIHEAD_WEIGHTS_DIR", "models/multihead"))
+WEIGHTS_DIR = Path(os.getenv(
+    "MULTIHEAD_WEIGHTS_DIR",
+    str(Path(__file__).resolve().parent.parent / "models" / "multihead"),
+))
 
 
 class ProjectionHead:

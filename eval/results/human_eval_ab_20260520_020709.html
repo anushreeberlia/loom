@@ -1,0 +1,2075 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Loom Human Evaluation — A/B</title>
+<style>
+:root { --blue: #2563eb; --green: #059669; --red: #dc2626; --bg: #f8fafc; --card: #fff; --border: #e2e8f0; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: #1e293b; line-height: 1.5; }
+.container { max-width: 1100px; margin: 0 auto; padding: 24px 16px; }
+h1 { text-align: center; font-size: 1.5rem; margin-bottom: 8px; }
+.subtitle { text-align: center; color: #64748b; margin-bottom: 24px; font-size: 0.9rem; }
+.instructions { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 20px; margin-bottom: 32px; }
+.instructions h3 { margin-bottom: 8px; }
+.instructions ul { margin-left: 20px; margin-top: 6px; }
+.instructions li { margin-bottom: 4px; font-size: 0.9rem; }
+.progress-bar { position: sticky; top: 0; z-index: 100; background: var(--card); border-bottom: 1px solid var(--border); padding: 8px 16px; text-align: center; font-size: 0.85rem; color: #64748b; }
+.progress-fill { height: 3px; background: var(--blue); transition: width 0.3s; }
+
+.sample { background: var(--card); border: 1px solid var(--border); border-radius: 12px; margin-bottom: 28px; overflow: hidden; }
+.sample-header { padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 14px; background: #f1f5f9; }
+.sample-header img { width: 72px; height: 72px; object-fit: cover; border-radius: 8px; border: 1px solid var(--border); }
+.sample-header .info { flex: 1; }
+.sample-header .info h3 { font-size: 1rem; margin-bottom: 2px; }
+.sample-header .info .meta { font-size: 0.8rem; color: #64748b; }
+.sample-number { font-size: 0.75rem; color: #94a3b8; font-weight: 600; }
+
+.systems { display: grid; grid-template-columns: 1fr 1fr; gap: 0; }
+.system { padding: 16px 20px; }
+.system:first-child { border-right: 1px solid var(--border); }
+.system-label { font-weight: 700; font-size: 1rem; margin-bottom: 10px; padding: 4px 12px; border-radius: 6px; display: inline-block; }
+.system-a .system-label { background: #dbeafe; color: #1d4ed8; }
+.system-b .system-label { background: #fce7f3; color: #be185d; }
+
+.direction-label { font-size: 0.75rem; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; margin: 10px 0 4px; }
+.outfit-row { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 6px; }
+.item-cell { text-align: center; width: 64px; }
+.item-cell img { width: 60px; height: 80px; object-fit: cover; border-radius: 6px; border: 1px solid var(--border); }
+.item-cell.anchor-badge img { border: 2px solid var(--blue); }
+.item-name { font-size: 0.6rem; color: #64748b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 64px; }
+.item-slot { font-size: 0.55rem; color: #94a3b8; }
+
+.ratings { padding: 12px 20px 16px; border-top: 1px solid var(--border); background: #fafbfc; }
+.ratings h4 { font-size: 0.85rem; margin-bottom: 8px; color: #475569; }
+.rating-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 24px; margin-bottom: 12px; }
+.rating-row { display: flex; align-items: center; gap: 8px; }
+.rating-row label { font-size: 0.8rem; min-width: 80px; color: #475569; }
+.rating-row select { font-size: 0.8rem; padding: 3px 6px; border-radius: 4px; border: 1px solid var(--border); }
+.pref-row { display: flex; align-items: center; gap: 12px; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
+.pref-row label { font-size: 0.85rem; font-weight: 600; color: #334155; }
+.pref-btn { padding: 6px 16px; border-radius: 6px; border: 2px solid var(--border); background: var(--card); cursor: pointer; font-size: 0.8rem; font-weight: 600; transition: all 0.15s; }
+.pref-btn:hover { border-color: var(--blue); }
+.pref-btn.selected { background: var(--blue); color: #fff; border-color: var(--blue); }
+.pref-btn.selected-tie { background: #f59e0b; color: #fff; border-color: #f59e0b; }
+
+.export-section { text-align: center; margin: 32px 0; }
+.export-btn { padding: 14px 48px; font-size: 1rem; font-weight: 600; background: var(--blue); color: #fff; border: none; border-radius: 10px; cursor: pointer; transition: background 0.15s; }
+.export-btn:hover { background: #1d4ed8; }
+.stats { margin-top: 12px; font-size: 0.85rem; color: #64748b; }
+</style>
+</head>
+<body>
+<div class="container">
+<h1>Loom Outfit Evaluation</h1>
+<p class="subtitle">Blind A/B comparison &mdash; which system produces better outfits?</p>
+<div class="instructions">
+<h3>Instructions</h3>
+<p>For each anchor item you see two systems (A and B) that generated outfits.
+The assignment is randomized — you don't know which is which.</p>
+<ul>
+<li><strong>Coherence</strong> (1-5): Do the items go well together visually? (1 = clashing, 5 = perfect)</li>
+<li><strong>Occasion</strong> (1-5): Would you wear this to the inferred occasion? (1 = wrong, 5 = perfect)</li>
+<li><strong>Wearability</strong> (1-5): Would you actually wear this? (1 = never, 5 = definitely)</li>
+<li><strong>Preference</strong>: Overall, which system's outfits do you prefer?</li>
+</ul>
+</div>
+<div class="progress-bar" id="progressBar">0 / 10 rated<div class="progress-fill" id="progressFill" style="width:0%"></div></div>
+<form id="evalForm">
+
+
+<div class="sample" id="sample_0">
+<div class="sample-header">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0857097001.jpg" alt="York espadrille" onerror="this.style.display='none'">
+<div class="info">
+<h3>York espadrille</h3>
+<div class="meta">shoes &middot; Dark Beige &middot; leather</div>
+</div>
+<div class="sample-number">#1</div>
+</div>
+
+<div class="systems">
+<div class="system system-a">
+<div class="system-label">System A</div>
+<div class="direction-label">Classic</div>
+<div class="outfit-row">
+<div class="item-cell anchor-badge">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0857097001.jpg" alt="York espadrille" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">York espadrille</div>
+<div class="item-slot">shoes</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0843120001.jpg" alt="D3 PE CARMEN" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">D3 PE CARMEN</div>
+<div class="item-slot">top</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0589059001.jpg" alt="Sass skirt" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Sass skirt</div>
+<div class="item-slot">bottom</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0602570002.jpg" alt="Flirty Mama Flower Headba" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Flirty Mama Flower Headba</div>
+<div class="item-slot">accessory</div>
+</div>
+</div>
+<div class="direction-label">Trendy</div>
+<div class="outfit-row">
+<div class="item-cell anchor-badge">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0857097001.jpg" alt="York espadrille" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">York espadrille</div>
+<div class="item-slot">shoes</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0707717005.jpg" alt="Django" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Django</div>
+<div class="item-slot">top</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0764927001.jpg" alt="Flirtatious skirt" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Flirtatious skirt</div>
+<div class="item-slot">bottom</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0806461001.jpg" alt="3p glitter clips" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">3p glitter clips</div>
+<div class="item-slot">accessory</div>
+</div>
+</div>
+<div class="direction-label">Bold</div>
+<div class="outfit-row">
+<div class="item-cell anchor-badge">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0857097001.jpg" alt="York espadrille" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">York espadrille</div>
+<div class="item-slot">shoes</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0789303001.jpg" alt="Julie" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Julie</div>
+<div class="item-slot">top</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0746326003.jpg" alt="Samantha slip skirt" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Samantha slip skirt</div>
+<div class="item-slot">bottom</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0767918004.jpg" alt="Flirty Anna Headband 2" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Flirty Anna Headband 2</div>
+<div class="item-slot">accessory</div>
+</div>
+</div>
+</div>
+<div class="system system-b">
+<div class="system-label">System B</div>
+<div class="direction-label">Classic</div>
+<div class="outfit-row">
+<div class="item-cell anchor-badge">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0857097001.jpg" alt="York espadrille" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">York espadrille</div>
+<div class="item-slot">shoes</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0818031004.jpg" alt="Amalia" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Amalia</div>
+<div class="item-slot">top</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0835213001.jpg" alt="Connie HW tapered trouser" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Connie HW tapered trouser</div>
+<div class="item-slot">bottom</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0920732001.jpg" alt="Flirty Manon hoop" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Flirty Manon hoop</div>
+<div class="item-slot">accessory</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0910459003.jpg" alt="Petit Jennifer blazer" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Petit Jennifer blazer</div>
+<div class="item-slot">layer</div>
+</div>
+</div>
+<div class="direction-label">Trendy</div>
+<div class="outfit-row">
+<div class="item-cell anchor-badge">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0857097001.jpg" alt="York espadrille" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">York espadrille</div>
+<div class="item-slot">shoes</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0678942054.jpg" alt="Harrison (1)" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Harrison (1)</div>
+<div class="item-slot">top</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0772003001.jpg" alt="Dimanche shorts" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Dimanche shorts</div>
+<div class="item-slot">bottom</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0857750001.jpg" alt="Flirty Anushka hoop" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Flirty Anushka hoop</div>
+<div class="item-slot">accessory</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0575214004.jpg" alt="ED Firenze jacket" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">ED Firenze jacket</div>
+<div class="item-slot">layer</div>
+</div>
+</div>
+<div class="direction-label">Bold</div>
+<div class="outfit-row">
+<div class="item-cell anchor-badge">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0857097001.jpg" alt="York espadrille" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">York espadrille</div>
+<div class="item-slot">shoes</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0653909001.jpg" alt="Taco Top" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Taco Top</div>
+<div class="item-slot">top</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0641298005.jpg" alt="Dorri" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Dorri</div>
+<div class="item-slot">bottom</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0767918004.jpg" alt="Flirty Anna Headband 2" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Flirty Anna Headband 2</div>
+<div class="item-slot">accessory</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0915526002.jpg" alt="Nika vest" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Nika vest</div>
+<div class="item-slot">layer</div>
+</div>
+</div>
+</div>
+</div>
+
+<div class="ratings">
+<h4>Rate each system</h4>
+<div class="rating-grid">
+<div class="rating-row"><label>A Coherence:</label><select name="q0_a_coherence" onchange="updateProgress()"><option value="">-</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></div>
+<div class="rating-row"><label>B Coherence:</label><select name="q0_b_coherence" onchange="updateProgress()"><option value="">-</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></div>
+<div class="rating-row"><label>A Occasion:</label><select name="q0_a_occasion" onchange="updateProgress()"><option value="">-</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></div>
+<div class="rating-row"><label>B Occasion:</label><select name="q0_b_occasion" onchange="updateProgress()"><option value="">-</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></div>
+<div class="rating-row"><label>A Wearability:</label><select name="q0_a_wearability" onchange="updateProgress()"><option value="">-</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></div>
+<div class="rating-row"><label>B Wearability:</label><select name="q0_b_wearability" onchange="updateProgress()"><option value="">-</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></div>
+</div>
+<div class="pref-row">
+<label>Prefer:</label>
+<button type="button" class="pref-btn" data-q="q0_pref" data-val="A" onclick="setPref(this)">A</button>
+<button type="button" class="pref-btn" data-q="q0_pref" data-val="tie" onclick="setPref(this)">Tie</button>
+<button type="button" class="pref-btn" data-q="q0_pref" data-val="B" onclick="setPref(this)">B</button>
+<input type="hidden" name="q0_pref" value="">
+</div>
+</div>
+</div>
+
+
+<div class="sample" id="sample_1">
+<div class="sample-header">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0552501001.jpg" alt="Cool Bette Stud pack" onerror="this.style.display='none'">
+<div class="info">
+<h3>Cool Bette Stud pack</h3>
+<div class="meta">accessory &middot; Gold &middot; unknown</div>
+</div>
+<div class="sample-number">#2</div>
+</div>
+
+<div class="systems">
+<div class="system system-a">
+<div class="system-label">System A</div>
+<div class="direction-label">Classic</div>
+<div class="outfit-row">
+<div class="item-cell anchor-badge">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0552501001.jpg" alt="Cool Bette Stud pack" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Cool Bette Stud pack</div>
+<div class="item-slot">accessory</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0810005001.jpg" alt="Poca Coat" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Poca Coat</div>
+<div class="item-slot">top</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0903207003.jpg" alt="Hayes petite trouser" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Hayes petite trouser</div>
+<div class="item-slot">bottom</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0469039001.jpg" alt="Henrik ballerina" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Henrik ballerina</div>
+<div class="item-slot">shoes</div>
+</div>
+</div>
+<div class="direction-label">Trendy</div>
+<div class="outfit-row">
+<div class="item-cell anchor-badge">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0552501001.jpg" alt="Cool Bette Stud pack" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Cool Bette Stud pack</div>
+<div class="item-slot">accessory</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0604190001.jpg" alt="Hero blz" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Hero blz</div>
+<div class="item-slot">top</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0779781007.jpg" alt="Vermont essential slacks" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Vermont essential slacks</div>
+<div class="item-slot">bottom</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0569355013.jpg" alt="Alma Sneaker" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Alma Sneaker</div>
+<div class="item-slot">shoes</div>
+</div>
+</div>
+<div class="direction-label">Bold</div>
+<div class="outfit-row">
+<div class="item-cell anchor-badge">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0552501001.jpg" alt="Cool Bette Stud pack" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Cool Bette Stud pack</div>
+<div class="item-slot">accessory</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0915611001.jpg" alt="Gyda Blouse." onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Gyda Blouse.</div>
+<div class="item-slot">top</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0766346004.jpg" alt="Kanta RW Slacks" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Kanta RW Slacks</div>
+<div class="item-slot">bottom</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0578311009.jpg" alt="KATE PQ ballerina" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">KATE PQ ballerina</div>
+<div class="item-slot">shoes</div>
+</div>
+</div>
+</div>
+<div class="system system-b">
+<div class="system-label">System B</div>
+<div class="direction-label">Classic</div>
+<div class="outfit-row">
+<div class="item-cell anchor-badge">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0552501001.jpg" alt="Cool Bette Stud pack" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Cool Bette Stud pack</div>
+<div class="item-slot">accessory</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0583417003.jpg" alt="Muffin LS" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Muffin LS</div>
+<div class="item-slot">top</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0584496001.jpg" alt="Sanna pants" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Sanna pants</div>
+<div class="item-slot">bottom</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0542913002.jpg" alt="OL ELLEN PQ W.L sneaker" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">OL ELLEN PQ W.L sneaker</div>
+<div class="item-slot">shoes</div>
+</div>
+</div>
+<div class="direction-label">Trendy</div>
+<div class="outfit-row">
+<div class="item-cell anchor-badge">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0552501001.jpg" alt="Cool Bette Stud pack" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Cool Bette Stud pack</div>
+<div class="item-slot">accessory</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0641705004.jpg" alt="Klara Top" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Klara Top</div>
+<div class="item-slot">top</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0262277009.jpg" alt="Kim superskinny low waist" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Kim superskinny low waist</div>
+<div class="item-slot">bottom</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0569355013.jpg" alt="Alma Sneaker" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Alma Sneaker</div>
+<div class="item-slot">shoes</div>
+</div>
+</div>
+<div class="direction-label">Bold</div>
+<div class="outfit-row">
+<div class="item-cell anchor-badge">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0552501001.jpg" alt="Cool Bette Stud pack" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Cool Bette Stud pack</div>
+<div class="item-slot">accessory</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0677219002.jpg" alt="Larry basic sweater" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Larry basic sweater</div>
+<div class="item-slot">top</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0745091004.jpg" alt="Malta jogger" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Malta jogger</div>
+<div class="item-slot">bottom</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0622969013.jpg" alt="Sweetheart boot" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Sweetheart boot</div>
+<div class="item-slot">shoes</div>
+</div>
+</div>
+</div>
+</div>
+
+<div class="ratings">
+<h4>Rate each system</h4>
+<div class="rating-grid">
+<div class="rating-row"><label>A Coherence:</label><select name="q1_a_coherence" onchange="updateProgress()"><option value="">-</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></div>
+<div class="rating-row"><label>B Coherence:</label><select name="q1_b_coherence" onchange="updateProgress()"><option value="">-</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></div>
+<div class="rating-row"><label>A Occasion:</label><select name="q1_a_occasion" onchange="updateProgress()"><option value="">-</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></div>
+<div class="rating-row"><label>B Occasion:</label><select name="q1_b_occasion" onchange="updateProgress()"><option value="">-</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></div>
+<div class="rating-row"><label>A Wearability:</label><select name="q1_a_wearability" onchange="updateProgress()"><option value="">-</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></div>
+<div class="rating-row"><label>B Wearability:</label><select name="q1_b_wearability" onchange="updateProgress()"><option value="">-</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></div>
+</div>
+<div class="pref-row">
+<label>Prefer:</label>
+<button type="button" class="pref-btn" data-q="q1_pref" data-val="A" onclick="setPref(this)">A</button>
+<button type="button" class="pref-btn" data-q="q1_pref" data-val="tie" onclick="setPref(this)">Tie</button>
+<button type="button" class="pref-btn" data-q="q1_pref" data-val="B" onclick="setPref(this)">B</button>
+<input type="hidden" name="q1_pref" value="">
+</div>
+</div>
+</div>
+
+
+<div class="sample" id="sample_2">
+<div class="sample-header">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0865076001.jpg" alt="Hazel" onerror="this.style.display='none'">
+<div class="info">
+<h3>Hazel</h3>
+<div class="meta">top &middot; Black &middot; cotton</div>
+</div>
+<div class="sample-number">#3</div>
+</div>
+
+<div class="systems">
+<div class="system system-a">
+<div class="system-label">System A</div>
+<div class="direction-label">Classic</div>
+<div class="outfit-row">
+<div class="item-cell anchor-badge">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0865076001.jpg" alt="Hazel" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Hazel</div>
+<div class="item-slot">top</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0562245023.jpg" alt="Luna skinny 5 pkt" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Luna skinny 5 pkt</div>
+<div class="item-slot">bottom</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0698470001.jpg" alt="Elena sneaker" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Elena sneaker</div>
+<div class="item-slot">shoes</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0876261001.jpg" alt="Flirty Merry stud pk" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Flirty Merry stud pk</div>
+<div class="item-slot">accessory</div>
+</div>
+</div>
+<div class="direction-label">Trendy</div>
+<div class="outfit-row">
+<div class="item-cell anchor-badge">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0865076001.jpg" alt="Hazel" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Hazel</div>
+<div class="item-slot">top</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0734112002.jpg" alt="Stannis paperbag culotte " onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Stannis paperbag culotte </div>
+<div class="item-slot">bottom</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0608347003.jpg" alt="Dolores fancy sneaker" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Dolores fancy sneaker</div>
+<div class="item-slot">shoes</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0822329001.jpg" alt="TC NEW REPAIR PATCES DENI" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">TC NEW REPAIR PATCES DENI</div>
+<div class="item-slot">accessory</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0608714003.jpg" alt="Speed Wing jacket" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Speed Wing jacket</div>
+<div class="item-slot">layer</div>
+</div>
+</div>
+<div class="direction-label">Bold</div>
+<div class="outfit-row">
+<div class="item-cell anchor-badge">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0865076001.jpg" alt="Hazel" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Hazel</div>
+<div class="item-slot">top</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0835213001.jpg" alt="Connie HW tapered trouser" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Connie HW tapered trouser</div>
+<div class="item-slot">bottom</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0759160001.jpg" alt="Glassig espadrill" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Glassig espadrill</div>
+<div class="item-slot">shoes</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0665082007.jpg" alt="Cool Bree Bandana 2" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Cool Bree Bandana 2</div>
+<div class="item-slot">accessory</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0909100001.jpg" alt="Long shelf jacket" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Long shelf jacket</div>
+<div class="item-slot">layer</div>
+</div>
+</div>
+</div>
+<div class="system system-b">
+<div class="system-label">System B</div>
+<div class="direction-label">Classic</div>
+<div class="outfit-row">
+<div class="item-cell anchor-badge">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0865076001.jpg" alt="Hazel" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Hazel</div>
+<div class="item-slot">top</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0920528001.jpg" alt="Slim cargo RW TVP" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Slim cargo RW TVP</div>
+<div class="item-slot">bottom</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0734460002.jpg" alt="LOLA SANDAL" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">LOLA SANDAL</div>
+<div class="item-slot">shoes</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0876261001.jpg" alt="Flirty Merry stud pk" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Flirty Merry stud pk</div>
+<div class="item-slot">accessory</div>
+</div>
+</div>
+<div class="direction-label">Trendy</div>
+<div class="outfit-row">
+<div class="item-cell anchor-badge">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0865076001.jpg" alt="Hazel" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Hazel</div>
+<div class="item-slot">top</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0760695003.jpg" alt="Bonnie denim shorts" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Bonnie denim shorts</div>
+<div class="item-slot">bottom</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0747564004.jpg" alt="Martin Sandal" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Martin Sandal</div>
+<div class="item-slot">shoes</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0767918008.jpg" alt="Flirty Anna Headband 2" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Flirty Anna Headband 2</div>
+<div class="item-slot">accessory</div>
+</div>
+</div>
+<div class="direction-label">Bold</div>
+<div class="outfit-row">
+<div class="item-cell anchor-badge">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0865076001.jpg" alt="Hazel" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Hazel</div>
+<div class="item-slot">top</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0562252040.jpg" alt="Space 5 pkt tregging" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Space 5 pkt tregging</div>
+<div class="item-slot">bottom</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0651059002.jpg" alt="OL ROOSEWELT PQ Wedge" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">OL ROOSEWELT PQ Wedge</div>
+<div class="item-slot">shoes</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0763490002.jpg" alt="Class Gwen earring" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Class Gwen earring</div>
+<div class="item-slot">accessory</div>
+</div>
+</div>
+</div>
+</div>
+
+<div class="ratings">
+<h4>Rate each system</h4>
+<div class="rating-grid">
+<div class="rating-row"><label>A Coherence:</label><select name="q2_a_coherence" onchange="updateProgress()"><option value="">-</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></div>
+<div class="rating-row"><label>B Coherence:</label><select name="q2_b_coherence" onchange="updateProgress()"><option value="">-</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></div>
+<div class="rating-row"><label>A Occasion:</label><select name="q2_a_occasion" onchange="updateProgress()"><option value="">-</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></div>
+<div class="rating-row"><label>B Occasion:</label><select name="q2_b_occasion" onchange="updateProgress()"><option value="">-</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></div>
+<div class="rating-row"><label>A Wearability:</label><select name="q2_a_wearability" onchange="updateProgress()"><option value="">-</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></div>
+<div class="rating-row"><label>B Wearability:</label><select name="q2_b_wearability" onchange="updateProgress()"><option value="">-</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></div>
+</div>
+<div class="pref-row">
+<label>Prefer:</label>
+<button type="button" class="pref-btn" data-q="q2_pref" data-val="A" onclick="setPref(this)">A</button>
+<button type="button" class="pref-btn" data-q="q2_pref" data-val="tie" onclick="setPref(this)">Tie</button>
+<button type="button" class="pref-btn" data-q="q2_pref" data-val="B" onclick="setPref(this)">B</button>
+<input type="hidden" name="q2_pref" value="">
+</div>
+</div>
+</div>
+
+
+<div class="sample" id="sample_3">
+<div class="sample-header">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0469039001.jpg" alt="Henrik ballerina" onerror="this.style.display='none'">
+<div class="info">
+<h3>Henrik ballerina</h3>
+<div class="meta">shoes &middot; Black &middot; suede</div>
+</div>
+<div class="sample-number">#4</div>
+</div>
+
+<div class="systems">
+<div class="system system-a">
+<div class="system-label">System A</div>
+<div class="direction-label">Classic</div>
+<div class="outfit-row">
+<div class="item-cell anchor-badge">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0469039001.jpg" alt="Henrik ballerina" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Henrik ballerina</div>
+<div class="item-slot">shoes</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0519847024.jpg" alt="Jupiter v-neck" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Jupiter v-neck</div>
+<div class="item-slot">top</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0928928001.jpg" alt="Liana check" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Liana check</div>
+<div class="item-slot">bottom</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0763490002.jpg" alt="Class Gwen earring" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Class Gwen earring</div>
+<div class="item-slot">accessory</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0700429002.jpg" alt="Arnica Padded Jacket" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Arnica Padded Jacket</div>
+<div class="item-slot">layer</div>
+</div>
+</div>
+<div class="direction-label">Trendy</div>
+<div class="outfit-row">
+<div class="item-cell anchor-badge">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0469039001.jpg" alt="Henrik ballerina" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Henrik ballerina</div>
+<div class="item-slot">shoes</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0842605015.jpg" alt="Despacito" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Despacito</div>
+<div class="item-slot">top</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0760695003.jpg" alt="Bonnie denim shorts" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Bonnie denim shorts</div>
+<div class="item-slot">bottom</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0876261001.jpg" alt="Flirty Merry stud pk" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Flirty Merry stud pk</div>
+<div class="item-slot">accessory</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0575214004.jpg" alt="ED Firenze jacket" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">ED Firenze jacket</div>
+<div class="item-slot">layer</div>
+</div>
+</div>
+<div class="direction-label">Bold</div>
+<div class="outfit-row">
+<div class="item-cell anchor-badge">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0469039001.jpg" alt="Henrik ballerina" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Henrik ballerina</div>
+<div class="item-slot">shoes</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0595779003.jpg" alt="Offy sweater" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Offy sweater</div>
+<div class="item-slot">top</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0797892004.jpg" alt="ED Milk slaks" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">ED Milk slaks</div>
+<div class="item-slot">bottom</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0767918008.jpg" alt="Flirty Anna Headband 2" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Flirty Anna Headband 2</div>
+<div class="item-slot">accessory</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0608714003.jpg" alt="Speed Wing jacket" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Speed Wing jacket</div>
+<div class="item-slot">layer</div>
+</div>
+</div>
+</div>
+<div class="system system-b">
+<div class="system-label">System B</div>
+<div class="direction-label">Classic</div>
+<div class="outfit-row">
+<div class="item-cell anchor-badge">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0469039001.jpg" alt="Henrik ballerina" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Henrik ballerina</div>
+<div class="item-slot">shoes</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0843120001.jpg" alt="D3 PE CARMEN" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">D3 PE CARMEN</div>
+<div class="item-slot">top</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0746326003.jpg" alt="Samantha slip skirt" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Samantha slip skirt</div>
+<div class="item-slot">bottom</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0935407001.jpg" alt="2p Koko pins" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">2p Koko pins</div>
+<div class="item-slot">accessory</div>
+</div>
+</div>
+<div class="direction-label">Trendy</div>
+<div class="outfit-row">
+<div class="item-cell anchor-badge">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0469039001.jpg" alt="Henrik ballerina" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Henrik ballerina</div>
+<div class="item-slot">shoes</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0749699029.jpg" alt="Chestnut strap top" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Chestnut strap top</div>
+<div class="item-slot">top</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0764927001.jpg" alt="Flirtatious skirt" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Flirtatious skirt</div>
+<div class="item-slot">bottom</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0767918004.jpg" alt="Flirty Anna Headband 2" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Flirty Anna Headband 2</div>
+<div class="item-slot">accessory</div>
+</div>
+</div>
+<div class="direction-label">Bold</div>
+<div class="outfit-row">
+<div class="item-cell anchor-badge">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0469039001.jpg" alt="Henrik ballerina" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Henrik ballerina</div>
+<div class="item-slot">shoes</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0826770001.jpg" alt="D1 PE RITA CAMISOLE" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">D1 PE RITA CAMISOLE</div>
+<div class="item-slot">top</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0804084002.jpg" alt="Mac skirt" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Mac skirt</div>
+<div class="item-slot">bottom</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0924137001.jpg" alt="Flirty Sallie earcuff pk" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Flirty Sallie earcuff pk</div>
+<div class="item-slot">accessory</div>
+</div>
+</div>
+</div>
+</div>
+
+<div class="ratings">
+<h4>Rate each system</h4>
+<div class="rating-grid">
+<div class="rating-row"><label>A Coherence:</label><select name="q3_a_coherence" onchange="updateProgress()"><option value="">-</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></div>
+<div class="rating-row"><label>B Coherence:</label><select name="q3_b_coherence" onchange="updateProgress()"><option value="">-</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></div>
+<div class="rating-row"><label>A Occasion:</label><select name="q3_a_occasion" onchange="updateProgress()"><option value="">-</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></div>
+<div class="rating-row"><label>B Occasion:</label><select name="q3_b_occasion" onchange="updateProgress()"><option value="">-</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></div>
+<div class="rating-row"><label>A Wearability:</label><select name="q3_a_wearability" onchange="updateProgress()"><option value="">-</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></div>
+<div class="rating-row"><label>B Wearability:</label><select name="q3_b_wearability" onchange="updateProgress()"><option value="">-</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></div>
+</div>
+<div class="pref-row">
+<label>Prefer:</label>
+<button type="button" class="pref-btn" data-q="q3_pref" data-val="A" onclick="setPref(this)">A</button>
+<button type="button" class="pref-btn" data-q="q3_pref" data-val="tie" onclick="setPref(this)">Tie</button>
+<button type="button" class="pref-btn" data-q="q3_pref" data-val="B" onclick="setPref(this)">B</button>
+<input type="hidden" name="q3_pref" value="">
+</div>
+</div>
+</div>
+
+
+<div class="sample" id="sample_4">
+<div class="sample-header">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0739303002.jpg" alt="Eve HW wide trousers" onerror="this.style.display='none'">
+<div class="info">
+<h3>Eve HW wide trousers</h3>
+<div class="meta">bottom &middot; Black &middot; unknown</div>
+</div>
+<div class="sample-number">#5</div>
+</div>
+
+<div class="systems">
+<div class="system system-a">
+<div class="system-label">System A</div>
+<div class="direction-label">Classic</div>
+<div class="outfit-row">
+<div class="item-cell anchor-badge">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0739303002.jpg" alt="Eve HW wide trousers" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Eve HW wide trousers</div>
+<div class="item-slot">bottom</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0609650013.jpg" alt="Charlie" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Charlie</div>
+<div class="item-slot">top</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0761952003.jpg" alt="GOYA PQ sandalette" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">GOYA PQ sandalette</div>
+<div class="item-slot">shoes</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0857750001.jpg" alt="Flirty Anushka hoop" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Flirty Anushka hoop</div>
+<div class="item-slot">accessory</div>
+</div>
+</div>
+<div class="direction-label">Trendy</div>
+<div class="outfit-row">
+<div class="item-cell anchor-badge">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0739303002.jpg" alt="Eve HW wide trousers" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Eve HW wide trousers</div>
+<div class="item-slot">bottom</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0816953006.jpg" alt="Alex alex" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Alex alex</div>
+<div class="item-slot">top</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0673832002.jpg" alt="OL JUN PQ Pump" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">OL JUN PQ Pump</div>
+<div class="item-slot">shoes</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0920732001.jpg" alt="Flirty Manon hoop" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Flirty Manon hoop</div>
+<div class="item-slot">accessory</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0608714003.jpg" alt="Speed Wing jacket" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Speed Wing jacket</div>
+<div class="item-slot">layer</div>
+</div>
+</div>
+<div class="direction-label">Bold</div>
+<div class="outfit-row">
+<div class="item-cell anchor-badge">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0739303002.jpg" alt="Eve HW wide trousers" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Eve HW wide trousers</div>
+<div class="item-slot">bottom</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0610700003.jpg" alt="CALEXICO" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">CALEXICO</div>
+<div class="item-slot">top</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0517762010.jpg" alt="Mary DTP" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Mary DTP</div>
+<div class="item-slot">shoes</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0767918004.jpg" alt="Flirty Anna Headband 2" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Flirty Anna Headband 2</div>
+<div class="item-slot">accessory</div>
+</div>
+</div>
+</div>
+<div class="system system-b">
+<div class="system-label">System B</div>
+<div class="direction-label">Classic</div>
+<div class="outfit-row">
+<div class="item-cell anchor-badge">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0739303002.jpg" alt="Eve HW wide trousers" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Eve HW wide trousers</div>
+<div class="item-slot">bottom</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0810005001.jpg" alt="Poca Coat" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Poca Coat</div>
+<div class="item-slot">top</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0673905003.jpg" alt="OL LONDONE PQ Pump" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">OL LONDONE PQ Pump</div>
+<div class="item-slot">shoes</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0624632007.jpg" alt="Bengal" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Bengal</div>
+<div class="item-slot">accessory</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0568601045.jpg" alt="Mariette Blazer" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Mariette Blazer</div>
+<div class="item-slot">layer</div>
+</div>
+</div>
+<div class="direction-label">Trendy</div>
+<div class="outfit-row">
+<div class="item-cell anchor-badge">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0739303002.jpg" alt="Eve HW wide trousers" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Eve HW wide trousers</div>
+<div class="item-slot">bottom</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0915611001.jpg" alt="Gyda Blouse." onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Gyda Blouse.</div>
+<div class="item-slot">top</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0902831002.jpg" alt="Melodie PQ pump" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Melodie PQ pump</div>
+<div class="item-slot">shoes</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0822329001.jpg" alt="TC NEW REPAIR PATCES DENI" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">TC NEW REPAIR PATCES DENI</div>
+<div class="item-slot">accessory</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0786818001.jpg" alt="Raspberry Jacket" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Raspberry Jacket</div>
+<div class="item-slot">layer</div>
+</div>
+</div>
+<div class="direction-label">Bold</div>
+<div class="outfit-row">
+<div class="item-cell anchor-badge">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0739303002.jpg" alt="Eve HW wide trousers" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Eve HW wide trousers</div>
+<div class="item-slot">bottom</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0689985002.jpg" alt="Gordon" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Gordon</div>
+<div class="item-slot">top</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0553611010.jpg" alt="Rhea pump" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Rhea pump</div>
+<div class="item-slot">shoes</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0756672002.jpg" alt="PQ Lucy Headband" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">PQ Lucy Headband</div>
+<div class="item-slot">accessory</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0903193003.jpg" alt="Mariette Petite blazer" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Mariette Petite blazer</div>
+<div class="item-slot">layer</div>
+</div>
+</div>
+</div>
+</div>
+
+<div class="ratings">
+<h4>Rate each system</h4>
+<div class="rating-grid">
+<div class="rating-row"><label>A Coherence:</label><select name="q4_a_coherence" onchange="updateProgress()"><option value="">-</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></div>
+<div class="rating-row"><label>B Coherence:</label><select name="q4_b_coherence" onchange="updateProgress()"><option value="">-</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></div>
+<div class="rating-row"><label>A Occasion:</label><select name="q4_a_occasion" onchange="updateProgress()"><option value="">-</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></div>
+<div class="rating-row"><label>B Occasion:</label><select name="q4_b_occasion" onchange="updateProgress()"><option value="">-</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></div>
+<div class="rating-row"><label>A Wearability:</label><select name="q4_a_wearability" onchange="updateProgress()"><option value="">-</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></div>
+<div class="rating-row"><label>B Wearability:</label><select name="q4_b_wearability" onchange="updateProgress()"><option value="">-</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></div>
+</div>
+<div class="pref-row">
+<label>Prefer:</label>
+<button type="button" class="pref-btn" data-q="q4_pref" data-val="A" onclick="setPref(this)">A</button>
+<button type="button" class="pref-btn" data-q="q4_pref" data-val="tie" onclick="setPref(this)">Tie</button>
+<button type="button" class="pref-btn" data-q="q4_pref" data-val="B" onclick="setPref(this)">B</button>
+<input type="hidden" name="q4_pref" value="">
+</div>
+</div>
+</div>
+
+
+<div class="sample" id="sample_5">
+<div class="sample-header">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0780510003.jpg" alt="Pine HW Trousers" onerror="this.style.display='none'">
+<div class="info">
+<h3>Pine HW Trousers</h3>
+<div class="meta">bottom &middot; Black &middot; wool</div>
+</div>
+<div class="sample-number">#6</div>
+</div>
+
+<div class="systems">
+<div class="system system-a">
+<div class="system-label">System A</div>
+<div class="direction-label">Classic</div>
+<div class="outfit-row">
+<div class="item-cell anchor-badge">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0780510003.jpg" alt="Pine HW Trousers" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Pine HW Trousers</div>
+<div class="item-slot">bottom</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0504154016.jpg" alt="Lady Di" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Lady Di</div>
+<div class="item-slot">top</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0759160001.jpg" alt="Glassig espadrill" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Glassig espadrill</div>
+<div class="item-slot">shoes</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0822329001.jpg" alt="TC NEW REPAIR PATCES DENI" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">TC NEW REPAIR PATCES DENI</div>
+<div class="item-slot">accessory</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0608714003.jpg" alt="Speed Wing jacket" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Speed Wing jacket</div>
+<div class="item-slot">layer</div>
+</div>
+</div>
+<div class="direction-label">Trendy</div>
+<div class="outfit-row">
+<div class="item-cell anchor-badge">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0780510003.jpg" alt="Pine HW Trousers" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Pine HW Trousers</div>
+<div class="item-slot">bottom</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0535478001.jpg" alt="Dollar" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Dollar</div>
+<div class="item-slot">top</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0759156004.jpg" alt="Brent ballerina" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Brent ballerina</div>
+<div class="item-slot">shoes</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0767918008.jpg" alt="Flirty Anna Headband 2" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Flirty Anna Headband 2</div>
+<div class="item-slot">accessory</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0575214004.jpg" alt="ED Firenze jacket" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">ED Firenze jacket</div>
+<div class="item-slot">layer</div>
+</div>
+</div>
+<div class="direction-label">Bold</div>
+<div class="outfit-row">
+<div class="item-cell anchor-badge">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0780510003.jpg" alt="Pine HW Trousers" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Pine HW Trousers</div>
+<div class="item-slot">bottom</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0712296001.jpg" alt="Mentos t-shirt" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Mentos t-shirt</div>
+<div class="item-slot">top</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0732811001.jpg" alt="Satin Slipper" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Satin Slipper</div>
+<div class="item-slot">shoes</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0665082007.jpg" alt="Cool Bree Bandana 2" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Cool Bree Bandana 2</div>
+<div class="item-slot">accessory</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0909100001.jpg" alt="Long shelf jacket" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Long shelf jacket</div>
+<div class="item-slot">layer</div>
+</div>
+</div>
+</div>
+<div class="system system-b">
+<div class="system-label">System B</div>
+<div class="direction-label">Classic</div>
+<div class="outfit-row">
+<div class="item-cell anchor-badge">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0780510003.jpg" alt="Pine HW Trousers" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Pine HW Trousers</div>
+<div class="item-slot">bottom</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0607771002.jpg" alt="J Olin top EQ" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">J Olin top EQ</div>
+<div class="item-slot">top</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0553611010.jpg" alt="Rhea pump" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Rhea pump</div>
+<div class="item-slot">shoes</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0924137001.jpg" alt="Flirty Sallie earcuff pk" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Flirty Sallie earcuff pk</div>
+<div class="item-slot">accessory</div>
+</div>
+</div>
+<div class="direction-label">Trendy</div>
+<div class="outfit-row">
+<div class="item-cell anchor-badge">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0780510003.jpg" alt="Pine HW Trousers" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Pine HW Trousers</div>
+<div class="item-slot">bottom</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0685687001.jpg" alt="W YODA KNIT OL OFFER" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">W YODA KNIT OL OFFER</div>
+<div class="item-slot">top</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0574717001.jpg" alt="Amanda loafer" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Amanda loafer</div>
+<div class="item-slot">shoes</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0775485001.jpg" alt="Cool Danny earring" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Cool Danny earring</div>
+<div class="item-slot">accessory</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0915526002.jpg" alt="Nika vest" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Nika vest</div>
+<div class="item-slot">layer</div>
+</div>
+</div>
+<div class="direction-label">Bold</div>
+<div class="outfit-row">
+<div class="item-cell anchor-badge">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0780510003.jpg" alt="Pine HW Trousers" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Pine HW Trousers</div>
+<div class="item-slot">bottom</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0519847024.jpg" alt="Jupiter v-neck" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Jupiter v-neck</div>
+<div class="item-slot">top</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0699341002.jpg" alt="Escota slipper" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Escota slipper</div>
+<div class="item-slot">shoes</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0763490002.jpg" alt="Class Gwen earring" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Class Gwen earring</div>
+<div class="item-slot">accessory</div>
+</div>
+</div>
+</div>
+</div>
+
+<div class="ratings">
+<h4>Rate each system</h4>
+<div class="rating-grid">
+<div class="rating-row"><label>A Coherence:</label><select name="q5_a_coherence" onchange="updateProgress()"><option value="">-</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></div>
+<div class="rating-row"><label>B Coherence:</label><select name="q5_b_coherence" onchange="updateProgress()"><option value="">-</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></div>
+<div class="rating-row"><label>A Occasion:</label><select name="q5_a_occasion" onchange="updateProgress()"><option value="">-</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></div>
+<div class="rating-row"><label>B Occasion:</label><select name="q5_b_occasion" onchange="updateProgress()"><option value="">-</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></div>
+<div class="rating-row"><label>A Wearability:</label><select name="q5_a_wearability" onchange="updateProgress()"><option value="">-</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></div>
+<div class="rating-row"><label>B Wearability:</label><select name="q5_b_wearability" onchange="updateProgress()"><option value="">-</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></div>
+</div>
+<div class="pref-row">
+<label>Prefer:</label>
+<button type="button" class="pref-btn" data-q="q5_pref" data-val="A" onclick="setPref(this)">A</button>
+<button type="button" class="pref-btn" data-q="q5_pref" data-val="tie" onclick="setPref(this)">Tie</button>
+<button type="button" class="pref-btn" data-q="q5_pref" data-val="B" onclick="setPref(this)">B</button>
+<input type="hidden" name="q5_pref" value="">
+</div>
+</div>
+</div>
+
+
+<div class="sample" id="sample_6">
+<div class="sample-header">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0630313008.jpg" alt="Jetplane (1)" onerror="this.style.display='none'">
+<div class="info">
+<h3>Jetplane (1)</h3>
+<div class="meta">top &middot; Pink &middot; polyester</div>
+</div>
+<div class="sample-number">#7</div>
+</div>
+
+<div class="systems">
+<div class="system system-a">
+<div class="system-label">System A</div>
+<div class="direction-label">Classic</div>
+<div class="outfit-row">
+<div class="item-cell anchor-badge">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0630313008.jpg" alt="Jetplane (1)" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Jetplane (1)</div>
+<div class="item-slot">top</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0609994001.jpg" alt="Tommy denim trousers" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Tommy denim trousers</div>
+<div class="item-slot">bottom</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0759160001.jpg" alt="Glassig espadrill" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Glassig espadrill</div>
+<div class="item-slot">shoes</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0806461001.jpg" alt="3p glitter clips" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">3p glitter clips</div>
+<div class="item-slot">accessory</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0575214004.jpg" alt="ED Firenze jacket" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">ED Firenze jacket</div>
+<div class="item-slot">layer</div>
+</div>
+</div>
+<div class="direction-label">Trendy</div>
+<div class="outfit-row">
+<div class="item-cell anchor-badge">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0630313008.jpg" alt="Jetplane (1)" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Jetplane (1)</div>
+<div class="item-slot">top</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0835213001.jpg" alt="Connie HW tapered trouser" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Connie HW tapered trouser</div>
+<div class="item-slot">bottom</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0608347003.jpg" alt="Dolores fancy sneaker" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Dolores fancy sneaker</div>
+<div class="item-slot">shoes</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0665082007.jpg" alt="Cool Bree Bandana 2" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Cool Bree Bandana 2</div>
+<div class="item-slot">accessory</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0837743001.jpg" alt="Cotton Tail Jacket" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Cotton Tail Jacket</div>
+<div class="item-slot">layer</div>
+</div>
+</div>
+<div class="direction-label">Bold</div>
+<div class="outfit-row">
+<div class="item-cell anchor-badge">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0630313008.jpg" alt="Jetplane (1)" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Jetplane (1)</div>
+<div class="item-slot">top</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0562245039.jpg" alt="Luna skinny RW" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Luna skinny RW</div>
+<div class="item-slot">bottom</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0732811001.jpg" alt="Satin Slipper" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Satin Slipper</div>
+<div class="item-slot">shoes</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0822329001.jpg" alt="TC NEW REPAIR PATCES DENI" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">TC NEW REPAIR PATCES DENI</div>
+<div class="item-slot">accessory</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0608714003.jpg" alt="Speed Wing jacket" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Speed Wing jacket</div>
+<div class="item-slot">layer</div>
+</div>
+</div>
+</div>
+<div class="system system-b">
+<div class="system-label">System B</div>
+<div class="direction-label">Classic</div>
+<div class="outfit-row">
+<div class="item-cell anchor-badge">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0630313008.jpg" alt="Jetplane (1)" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Jetplane (1)</div>
+<div class="item-slot">top</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0609994001.jpg" alt="Tommy denim trousers" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Tommy denim trousers</div>
+<div class="item-slot">bottom</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0689134002.jpg" alt="Ivanka ballerina" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Ivanka ballerina</div>
+<div class="item-slot">shoes</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0920732001.jpg" alt="Flirty Manon hoop" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Flirty Manon hoop</div>
+<div class="item-slot">accessory</div>
+</div>
+</div>
+<div class="direction-label">Trendy</div>
+<div class="outfit-row">
+<div class="item-cell anchor-badge">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0630313008.jpg" alt="Jetplane (1)" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Jetplane (1)</div>
+<div class="item-slot">top</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0620886001.jpg" alt="Floyd" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Floyd</div>
+<div class="item-slot">bottom</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0734460007.jpg" alt="Doris sandal new" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Doris sandal new</div>
+<div class="item-slot">shoes</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0857750001.jpg" alt="Flirty Anushka hoop" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Flirty Anushka hoop</div>
+<div class="item-slot">accessory</div>
+</div>
+</div>
+<div class="direction-label">Bold</div>
+<div class="outfit-row">
+<div class="item-cell anchor-badge">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0630313008.jpg" alt="Jetplane (1)" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Jetplane (1)</div>
+<div class="item-slot">top</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0641298005.jpg" alt="Dorri" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Dorri</div>
+<div class="item-slot">bottom</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0857097001.jpg" alt="York espadrille" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">York espadrille</div>
+<div class="item-slot">shoes</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0762656001.jpg" alt="Small basic scrunchie" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Small basic scrunchie</div>
+<div class="item-slot">accessory</div>
+</div>
+</div>
+</div>
+</div>
+
+<div class="ratings">
+<h4>Rate each system</h4>
+<div class="rating-grid">
+<div class="rating-row"><label>A Coherence:</label><select name="q6_a_coherence" onchange="updateProgress()"><option value="">-</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></div>
+<div class="rating-row"><label>B Coherence:</label><select name="q6_b_coherence" onchange="updateProgress()"><option value="">-</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></div>
+<div class="rating-row"><label>A Occasion:</label><select name="q6_a_occasion" onchange="updateProgress()"><option value="">-</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></div>
+<div class="rating-row"><label>B Occasion:</label><select name="q6_b_occasion" onchange="updateProgress()"><option value="">-</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></div>
+<div class="rating-row"><label>A Wearability:</label><select name="q6_a_wearability" onchange="updateProgress()"><option value="">-</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></div>
+<div class="rating-row"><label>B Wearability:</label><select name="q6_b_wearability" onchange="updateProgress()"><option value="">-</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></div>
+</div>
+<div class="pref-row">
+<label>Prefer:</label>
+<button type="button" class="pref-btn" data-q="q6_pref" data-val="A" onclick="setPref(this)">A</button>
+<button type="button" class="pref-btn" data-q="q6_pref" data-val="tie" onclick="setPref(this)">Tie</button>
+<button type="button" class="pref-btn" data-q="q6_pref" data-val="B" onclick="setPref(this)">B</button>
+<input type="hidden" name="q6_pref" value="">
+</div>
+</div>
+</div>
+
+
+<div class="sample" id="sample_7">
+<div class="sample-header">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0777212002.jpg" alt="ED Johannesburg blouse" onerror="this.style.display='none'">
+<div class="info">
+<h3>ED Johannesburg blouse</h3>
+<div class="meta">top &middot; Yellowish Brown &middot; chiffon</div>
+</div>
+<div class="sample-number">#8</div>
+</div>
+
+<div class="systems">
+<div class="system system-a">
+<div class="system-label">System A</div>
+<div class="direction-label">Classic</div>
+<div class="outfit-row">
+<div class="item-cell anchor-badge">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0777212002.jpg" alt="ED Johannesburg blouse" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">ED Johannesburg blouse</div>
+<div class="item-slot">top</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0696122002.jpg" alt="W BOUNTY SKIRT CNY" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">W BOUNTY SKIRT CNY</div>
+<div class="item-slot">bottom</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0622969013.jpg" alt="Sweetheart boot" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Sweetheart boot</div>
+<div class="item-slot">shoes</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0552501001.jpg" alt="Cool Bette Stud pack" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Cool Bette Stud pack</div>
+<div class="item-slot">accessory</div>
+</div>
+</div>
+<div class="direction-label">Trendy</div>
+<div class="outfit-row">
+<div class="item-cell anchor-badge">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0777212002.jpg" alt="ED Johannesburg blouse" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">ED Johannesburg blouse</div>
+<div class="item-slot">top</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0704032002.jpg" alt="Roger straight trs RW" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Roger straight trs RW</div>
+<div class="item-slot">bottom</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0674103002.jpg" alt="OL YOUNGER PQ Boot" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">OL YOUNGER PQ Boot</div>
+<div class="item-slot">shoes</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0763490002.jpg" alt="Class Gwen earring" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Class Gwen earring</div>
+<div class="item-slot">accessory</div>
+</div>
+</div>
+<div class="direction-label">Bold</div>
+<div class="outfit-row">
+<div class="item-cell anchor-badge">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0777212002.jpg" alt="ED Johannesburg blouse" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">ED Johannesburg blouse</div>
+<div class="item-slot">top</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0810170022.jpg" alt="Skinny denim (D)" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Skinny denim (D)</div>
+<div class="item-slot">bottom</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0889684001.jpg" alt="Sonia sandalette" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Sonia sandalette</div>
+<div class="item-slot">shoes</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0767918008.jpg" alt="Flirty Anna Headband 2" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Flirty Anna Headband 2</div>
+<div class="item-slot">accessory</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0608714003.jpg" alt="Speed Wing jacket" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Speed Wing jacket</div>
+<div class="item-slot">layer</div>
+</div>
+</div>
+</div>
+<div class="system system-b">
+<div class="system-label">System B</div>
+<div class="direction-label">Classic</div>
+<div class="outfit-row">
+<div class="item-cell anchor-badge">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0777212002.jpg" alt="ED Johannesburg blouse" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">ED Johannesburg blouse</div>
+<div class="item-slot">top</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0520392001.jpg" alt="Florence playsuit" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Florence playsuit</div>
+<div class="item-slot">bottom</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0808953001.jpg" alt="Roland semiboot" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Roland semiboot</div>
+<div class="item-slot">shoes</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0767918004.jpg" alt="Flirty Anna Headband 2" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Flirty Anna Headband 2</div>
+<div class="item-slot">accessory</div>
+</div>
+</div>
+<div class="direction-label">Trendy</div>
+<div class="outfit-row">
+<div class="item-cell anchor-badge">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0777212002.jpg" alt="ED Johannesburg blouse" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">ED Johannesburg blouse</div>
+<div class="item-slot">top</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0750064001.jpg" alt="EDC Lambada skirt" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">EDC Lambada skirt</div>
+<div class="item-slot">bottom</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0734872001.jpg" alt="Erica sandalette" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Erica sandalette</div>
+<div class="item-slot">shoes</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0806461001.jpg" alt="3p glitter clips" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">3p glitter clips</div>
+<div class="item-slot">accessory</div>
+</div>
+</div>
+<div class="direction-label">Bold</div>
+<div class="outfit-row">
+<div class="item-cell anchor-badge">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0777212002.jpg" alt="ED Johannesburg blouse" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">ED Johannesburg blouse</div>
+<div class="item-slot">top</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0589059001.jpg" alt="Sass skirt" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Sass skirt</div>
+<div class="item-slot">bottom</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0808687001.jpg" alt="Gamma sandalette" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Gamma sandalette</div>
+<div class="item-slot">shoes</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0707627004.jpg" alt="Flirty Ra earring" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Flirty Ra earring</div>
+<div class="item-slot">accessory</div>
+</div>
+</div>
+</div>
+</div>
+
+<div class="ratings">
+<h4>Rate each system</h4>
+<div class="rating-grid">
+<div class="rating-row"><label>A Coherence:</label><select name="q7_a_coherence" onchange="updateProgress()"><option value="">-</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></div>
+<div class="rating-row"><label>B Coherence:</label><select name="q7_b_coherence" onchange="updateProgress()"><option value="">-</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></div>
+<div class="rating-row"><label>A Occasion:</label><select name="q7_a_occasion" onchange="updateProgress()"><option value="">-</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></div>
+<div class="rating-row"><label>B Occasion:</label><select name="q7_b_occasion" onchange="updateProgress()"><option value="">-</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></div>
+<div class="rating-row"><label>A Wearability:</label><select name="q7_a_wearability" onchange="updateProgress()"><option value="">-</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></div>
+<div class="rating-row"><label>B Wearability:</label><select name="q7_b_wearability" onchange="updateProgress()"><option value="">-</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></div>
+</div>
+<div class="pref-row">
+<label>Prefer:</label>
+<button type="button" class="pref-btn" data-q="q7_pref" data-val="A" onclick="setPref(this)">A</button>
+<button type="button" class="pref-btn" data-q="q7_pref" data-val="tie" onclick="setPref(this)">Tie</button>
+<button type="button" class="pref-btn" data-q="q7_pref" data-val="B" onclick="setPref(this)">B</button>
+<input type="hidden" name="q7_pref" value="">
+</div>
+</div>
+</div>
+
+
+<div class="sample" id="sample_8">
+<div class="sample-header">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0803624001.jpg" alt="Mondrian Sneaker" onerror="this.style.display='none'">
+<div class="info">
+<h3>Mondrian Sneaker</h3>
+<div class="meta">shoes &middot; White &middot; leather</div>
+</div>
+<div class="sample-number">#9</div>
+</div>
+
+<div class="systems">
+<div class="system system-a">
+<div class="system-label">System A</div>
+<div class="direction-label">Classic</div>
+<div class="outfit-row">
+<div class="item-cell anchor-badge">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0803624001.jpg" alt="Mondrian Sneaker" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Mondrian Sneaker</div>
+<div class="item-slot">shoes</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0843120001.jpg" alt="D3 PE CARMEN" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">D3 PE CARMEN</div>
+<div class="item-slot">top</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0746326003.jpg" alt="Samantha slip skirt" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Samantha slip skirt</div>
+<div class="item-slot">bottom</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0806461001.jpg" alt="3p glitter clips" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">3p glitter clips</div>
+<div class="item-slot">accessory</div>
+</div>
+</div>
+<div class="direction-label">Trendy</div>
+<div class="outfit-row">
+<div class="item-cell anchor-badge">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0803624001.jpg" alt="Mondrian Sneaker" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Mondrian Sneaker</div>
+<div class="item-slot">shoes</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0707717005.jpg" alt="Django" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Django</div>
+<div class="item-slot">top</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0804084002.jpg" alt="Mac skirt" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Mac skirt</div>
+<div class="item-slot">bottom</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0602570002.jpg" alt="Flirty Mama Flower Headba" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Flirty Mama Flower Headba</div>
+<div class="item-slot">accessory</div>
+</div>
+</div>
+<div class="direction-label">Bold</div>
+<div class="outfit-row">
+<div class="item-cell anchor-badge">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0803624001.jpg" alt="Mondrian Sneaker" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Mondrian Sneaker</div>
+<div class="item-slot">shoes</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0596344001.jpg" alt="Grebo" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Grebo</div>
+<div class="item-slot">top</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0750064001.jpg" alt="EDC Lambada skirt" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">EDC Lambada skirt</div>
+<div class="item-slot">bottom</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0767918004.jpg" alt="Flirty Anna Headband 2" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Flirty Anna Headband 2</div>
+<div class="item-slot">accessory</div>
+</div>
+</div>
+</div>
+<div class="system system-b">
+<div class="system-label">System B</div>
+<div class="direction-label">Classic</div>
+<div class="outfit-row">
+<div class="item-cell anchor-badge">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0803624001.jpg" alt="Mondrian Sneaker" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Mondrian Sneaker</div>
+<div class="item-slot">shoes</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0581709007.jpg" alt="SAILOR LS" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">SAILOR LS</div>
+<div class="item-slot">top</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0903207003.jpg" alt="Hayes petite trouser" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Hayes petite trouser</div>
+<div class="item-slot">bottom</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0552501001.jpg" alt="Cool Bette Stud pack" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Cool Bette Stud pack</div>
+<div class="item-slot">accessory</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0915526002.jpg" alt="Nika vest" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Nika vest</div>
+<div class="item-slot">layer</div>
+</div>
+</div>
+<div class="direction-label">Trendy</div>
+<div class="outfit-row">
+<div class="item-cell anchor-badge">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0803624001.jpg" alt="Mondrian Sneaker" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Mondrian Sneaker</div>
+<div class="item-slot">shoes</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0519780001.jpg" alt="Hanna" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Hanna</div>
+<div class="item-slot">top</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0575542004.jpg" alt="Summer pants (Saigon)" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Summer pants (Saigon)</div>
+<div class="item-slot">bottom</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0775485001.jpg" alt="Cool Danny earring" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Cool Danny earring</div>
+<div class="item-slot">accessory</div>
+</div>
+</div>
+<div class="direction-label">Bold</div>
+<div class="outfit-row">
+<div class="item-cell anchor-badge">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0803624001.jpg" alt="Mondrian Sneaker" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Mondrian Sneaker</div>
+<div class="item-slot">shoes</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0622093004.jpg" alt="Baez shirt" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Baez shirt</div>
+<div class="item-slot">top</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0779781007.jpg" alt="Vermont essential slacks" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Vermont essential slacks</div>
+<div class="item-slot">bottom</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0763490002.jpg" alt="Class Gwen earring" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Class Gwen earring</div>
+<div class="item-slot">accessory</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0575214004.jpg" alt="ED Firenze jacket" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">ED Firenze jacket</div>
+<div class="item-slot">layer</div>
+</div>
+</div>
+</div>
+</div>
+
+<div class="ratings">
+<h4>Rate each system</h4>
+<div class="rating-grid">
+<div class="rating-row"><label>A Coherence:</label><select name="q8_a_coherence" onchange="updateProgress()"><option value="">-</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></div>
+<div class="rating-row"><label>B Coherence:</label><select name="q8_b_coherence" onchange="updateProgress()"><option value="">-</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></div>
+<div class="rating-row"><label>A Occasion:</label><select name="q8_a_occasion" onchange="updateProgress()"><option value="">-</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></div>
+<div class="rating-row"><label>B Occasion:</label><select name="q8_b_occasion" onchange="updateProgress()"><option value="">-</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></div>
+<div class="rating-row"><label>A Wearability:</label><select name="q8_a_wearability" onchange="updateProgress()"><option value="">-</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></div>
+<div class="rating-row"><label>B Wearability:</label><select name="q8_b_wearability" onchange="updateProgress()"><option value="">-</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></div>
+</div>
+<div class="pref-row">
+<label>Prefer:</label>
+<button type="button" class="pref-btn" data-q="q8_pref" data-val="A" onclick="setPref(this)">A</button>
+<button type="button" class="pref-btn" data-q="q8_pref" data-val="tie" onclick="setPref(this)">Tie</button>
+<button type="button" class="pref-btn" data-q="q8_pref" data-val="B" onclick="setPref(this)">B</button>
+<input type="hidden" name="q8_pref" value="">
+</div>
+</div>
+</div>
+
+
+<div class="sample" id="sample_9">
+<div class="sample-header">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0578816001.jpg" alt="OL RIRI sneaker" onerror="this.style.display='none'">
+<div class="info">
+<h3>OL RIRI sneaker</h3>
+<div class="meta">shoes &middot; Black &middot; unknown</div>
+</div>
+<div class="sample-number">#10</div>
+</div>
+
+<div class="systems">
+<div class="system system-a">
+<div class="system-label">System A</div>
+<div class="direction-label">Classic</div>
+<div class="outfit-row">
+<div class="item-cell anchor-badge">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0578816001.jpg" alt="OL RIRI sneaker" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">OL RIRI sneaker</div>
+<div class="item-slot">shoes</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0777434001.jpg" alt="Ozzy" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Ozzy</div>
+<div class="item-slot">top</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0584496001.jpg" alt="Sanna pants" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Sanna pants</div>
+<div class="item-slot">bottom</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0763490002.jpg" alt="Class Gwen earring" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Class Gwen earring</div>
+<div class="item-slot">accessory</div>
+</div>
+</div>
+<div class="direction-label">Trendy</div>
+<div class="outfit-row">
+<div class="item-cell anchor-badge">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0578816001.jpg" alt="OL RIRI sneaker" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">OL RIRI sneaker</div>
+<div class="item-slot">shoes</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0641705004.jpg" alt="Klara Top" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Klara Top</div>
+<div class="item-slot">top</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0262277009.jpg" alt="Kim superskinny low waist" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Kim superskinny low waist</div>
+<div class="item-slot">bottom</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0876261001.jpg" alt="Flirty Merry stud pk" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Flirty Merry stud pk</div>
+<div class="item-slot">accessory</div>
+</div>
+</div>
+<div class="direction-label">Bold</div>
+<div class="outfit-row">
+<div class="item-cell anchor-badge">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0578816001.jpg" alt="OL RIRI sneaker" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">OL RIRI sneaker</div>
+<div class="item-slot">shoes</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0519847024.jpg" alt="Jupiter v-neck" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Jupiter v-neck</div>
+<div class="item-slot">top</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0665095005.jpg" alt="Kalinda trs" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Kalinda trs</div>
+<div class="item-slot">bottom</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0552501001.jpg" alt="Cool Bette Stud pack" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Cool Bette Stud pack</div>
+<div class="item-slot">accessory</div>
+</div>
+</div>
+</div>
+<div class="system system-b">
+<div class="system-label">System B</div>
+<div class="direction-label">Classic</div>
+<div class="outfit-row">
+<div class="item-cell anchor-badge">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0578816001.jpg" alt="OL RIRI sneaker" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">OL RIRI sneaker</div>
+<div class="item-slot">shoes</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0690523001.jpg" alt="Lily blouse" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Lily blouse</div>
+<div class="item-slot">top</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0903207003.jpg" alt="Hayes petite trouser" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Hayes petite trouser</div>
+<div class="item-slot">bottom</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0756672002.jpg" alt="PQ Lucy Headband" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">PQ Lucy Headband</div>
+<div class="item-slot">accessory</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0903193003.jpg" alt="Mariette Petite blazer" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Mariette Petite blazer</div>
+<div class="item-slot">layer</div>
+</div>
+</div>
+<div class="direction-label">Trendy</div>
+<div class="outfit-row">
+<div class="item-cell anchor-badge">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0578816001.jpg" alt="OL RIRI sneaker" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">OL RIRI sneaker</div>
+<div class="item-slot">shoes</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0604190001.jpg" alt="Hero blz" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Hero blz</div>
+<div class="item-slot">top</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0855081003.jpg" alt="Tia slacks" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Tia slacks</div>
+<div class="item-slot">bottom</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0822329001.jpg" alt="TC NEW REPAIR PATCES DENI" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">TC NEW REPAIR PATCES DENI</div>
+<div class="item-slot">accessory</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0910459003.jpg" alt="Petit Jennifer blazer" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Petit Jennifer blazer</div>
+<div class="item-slot">layer</div>
+</div>
+</div>
+<div class="direction-label">Bold</div>
+<div class="outfit-row">
+<div class="item-cell anchor-badge">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0578816001.jpg" alt="OL RIRI sneaker" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">OL RIRI sneaker</div>
+<div class="item-slot">shoes</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0689985002.jpg" alt="Gordon" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Gordon</div>
+<div class="item-slot">top</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0568597021.jpg" alt="Hayes" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Hayes</div>
+<div class="item-slot">bottom</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0624632007.jpg" alt="Bengal" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Bengal</div>
+<div class="item-slot">accessory</div>
+</div>
+<div class="item-cell">
+<img src="https://res.cloudinary.com/dfvwi4mqd/image/upload/0568601045.jpg" alt="Mariette Blazer" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2280%22><rect fill=%22%23eee%22 width=%2260%22 height=%2280%22/><text x=%2230%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%228%22>No img</text></svg>'">
+<div class="item-name">Mariette Blazer</div>
+<div class="item-slot">layer</div>
+</div>
+</div>
+</div>
+</div>
+
+<div class="ratings">
+<h4>Rate each system</h4>
+<div class="rating-grid">
+<div class="rating-row"><label>A Coherence:</label><select name="q9_a_coherence" onchange="updateProgress()"><option value="">-</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></div>
+<div class="rating-row"><label>B Coherence:</label><select name="q9_b_coherence" onchange="updateProgress()"><option value="">-</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></div>
+<div class="rating-row"><label>A Occasion:</label><select name="q9_a_occasion" onchange="updateProgress()"><option value="">-</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></div>
+<div class="rating-row"><label>B Occasion:</label><select name="q9_b_occasion" onchange="updateProgress()"><option value="">-</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></div>
+<div class="rating-row"><label>A Wearability:</label><select name="q9_a_wearability" onchange="updateProgress()"><option value="">-</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></div>
+<div class="rating-row"><label>B Wearability:</label><select name="q9_b_wearability" onchange="updateProgress()"><option value="">-</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></div>
+</div>
+<div class="pref-row">
+<label>Prefer:</label>
+<button type="button" class="pref-btn" data-q="q9_pref" data-val="A" onclick="setPref(this)">A</button>
+<button type="button" class="pref-btn" data-q="q9_pref" data-val="tie" onclick="setPref(this)">Tie</button>
+<button type="button" class="pref-btn" data-q="q9_pref" data-val="B" onclick="setPref(this)">B</button>
+<input type="hidden" name="q9_pref" value="">
+</div>
+</div>
+</div>
+
+
+</form>
+<div class="export-section">
+<button type="button" class="export-btn" onclick="exportResults()">Export Results as JSON</button>
+<div class="stats" id="statsBox"></div>
+</div>
+</div>
+
+<script>
+const ASSIGNMENT = ["rules", "rules", "rules", "multihead", "multihead", "rules", "rules", "multihead", "rules", "multihead"];
+const N = 10;
+
+function setPref(btn) {
+    const q = btn.dataset.q;
+    const val = btn.dataset.val;
+    document.querySelector('input[name="' + q + '"]').value = val;
+    const siblings = btn.parentElement.querySelectorAll('.pref-btn');
+    siblings.forEach(s => { s.classList.remove('selected', 'selected-tie'); });
+    btn.classList.add(val === 'tie' ? 'selected-tie' : 'selected');
+    updateProgress();
+}
+
+function updateProgress() {
+    let rated = 0;
+    for (let i = 0; i < N; i++) {
+        const pref = document.querySelector('input[name="q' + i + '_pref"]').value;
+        if (pref) rated++;
+    }
+    document.getElementById('progressBar').childNodes[0].textContent = rated + ' / ' + N + ' rated';
+    document.getElementById('progressFill').style.width = (rated / N * 100) + '%';
+}
+
+function exportResults() {
+    const form = document.getElementById('evalForm');
+    const data = { meta: { n_samples: N, timestamp: new Date().toISOString() }, ratings: [] };
+
+    for (let i = 0; i < N; i++) {
+        const entry = { sample: i, a_system: ASSIGNMENT[i] };
+        ['a_coherence', 'a_occasion', 'a_wearability',
+         'b_coherence', 'b_occasion', 'b_wearability'].forEach(k => {
+            const el = form.querySelector('[name="q' + i + '_' + k + '"]');
+            entry[k] = el && el.value ? parseInt(el.value) : null;
+        });
+        const pref = form.querySelector('input[name="q' + i + '_pref"]');
+        entry.preference = pref ? pref.value || null : null;
+        if (entry.preference && entry.preference !== 'tie') {
+            entry.preferred_system = (entry.preference === 'A') ? ASSIGNMENT[i]
+                : (ASSIGNMENT[i] === 'rules' ? 'multihead' : 'rules');
+        } else {
+            entry.preferred_system = entry.preference === 'tie' ? 'tie' : null;
+        }
+        data.ratings.push(entry);
+    }
+
+    // Summary stats
+    let rules_wins = 0, mh_wins = 0, ties = 0, unanswered = 0;
+    const rules_scores = [], mh_scores = [];
+    data.ratings.forEach(r => {
+        if (r.preferred_system === 'rules') rules_wins++;
+        else if (r.preferred_system === 'multihead') mh_wins++;
+        else if (r.preferred_system === 'tie') ties++;
+        else unanswered++;
+
+        const a_avg = [r.a_coherence, r.a_occasion, r.a_wearability].filter(v => v).reduce((s,v) => s+v, 0) / 3;
+        const b_avg = [r.b_coherence, r.b_occasion, r.b_wearability].filter(v => v).reduce((s,v) => s+v, 0) / 3;
+        if (r.a_system === 'rules') { rules_scores.push(a_avg); mh_scores.push(b_avg); }
+        else { mh_scores.push(a_avg); rules_scores.push(b_avg); }
+    });
+
+    const avg = arr => arr.length ? (arr.reduce((s,v)=>s+v,0)/arr.length).toFixed(2) : '?';
+    data.summary = {
+        rules_wins, multihead_wins: mh_wins, ties, unanswered,
+        rules_avg_score: parseFloat(avg(rules_scores)),
+        multihead_avg_score: parseFloat(avg(mh_scores)),
+    };
+
+    document.getElementById('statsBox').innerHTML =
+        '<strong>Results:</strong> Rules wins: ' + rules_wins +
+        ' | Multihead wins: ' + mh_wins +
+        ' | Ties: ' + ties +
+        ' | Avg rules: ' + avg(rules_scores) +
+        ' | Avg multihead: ' + avg(mh_scores);
+
+    const blob = new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'human_eval_results.json'; a.click();
+}
+</script>
+</body></html>

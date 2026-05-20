@@ -579,22 +579,22 @@ on our internal catalog with both automatic metrics and human evaluation:
 \begin{table}[h]
 \centering
 \small
-\caption{Ablation results (50 anchors $\times$ 3 directions = 150 outfits
-per configuration, 620-item catalog).}
+\caption{Unified ablation results (50 anchors $\times$ 3 directions = 150
+outfits per configuration, single run, 620-item catalog).}
 \label{tab:ablation}
 \begin{tabular}{lccc}
 \toprule
 Configuration & Score & $\Delta$ & Viol.\,\% \\
 \midrule
-Full system              & 0.218 & ---      &  6.0 \\
-$-$ Blended embeddings   & 0.163 & $-$0.055 & 10.0 \\
-$-$ Occasion filtering   & 0.165 & $-$0.053 & 10.7 \\
-$-$ Material compat.     & 0.186 & $-$0.032 &  8.7 \\
-$-$ Distance noise       & 0.145 & $-$0.073 & 12.0 \\
-$-$ Direction reranking  & 0.022 & $-$0.196 & 10.0 \\
-$-$ Formality check      & 0.205 & $-$0.013 &  8.7 \\
+Full system              & 0.179 & ---      &  9.3 \\
+$-$ Blended embeddings   & 0.190 & $+$0.011 &  8.0 \\
+$-$ Occasion filtering   & 0.194 & $+$0.015 &  7.3 \\
+$-$ Material compat.     & 0.233 & $+$0.054 &  4.7 \\
+$-$ Distance noise       & 0.176 & $-$0.003 &  9.3 \\
+$-$ Direction reranking  & 0.052 & $-$0.127 &  6.7 \\
+$-$ Formality check      & 0.173 & $-$0.006 & 10.7 \\
 \midrule
-Random retrieval         & 0.125 & $-$0.093 & 14.0 \\
+Random retrieval         & 0.054 & $-$0.125 & 16.0 \\
 \bottomrule
 \end{tabular}
 \end{table}

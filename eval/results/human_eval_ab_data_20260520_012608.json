@@ -1,0 +1,67 @@
+{
+  "timestamp": "20260520_012608",
+  "seed": 99,
+  "n_samples": 10,
+  "pairs": [
+    {
+      "anchor_id": 1728,
+      "anchor_name": "Joan heeled boot",
+      "rules_n_outfits": 3,
+      "multihead_n_outfits": 3
+    },
+    {
+      "anchor_id": 1548,
+      "anchor_name": "W BOUNTY SKIRT CNY",
+      "rules_n_outfits": 3,
+      "multihead_n_outfits": 3
+    },
+    {
+      "anchor_id": 1331,
+      "anchor_name": "Tracy blazer",
+      "rules_n_outfits": 3,
+      "multihead_n_outfits": 3
+    },
+    {
+      "anchor_id": 1259,
+      "anchor_name": "Glazing zip hoodie",
+      "rules_n_outfits": 3,
+      "multihead_n_outfits": 3
+    },
+    {
+      "anchor_id": 1672,
+      "anchor_name": "OL RIRI sneaker",
+      "rules_n_outfits": 3,
+      "multihead_n_outfits": 3
+    },
+    {
+      "anchor_id": 1674,
+      "anchor_name": "Chicago",
+      "rules_n_outfits": 3,
+      "multihead_n_outfits": 3
+    },
+    {
+      "anchor_id": 1380,
+      "anchor_name": "Lukas top",
+      "rules_n_outfits": 3,
+      "multihead_n_outfits": 3
+    },
+    {
+      "anchor_id": 1429,
+      "anchor_name": "J Minnie T EQ",
+      "rules_n_outfits": 3,
+      "multihead_n_outfits": 3
+    },
+    {
+      "anchor_id": 1578,
+      "anchor_name": "Maggie RW tapered",
+      "rules_n_outfits": 3,
+      "multihead_n_outfits": 3
+    },
+    {
+      "anchor_id": 1663,
+      "anchor_name": "Puffa Sandal",
+      "rules_n_outfits": 3,
+      "multihead_n_outfits": 3
+    }
+  ]
+}

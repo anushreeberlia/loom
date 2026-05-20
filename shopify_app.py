@@ -226,6 +226,33 @@ def generate_all_outfits(shop_domain: str):
         cur.close()
         conn.close()
 
+    if not items:
+        conn = get_db()
+        cur = conn.cursor()
+        try:
+            cur.execute(
+                """
+                SELECT
+                  COUNT(*) FILTER (WHERE processed_at IS NOT NULL),
+                  COUNT(*) FILTER (WHERE processed_at IS NULL AND processing_error IS NULL),
+                  COUNT(*) FILTER (WHERE processed_at IS NULL AND processing_error IS NOT NULL)
+                FROM shopify_catalog_items
+                WHERE shop_domain = %s
+                """,
+                (shop_domain,),
+            )
+            row = cur.fetchone()
+            if row:
+                ok, pending, failed = row[0], row[1], row[2]
+                logger.warning(
+                    f"No outfits to generate for {shop_domain}: "
+                    f"processed={ok}, pending_vision={pending}, failed_vision={failed}. "
+                    f"Outfits require processed_at; check OPENAI_API_KEY and logs for 'Failed to process'."
+                )
+        finally:
+            cur.close()
+            conn.close()
+
     logger.info(f"Generating outfits for {len(items)} items in {shop_domain}")
     for item in items:
         generate_outfits_for_item(shop_domain, item)
@@ -335,6 +362,31 @@ def full_catalog_sync(shop_domain: str, access_token: str):
         # 3. Upsert all products into DB (without processing yet)
         for product in products:
             upsert_shopify_catalog_item(shop_domain, product)
+
+        # 3b. Retry items that failed vision/embed: get_unprocessed_items ignores rows with
+        #     processing_error set, so without this a bad API key once leaves the catalog stuck forever.
+        conn = get_db()
+        cur = conn.cursor()
+        try:
+            cur.execute(
+                """
+                UPDATE shopify_catalog_items
+                SET processing_error = NULL
+                WHERE shop_domain = %s
+                  AND processed_at IS NULL
+                  AND shopify_product_id = ANY(%s)
+                """,
+                (shop_domain, list(live_ids)),
+            )
+            n_cleared = cur.rowcount
+            conn.commit()
+            if n_cleared:
+                logger.info(
+                    f"Cleared processing_error on {n_cleared} catalog row(s) for retry ({shop_domain})"
+                )
+        finally:
+            cur.close()
+            conn.close()
 
         # 4. Process in batches of 20 until done
         while True:
