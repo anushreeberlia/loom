@@ -87,16 +87,51 @@ def segment_garment(image_bytes: bytes, output_format: str = "PNG") -> bytes:
         return image_bytes
 
 
+MAX_SEGMENT_DIM = 1024
+
+
+def _resize_for_segmentation(image_bytes: bytes) -> bytes:
+    """
+    Resize large images before segmentation for speed, keeping natural background.
+    U2-Net runtime scales with resolution; 1024px keeps quality while staying fast.
+    """
+    img = Image.open(io.BytesIO(image_bytes))
+
+    try:
+        img = ImageOps.exif_transpose(img)
+    except Exception:
+        pass
+
+    max_dim = max(img.size)
+    if max_dim <= MAX_SEGMENT_DIM:
+        return image_bytes
+
+    scale = MAX_SEGMENT_DIM / max_dim
+    new_size = (int(img.size[0] * scale), int(img.size[1] * scale))
+    img = img.resize(new_size, Image.LANCZOS)
+
+    if img.mode == "RGBA":
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+    else:
+        img = img.convert("RGB")
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=92)
+
+    return buf.getvalue()
+
+
 def segment_for_embedding(image_bytes: bytes) -> bytes:
     """
     Segment garment specifically for embedding input.
 
-    Returns a clean JPEG with white background (what FashionCLIP/CLIP
-    expects -- trained on product images with white/neutral backgrounds).
+    Pipeline: resize (for speed) → segment (with natural background for better
+    edge detection) → composite on white (what FashionCLIP expects).
     """
-    segmented = segment_garment(image_bytes, output_format="PNG")
+    resized = _resize_for_segmentation(image_bytes)
+    segmented = segment_garment(resized, output_format="PNG")
 
-    if segmented == image_bytes:
+    if segmented == resized:
         return image_bytes
 
     return _rgba_to_white_bg_jpeg(segmented)
