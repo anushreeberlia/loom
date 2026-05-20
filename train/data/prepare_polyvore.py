@@ -276,11 +276,11 @@ def build_item_index(outfits: dict, data_dir: Path) -> list[dict]:
             if item_id not in items:
                 # Try common image path patterns
                 candidates = [
-                    images_dir / str(item_id) / f"{item_id}.jpg",
                     images_dir / f"{item_id}.jpg",
+                    images_dir / str(item_id) / f"{item_id}.jpg",
                     images_dir / str(item_id) / "1.jpg",
                 ]
-                image_path = candidates[0]  # default
+                image_path = candidates[0]  # default (flat layout from download_images.py)
                 for c in candidates:
                     if c.exists():
                         image_path = c
