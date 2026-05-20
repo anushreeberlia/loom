@@ -165,38 +165,44 @@ def build_compat_pairs(outfits: dict, neg_ratio: int = 3) -> list[tuple]:
         item_ids = [item["item_id"] for item in items]
         all_item_ids.update(item_ids)
 
-        # All pairs within an outfit are positive
         for i in range(len(item_ids)):
             for j in range(i + 1, len(item_ids)):
                 positive_pairs.append((item_ids[i], item_ids[j], 1))
 
-    all_item_ids = list(all_item_ids)
+    all_item_ids_list = list(all_item_ids)
     logger.info("Generated %d positive compat pairs", len(positive_pairs))
 
-    # Build item-to-outfit index for hard negative mining
-    item_to_outfits = {}
+    # Pre-compute co-item sets for each item (do this ONCE, not per-pair)
+    item_coitems = {}
     for outfit_id, items in outfits.items():
-        for item in items:
-            item_to_outfits.setdefault(item["item_id"], set()).add(outfit_id)
+        outfit_item_ids = {item["item_id"] for item in items}
+        for item_id in outfit_item_ids:
+            if item_id not in item_coitems:
+                item_coitems[item_id] = set()
+            item_coitems[item_id].update(outfit_item_ids)
 
-    # Generate negatives: random items NOT in the same outfit
-    negative_pairs = []
+    # Generate all negatives in batch (vectorized random sampling)
+    n_negatives = len(positive_pairs) * neg_ratio
     random.seed(42)
-    for item_a, item_b, _ in positive_pairs:
-        for _ in range(neg_ratio):
-            # Pick random item not in any outfit containing item_a
-            a_outfits = item_to_outfits.get(item_a, set())
-            a_coitems = set()
-            for oid in a_outfits:
-                a_coitems.update(item["item_id"] for item in outfits[oid])
+    logger.info("Generating %d negative pairs...", n_negatives)
 
-            neg_item = random.choice(all_item_ids)
-            attempts = 0
-            while neg_item in a_coitems and attempts < 10:
-                neg_item = random.choice(all_item_ids)
-                attempts += 1
+    negative_pairs = []
+    # Sample anchors from positive pairs (cycle through them)
+    anchor_ids = [p[0] for p in positive_pairs] * neg_ratio
+    random.shuffle(anchor_ids)
+    anchor_ids = anchor_ids[:n_negatives]
 
-            negative_pairs.append((item_a, neg_item, 0))
+    # Batch random sampling
+    random_items = random.choices(all_item_ids_list, k=n_negatives)
+
+    for anchor, neg in zip(anchor_ids, random_items):
+        # Simple check -- if collision, just use it anyway (noise is fine for training)
+        if neg not in item_coitems.get(anchor, set()):
+            negative_pairs.append((anchor, neg, 0))
+        else:
+            # Pick one more random -- don't loop, just take it
+            alt = random.choice(all_item_ids_list)
+            negative_pairs.append((anchor, alt, 0))
 
     logger.info("Generated %d negative compat pairs (ratio %d:1)", len(negative_pairs), neg_ratio)
 
@@ -212,7 +218,6 @@ def build_style_pairs(outfits: dict, neg_ratio: int = 2) -> list[tuple]:
     This is weaker than dedicated style boards but still useful --
     items styled together typically share a cohesive aesthetic.
     """
-    # Group items by their outfits
     positive_pairs = []
     all_item_ids = set()
 
@@ -223,14 +228,14 @@ def build_style_pairs(outfits: dict, neg_ratio: int = 2) -> list[tuple]:
             for j in range(i + 1, len(item_ids)):
                 positive_pairs.append((item_ids[i], item_ids[j], 1))
 
-    all_item_ids = list(all_item_ids)
+    all_item_ids_list = list(all_item_ids)
 
-    # Negatives: items from stylistically different outfits
-    negative_pairs = []
+    # Negatives: batch random sampling (fast)
+    n_neg = len(positive_pairs) // neg_ratio
     random.seed(123)
-    for item_a, _, _ in positive_pairs[:len(positive_pairs) // neg_ratio]:
-        neg_item = random.choice(all_item_ids)
-        negative_pairs.append((item_a, neg_item, 0))
+    anchors = [p[0] for p in positive_pairs[:n_neg]]
+    neg_items = random.choices(all_item_ids_list, k=n_neg)
+    negative_pairs = [(a, n, 0) for a, n in zip(anchors, neg_items)]
 
     logger.info("Style pairs: %d positive, %d negative", len(positive_pairs), len(negative_pairs))
 
