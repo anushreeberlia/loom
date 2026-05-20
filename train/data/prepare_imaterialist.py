@@ -280,26 +280,25 @@ def build_contrastive_pairs(
     return all_pairs
 
 
-def download_images(
+def download_images_huggingface(
     items: dict[int, dict],
     data_dir: Path,
     max_images: int = 60000,
     heads: list[str] = None,
 ):
     """
-    Download a subset of images needed for training.
+    Download images from HuggingFace Marqo/iMaterialist dataset (has actual images).
     
-    Prioritizes images that have labels for the requested heads.
-    Uses concurrent downloads for speed.
+    The original Wish CDN URLs are dead, so we stream from the HF mirror which
+    contains the images in parquet format. We filter to only save images that have
+    labels relevant to our heads.
     """
-    import concurrent.futures
-    import urllib.request
-    from urllib.error import URLError, HTTPError
+    from datasets import load_dataset
 
     images_dir = data_dir / "images"
     images_dir.mkdir(parents=True, exist_ok=True)
 
-    # Collect image IDs needed for training (those with relevant labels)
+    # Collect image IDs needed for training
     needed_ids = set()
     for head in (heads or ["material", "occasion", "fit"]):
         config = HEAD_CONFIG[head]
@@ -307,46 +306,58 @@ def download_images(
             if set(item["labels"]) & config["label_ids"]:
                 needed_ids.add(img_id)
 
-    # Filter out already downloaded
+    # Check existing
     existing = {int(f.stem) for f in images_dir.glob("*.jpg") if f.stem.isdigit()}
-    to_download = [(img_id, items[img_id]["url"]) for img_id in needed_ids if img_id not in existing]
-    random.shuffle(to_download)
-    to_download = to_download[:max(0, max_images - len(existing))]
+    still_needed = needed_ids - existing
+    to_fetch = min(max(0, max_images - len(existing)), len(still_needed))
 
     logger.info(
-        f"Images: {len(existing)} existing, {len(to_download)} to download "
-        f"(of {len(needed_ids)} needed, cap {max_images})"
+        f"Images: {len(existing)} existing, need {to_fetch} more "
+        f"(of {len(needed_ids)} total needed, cap {max_images})"
     )
 
-    if not to_download:
+    if to_fetch == 0:
         return
 
-    def _download_one(args):
-        img_id, url = args
-        out_path = images_dir / f"{img_id}.jpg"
-        try:
-            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-            with urllib.request.urlopen(req, timeout=15) as resp:
-                with open(out_path, "wb") as f:
-                    f.write(resp.read())
-            return True
-        except (URLError, HTTPError, OSError):
-            return False
+    # Stream from HuggingFace -- only downloads rows as we iterate
+    logger.info("Streaming images from HuggingFace (Marqo/iMaterialist)...")
+    logger.info("This streams ~100KB per image. For 60K images expect ~6GB download, ~30-45 min.")
 
-    success = 0
-    fail = 0
-    with concurrent.futures.ThreadPoolExecutor(max_workers=32) as pool:
-        futures = list(pool.map(_download_one, to_download))
-        for ok in futures:
-            if ok:
-                success += 1
-            else:
-                fail += 1
-            total = success + fail
-            if total % 5000 == 0:
-                logger.info(f"  Progress: {total}/{len(to_download)} ({success} ok, {fail} failed)")
+    ds = load_dataset("Marqo/iMaterialist", split="train", streaming=True)
 
-    logger.info(f"Download complete: {success} succeeded, {fail} failed")
+    saved = 0
+    skipped = 0
+    for row in ds:
+        if saved >= to_fetch:
+            break
+
+        img_id = row.get("image_id", row.get("id", None))
+        if img_id is None:
+            # Try to match by index or URL
+            skipped += 1
+            continue
+
+        if img_id not in needed_ids or img_id in existing:
+            skipped += 1
+            continue
+
+        # Save image
+        img = row.get("image")
+        if img is not None:
+            out_path = images_dir / f"{img_id}.jpg"
+            try:
+                img.save(str(out_path), "JPEG", quality=85)
+                saved += 1
+                existing.add(img_id)
+                if saved % 2000 == 0:
+                    logger.info(f"  Progress: {saved}/{to_fetch} saved ({skipped} skipped)")
+            except Exception as e:
+                if saved < 5:
+                    logger.warning(f"  Failed to save {img_id}: {e}")
+        else:
+            skipped += 1
+
+    logger.info(f"Download complete: {saved} images saved, {skipped} skipped")
 
 
 def save_pairs_csv(pairs: list[tuple], output_path: Path):
@@ -420,9 +431,9 @@ def main():
     # Step 4: Save item metadata
     save_item_metadata(items, data_dir)
 
-    # Step 5: Optionally download images
+    # Step 5: Optionally download images from HuggingFace mirror
     if args.download_images:
-        download_images(items, data_dir, args.max_images)
+        download_images_huggingface(items, data_dir, args.max_images)
 
     # Summary
     logger.info("\nDone! Summary:")
