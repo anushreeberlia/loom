@@ -394,11 +394,21 @@ def download_images_huggingface(
 
     saved = 0
     skipped = 0
+    total_seen = 0
     for row in ds:
+        total_seen += 1
+        if total_seen == 1:
+            logger.info(f"  First row keys: {[k for k in row.keys() if k != 'image']}")
+            logger.info(f"  First item_ID: {row.get('item_ID', 'MISSING')}")
+        if total_seen <= 5 and saved == 0:
+            rid = str(row.get("item_ID", row.get("image_id", row.get("id", "?"))))
+            logger.info(f"  Row {total_seen}: id={rid}, in needed={rid in needed_ids}, in existing={rid in existing}")
         if saved >= to_fetch:
             break
 
-        img_id = row.get("image_id", row.get("imageId", row.get("id", None)))
+        # HuggingFace dataset columns: image, gender, color, material, sleeve,
+        # pattern, neckline, style, category, item_ID
+        img_id = row.get("item_ID", row.get("image_id", row.get("imageId", row.get("id", None))))
         if img_id is None:
             skipped += 1
             continue
