@@ -10,8 +10,8 @@ Produces:
     data/polyvore/item_metadata.csv -- (item_id, category, image_path) index
 
 Data source:
-    Maryland Polyvore Outfits (https://github.com/iqon/polyvore-dataset)
-    Alternate: https://github.com/mvasil/fashion-compatibility (same data, different format)
+    HuggingFace: mvasil/polyvore-outfits (6GB, contains images + outfit JSONs)
+    Paper: "Learning Type-Aware Embeddings for Fashion Compatibility" (ECCV 2018)
 
 Usage:
     python train/data/prepare_polyvore.py --data-dir data/polyvore [--download]
@@ -32,74 +32,101 @@ logger = logging.getLogger(__name__)
 
 def download_polyvore(data_dir: Path):
     """
-    Download Polyvore Outfits dataset.
+    Download Polyvore Outfits dataset from HuggingFace.
     
-    The dataset is hosted on multiple mirrors. This function attempts
-    to clone the GitHub repo with outfit JSON metadata + download images.
+    Uses the huggingface_hub library to download the dataset which contains
+    both outfit metadata JSONs and item images.
     """
-    import subprocess
+    try:
+        from huggingface_hub import snapshot_download
+    except ImportError:
+        logger.error("huggingface_hub not installed. Run: pip install huggingface_hub")
+        sys.exit(1)
 
-    repo_url = "https://github.com/mvasil/fashion-compatibility.git"
-    repo_dir = data_dir / "fashion-compatibility"
+    hf_dir = data_dir / "polyvore-outfits"
+    if hf_dir.exists() and any(hf_dir.rglob("*.json")):
+        logger.info(f"Dataset already exists at {hf_dir}, skipping download")
+        return hf_dir
 
-    if repo_dir.exists():
-        logger.info("Repo already exists at %s, skipping clone", repo_dir)
-    else:
-        logger.info("Cloning Polyvore metadata from %s ...", repo_url)
-        subprocess.run(["git", "clone", "--depth", "1", repo_url, str(repo_dir)], check=True)
+    logger.info("Downloading Polyvore Outfits from HuggingFace (mvasil/polyvore-outfits)...")
+    logger.info("This is ~6GB and may take 10-30 minutes depending on connection speed.")
 
-    # The metadata JSONs are in the repo. Images need separate download.
-    images_dir = data_dir / "images"
-    if images_dir.exists() and len(list(images_dir.iterdir())) > 1000:
-        logger.info("Images directory already populated (%s)", images_dir)
-    else:
-        images_dir.mkdir(parents=True, exist_ok=True)
-        logger.info(
-            "\n"
-            "=" * 70 + "\n"
-            "MANUAL STEP REQUIRED:\n"
-            "Download Polyvore images from one of these sources:\n"
-            "  1. https://drive.google.com/file/d/13-J4fAPZahauaGycw3j_YvbAHO7tOTW5\n"
-            "  2. Request from the dataset authors (UMD)\n"
-            "\n"
-            "Extract images to: %s\n"
-            "Expected structure: %s/<item_id>/<item_id>.jpg\n"
-            "=" * 70,
-            images_dir, images_dir
-        )
-
-    return repo_dir
+    snapshot_path = snapshot_download(
+        repo_id="mvasil/polyvore-outfits",
+        repo_type="dataset",
+        local_dir=str(hf_dir),
+    )
+    logger.info(f"Download complete: {snapshot_path}")
+    return Path(snapshot_path)
 
 
-def load_outfit_data(repo_dir: Path) -> dict:
-    """Load outfit definitions from the Polyvore metadata JSONs."""
-    outfits = {}
+def load_outfit_data(data_dir: Path) -> dict:
+    """
+    Load outfit definitions from the Polyvore dataset.
     
-    for split in ["train", "valid", "test"]:
-        json_path = repo_dir / "data" / "polyvore_outfits" / f"{split}.json"
-        if not json_path.exists():
-            # Try alternate path structure
-            json_path = repo_dir / "data" / f"{split}.json"
-        
-        if not json_path.exists():
-            logger.warning("Split file not found: %s", json_path)
-            continue
+    Searches common path structures:
+    - HuggingFace format: polyvore-outfits/nondisjoint/*.json
+    - GitHub format: fashion-compatibility/data/polyvore_outfits/*.json
+    - Direct: data_dir/*.json
+    """
+    outfits = {}
 
+    # Search for JSON files in various possible locations
+    search_paths = [
+        data_dir / "polyvore-outfits" / "nondisjoint",
+        data_dir / "polyvore-outfits" / "disjoint",
+        data_dir / "polyvore-outfits",
+        data_dir / "fashion-compatibility" / "data" / "polyvore_outfits",
+        data_dir / "fashion-compatibility" / "data",
+        data_dir,
+    ]
+
+    json_files_found = []
+    for search_path in search_paths:
+        if not search_path.exists():
+            continue
+        for split in ["train", "valid", "test", "train_no_dup", "val_no_dup", "test_no_dup"]:
+            json_path = search_path / f"{split}.json"
+            if json_path.exists():
+                json_files_found.append(json_path)
+
+    if not json_files_found:
+        # Try recursive glob as last resort
+        json_files_found = list(data_dir.rglob("train*.json")) + list(data_dir.rglob("valid*.json"))
+
+    if not json_files_found:
+        logger.error(f"No outfit JSON files found under {data_dir}")
+        logger.error("Expected files like train.json, valid.json, test.json")
+        logger.error("Run with --download to fetch from HuggingFace")
+        sys.exit(1)
+
+    logger.info(f"Found {len(json_files_found)} JSON files: {[p.name for p in json_files_found]}")
+
+    for json_path in json_files_found:
         with open(json_path) as f:
             data = json.load(f)
 
-        for outfit in data:
-            outfit_id = outfit.get("set_id", outfit.get("id"))
-            items = []
-            for item in outfit.get("items", []):
-                items.append({
-                    "item_id": item.get("item_id", item.get("index")),
-                    "category": item.get("categoryid", item.get("category", "")),
-                })
-            if len(items) >= 2:
-                outfits[outfit_id] = items
+        # Handle both list format and dict format
+        if isinstance(data, dict):
+            outfit_list = list(data.values()) if not isinstance(list(data.values())[0], list) else data.get("outfits", [])
+        else:
+            outfit_list = data
 
-    logger.info("Loaded %d outfits across all splits", len(outfits))
+        for outfit in outfit_list:
+            if isinstance(outfit, dict):
+                outfit_id = outfit.get("set_id", outfit.get("id", ""))
+                items = []
+                for item in outfit.get("items", []):
+                    item_id = str(item.get("item_id", item.get("index", "")))
+                    if item_id:
+                        items.append({
+                            "item_id": item_id,
+                            "category": str(item.get("categoryid", item.get("category", ""))),
+                        })
+                if len(items) >= 2:
+                    outfits[str(outfit_id)] = items
+
+    logger.info(f"Loaded {len(outfits)} outfits across all splits")
     return outfits
 
 
@@ -193,19 +220,50 @@ def build_style_pairs(outfits: dict, neg_ratio: int = 2) -> list[tuple]:
     return all_pairs
 
 
-def build_item_index(outfits: dict, images_dir: Path) -> list[dict]:
+def build_item_index(outfits: dict, data_dir: Path) -> list[dict]:
     """Build item metadata index mapping item_id to category and image path."""
+    # Find image directory -- try multiple possible structures
+    possible_image_dirs = [
+        data_dir / "polyvore-outfits" / "images",
+        data_dir / "polyvore-outfits" / "nondisjoint" / "images",
+        data_dir / "images",
+    ]
+    images_dir = None
+    for d in possible_image_dirs:
+        if d.exists():
+            images_dir = d
+            break
+
+    if images_dir is None:
+        images_dir = data_dir / "images"
+        logger.warning(f"No images directory found, using {images_dir} (images may need download)")
+
     items = {}
+    found = 0
     for outfit_id, outfit_items in outfits.items():
         for item in outfit_items:
             item_id = item["item_id"]
             if item_id not in items:
-                image_path = images_dir / str(item_id) / f"{item_id}.jpg"
+                # Try common image path patterns
+                candidates = [
+                    images_dir / str(item_id) / f"{item_id}.jpg",
+                    images_dir / f"{item_id}.jpg",
+                    images_dir / str(item_id) / "1.jpg",
+                ]
+                image_path = candidates[0]  # default
+                for c in candidates:
+                    if c.exists():
+                        image_path = c
+                        found += 1
+                        break
+
                 items[item_id] = {
                     "item_id": item_id,
                     "category": item.get("category", ""),
                     "image_path": str(image_path),
                 }
+
+    logger.info(f"Item index: {len(items)} unique items, {found} with existing images")
     return list(items.values())
 
 
@@ -232,7 +290,7 @@ def save_item_index(items: list[dict], output_path: Path):
 def main():
     parser = argparse.ArgumentParser(description="Prepare Polyvore training data")
     parser.add_argument("--data-dir", type=Path, default=Path("data/polyvore"))
-    parser.add_argument("--download", action="store_true", help="Download dataset repo")
+    parser.add_argument("--download", action="store_true", help="Download dataset from HuggingFace")
     parser.add_argument("--neg-ratio", type=int, default=3, help="Negative:positive ratio for compat")
     args = parser.parse_args()
 
@@ -240,18 +298,11 @@ def main():
     data_dir.mkdir(parents=True, exist_ok=True)
 
     if args.download:
-        repo_dir = download_polyvore(data_dir)
-    else:
-        repo_dir = data_dir / "fashion-compatibility"
-        if not repo_dir.exists():
-            logger.error(
-                "Repo not found at %s. Run with --download or clone manually.", repo_dir
-            )
-            sys.exit(1)
+        download_polyvore(data_dir)
 
-    outfits = load_outfit_data(repo_dir)
+    outfits = load_outfit_data(data_dir)
     if not outfits:
-        logger.error("No outfits loaded. Check data paths.")
+        logger.error("No outfits loaded. Run with --download to fetch from HuggingFace.")
         sys.exit(1)
 
     # Build pairs
@@ -259,26 +310,22 @@ def main():
     style_pairs = build_style_pairs(outfits, neg_ratio=2)
 
     # Build item index
-    images_dir = data_dir / "images"
-    item_index = build_item_index(outfits, images_dir)
+    item_index = build_item_index(outfits, data_dir)
 
     # Save outputs
     save_pairs_csv(compat_pairs, data_dir / "compat_pairs.csv")
     save_pairs_csv(style_pairs, data_dir / "style_pairs.csv")
     save_item_index(item_index, data_dir / "item_metadata.csv")
 
+    n_pos_compat = sum(1 for _, _, l in compat_pairs if l == 1)
+    n_pos_style = sum(1 for _, _, l in style_pairs if l == 1)
+
     logger.info(
-        "\nDone! Summary:\n"
-        "  Outfits: %d\n"
-        "  Unique items: %d\n"
-        "  Compat pairs: %d (%.0f%% positive)\n"
-        "  Style pairs: %d (%.0f%% positive)\n",
-        len(outfits),
-        len(item_index),
-        len(compat_pairs),
-        100 * sum(1 for _, _, l in compat_pairs if l == 1) / len(compat_pairs),
-        len(style_pairs),
-        100 * sum(1 for _, _, l in style_pairs if l == 1) / len(style_pairs),
+        f"\nDone! Summary:\n"
+        f"  Outfits: {len(outfits)}\n"
+        f"  Unique items: {len(item_index)}\n"
+        f"  Compat pairs: {len(compat_pairs)} ({100 * n_pos_compat / len(compat_pairs):.0f}% positive)\n"
+        f"  Style pairs: {len(style_pairs)} ({100 * n_pos_style / len(style_pairs):.0f}% positive)"
     )
 
 

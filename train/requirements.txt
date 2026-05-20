@@ -6,3 +6,4 @@ h5py
 pyyaml
 scikit-learn
 matplotlib
+huggingface_hub
