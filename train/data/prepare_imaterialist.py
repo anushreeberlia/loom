@@ -390,7 +390,7 @@ def download_images_huggingface(
     logger.info("Streaming images from HuggingFace (Marqo/iMaterialist)...")
     logger.info("This streams ~100KB per image. For 60K images expect ~6GB download, ~30-45 min.")
 
-    ds = load_dataset("Marqo/iMaterialist", split="train", streaming=True)
+    ds = load_dataset("Marqo/iMaterialist", split="data", streaming=True)
 
     saved = 0
     skipped = 0
