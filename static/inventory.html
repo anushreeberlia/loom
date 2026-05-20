@@ -2267,8 +2267,9 @@
                 yoloDetector = new YOLODetectorBrowser(YOLO_MODEL_URL);
                 const loaded = await yoloDetector.load();
                 if (!loaded) {
-                    console.error('[Scan] YOLO model load returned false');
-                    document.getElementById('scan-status').textContent = 'Model load failed — check console';
+                    const err = yoloDetector.loadError || 'unknown error';
+                    console.error('[Scan] YOLO model load returned false:', err);
+                    document.getElementById('scan-status').textContent = 'Model failed: ' + err;
                 }
                 return loaded;
             } catch (e) {

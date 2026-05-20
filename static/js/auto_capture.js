@@ -173,16 +173,20 @@ class YOLODetectorBrowser {
     this._loading = (async () => {
       try {
         if (!window.ort) {
+          this.loadError = 'ort not found on window';
           console.error('[AutoCapture] ort not found on window — script tag missing?');
           return false;
         }
+        console.log('[AutoCapture] ORT version:', window.ort?.env?.versions?.web || 'unknown');
         console.log('[AutoCapture] Creating ONNX session for:', this.modelUrl);
         this.session = await window.ort.InferenceSession.create(this.modelUrl, {
           executionProviders: ['wasm'],
         });
         console.log('[AutoCapture] YOLO model loaded successfully');
+        this.loadError = null;
         return true;
       } catch (e) {
+        this.loadError = e.message || String(e);
         console.error('[AutoCapture] YOLO ONNX load failed:', e);
         return false;
       }
