@@ -251,22 +251,48 @@ def build_style_pairs(outfits: dict, neg_ratio: int = 2) -> list[tuple]:
 
 
 def build_item_index(outfits: dict, data_dir: Path) -> list[dict]:
-    """Build item metadata index mapping item_id to category and image path."""
-    # Find image directory -- try multiple possible structures
-    possible_image_dirs = [
-        data_dir / "polyvore-outfits" / "images",
-        data_dir / "polyvore-outfits" / "nondisjoint" / "images",
-        data_dir / "images",
-    ]
-    images_dir = None
-    for d in possible_image_dirs:
-        if d.exists():
-            images_dir = d
-            break
+    """
+    Build item metadata index mapping item_id to category and image path.
+    
+    Image naming varies by source:
+    - Stylique/Polyvore: images/{tid}.jpg (tid from URL query param)
+    - download_images.py: images/{set_id}_{index}.jpg
+    - Kaggle: images/{tid}/{tid}.jpg
+    
+    We extract the tid from the original JSON to build the mapping.
+    """
+    images_dir = data_dir / "images"
+    if not images_dir.exists():
+        images_dir.mkdir(parents=True, exist_ok=True)
+        logger.warning(f"Images directory created at {images_dir} (images may need download)")
 
-    if images_dir is None:
-        images_dir = data_dir / "images"
-        logger.warning(f"No images directory found, using {images_dir} (images may need download)")
+    # Load original JSONs to get image URLs (for tid extraction)
+    tid_map = {}  # item_id -> tid (from image URL)
+    search_paths = [
+        data_dir / "polyvore-dataset",
+        data_dir,
+    ]
+    for sp in search_paths:
+        if not sp.exists():
+            continue
+        for name in ["train_no_dup.json", "valid_no_dup.json", "test_no_dup.json"]:
+            json_path = sp / name
+            if not json_path.exists():
+                continue
+            with open(json_path) as f:
+                outfit_data = json.load(f)
+            for outfit in outfit_data:
+                set_id = str(outfit.get("set_id", ""))
+                for item in outfit.get("items", []):
+                    index = item.get("index", "")
+                    image_url = item.get("image", "")
+                    item_id = f"{set_id}_{index}"
+                    # Extract tid from URL like "...tid=136491077"
+                    if "tid=" in image_url:
+                        tid = image_url.split("tid=")[-1].split("&")[0]
+                        tid_map[item_id] = tid
+
+    logger.info(f"Extracted {len(tid_map)} tid mappings from JSONs")
 
     items = {}
     found = 0
@@ -274,13 +300,14 @@ def build_item_index(outfits: dict, data_dir: Path) -> list[dict]:
         for item in outfit_items:
             item_id = item["item_id"]
             if item_id not in items:
-                # Try common image path patterns
+                tid = tid_map.get(item_id, "")
+                # Try multiple naming patterns
                 candidates = [
-                    images_dir / f"{item_id}.jpg",
-                    images_dir / str(item_id) / f"{item_id}.jpg",
-                    images_dir / str(item_id) / "1.jpg",
+                    images_dir / f"{tid}.jpg",           # Stylique format
+                    images_dir / f"{item_id}.jpg",       # download_images.py format
+                    images_dir / tid / f"{tid}.jpg",     # nested format
                 ]
-                image_path = candidates[0]  # default (flat layout from download_images.py)
+                image_path = candidates[0] if tid else images_dir / f"{item_id}.jpg"
                 for c in candidates:
                     if c.exists():
                         image_path = c
