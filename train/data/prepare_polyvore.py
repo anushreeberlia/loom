@@ -36,23 +36,41 @@ def download_polyvore(data_dir: Path):
     
     Uses xthan/polyvore-dataset (public GitHub, no auth required).
     Contains 21,889 outfits with item metadata in JSON format.
-    Images are downloaded separately from the JSON image URLs.
+    The JSONs are packed in polyvore.tar.gz inside the repo.
     """
     import subprocess
+    import tarfile
 
     repo_dir = data_dir / "polyvore-dataset"
-    if repo_dir.exists() and any(repo_dir.rglob("*.json")):
-        logger.info(f"Dataset already exists at {repo_dir}, skipping download")
-        return repo_dir
 
-    logger.info("Cloning xthan/polyvore-dataset (public, no auth required)...")
-    subprocess.run(
-        ["git", "clone", "--depth", "1",
-         "https://github.com/xthan/polyvore-dataset.git", str(repo_dir)],
-        check=True,
-    )
-    logger.info(f"Download complete: {repo_dir}")
-    return repo_dir
+    # Check if already extracted
+    if any(data_dir.rglob("*_no_dup.json")):
+        logger.info(f"Dataset JSONs already exist under {data_dir}, skipping download")
+        return
+
+    # Clone repo
+    if not repo_dir.exists():
+        logger.info("Cloning xthan/polyvore-dataset (public, no auth required)...")
+        subprocess.run(
+            ["git", "clone", "--depth", "1",
+             "https://github.com/xthan/polyvore-dataset.git", str(repo_dir)],
+            check=True,
+        )
+
+    # Extract polyvore.tar.gz
+    tarball = repo_dir / "polyvore.tar.gz"
+    if tarball.exists():
+        logger.info(f"Extracting {tarball}...")
+        with tarfile.open(tarball, "r:gz") as tar:
+            tar.extractall(path=str(data_dir))
+        logger.info(f"Extracted to {data_dir}")
+    else:
+        logger.error(f"Expected tarball not found at {tarball}")
+        sys.exit(1)
+
+    # List what we got
+    json_files = list(data_dir.rglob("*.json"))
+    logger.info(f"Found {len(json_files)} JSON files after extraction")
 
 
 def load_outfit_data(data_dir: Path) -> dict:
@@ -291,7 +309,7 @@ def save_item_index(items: list[dict], output_path: Path):
 def main():
     parser = argparse.ArgumentParser(description="Prepare Polyvore training data")
     parser.add_argument("--data-dir", type=Path, default=Path("data/polyvore"))
-    parser.add_argument("--download", action="store_true", help="Download dataset from HuggingFace")
+    parser.add_argument("--download", action="store_true", help="Download dataset from GitHub")
     parser.add_argument("--neg-ratio", type=int, default=3, help="Negative:positive ratio for compat")
     args = parser.parse_args()
 
@@ -303,7 +321,7 @@ def main():
 
     outfits = load_outfit_data(data_dir)
     if not outfits:
-        logger.error("No outfits loaded. Run with --download to fetch from HuggingFace.")
+        logger.error("No outfits loaded. Run with --download to fetch from GitHub.")
         sys.exit(1)
 
     # Build pairs
