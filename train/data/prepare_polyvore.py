@@ -133,17 +133,23 @@ def load_outfit_data(data_dir: Path) -> dict:
 
         for outfit in outfit_list:
             if isinstance(outfit, dict):
-                outfit_id = outfit.get("set_id", outfit.get("id", ""))
+                outfit_id = str(outfit.get("set_id", outfit.get("id", "")))
                 items = []
                 for item in outfit.get("items", []):
-                    item_id = str(item.get("item_id", item.get("index", "")))
-                    if item_id:
-                        items.append({
-                            "item_id": item_id,
-                            "category": str(item.get("categoryid", item.get("category", ""))),
-                        })
+                    # xthan format: unique item ID = "{set_id}_{index}"
+                    # mvasil format: has "item_id" directly
+                    if "item_id" in item:
+                        item_id = str(item["item_id"])
+                    elif "index" in item and outfit_id:
+                        item_id = f"{outfit_id}_{item['index']}"
+                    else:
+                        continue
+                    items.append({
+                        "item_id": item_id,
+                        "category": str(item.get("categoryid", item.get("category", ""))),
+                    })
                 if len(items) >= 2:
-                    outfits[str(outfit_id)] = items
+                    outfits[outfit_id] = items
 
     logger.info(f"Loaded {len(outfits)} outfits across all splits")
     return outfits
