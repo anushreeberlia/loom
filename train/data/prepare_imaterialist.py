@@ -162,15 +162,27 @@ def load_annotations(data_dir: Path) -> dict[int, dict]:
         with open(path) as f:
             data = json.load(f)
 
-        # Build image URL lookup
+        # Build image URL lookup (handle varying key names across dataset versions)
         url_map = {}
-        for img in data.get("images", []):
-            url_map[img["image_id"]] = img["url"]
+        if data.get("images"):
+            sample_img = data["images"][0]
+            img_id_key = "image_id" if "image_id" in sample_img else "imageId" if "imageId" in sample_img else "id"
+            url_key = "url" if "url" in sample_img else "imageUrl" if "imageUrl" in sample_img else "url"
+            logger.info(f"  Image keys: id={img_id_key}, url={url_key} (from {list(sample_img.keys())})")
+            for img in data["images"]:
+                url_map[img[img_id_key]] = img.get(url_key, "")
 
-        # Parse annotations
-        for ann in data.get("annotations", []):
-            img_id = ann["image_id"]
-            label_ids = ann["label_id"]
+        # Parse annotations (handle varying key names)
+        annotations = data.get("annotations", [])
+        if annotations:
+            sample_ann = annotations[0]
+            ann_id_key = "image_id" if "image_id" in sample_ann else "imageId" if "imageId" in sample_ann else "id"
+            label_key = "label_id" if "label_id" in sample_ann else "labelId" if "labelId" in sample_ann else "labels"
+            logger.info(f"  Annotation keys: id={ann_id_key}, labels={label_key} (from {list(sample_ann.keys())})")
+
+        for ann in annotations:
+            img_id = ann[ann_id_key]
+            label_ids = ann[label_key]
 
             group_labels = {}
             for lid in label_ids:
