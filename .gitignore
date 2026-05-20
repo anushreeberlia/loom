@@ -36,3 +36,4 @@ Ultralytics/
 # OS
 .DS_Store
 
+*.wasm

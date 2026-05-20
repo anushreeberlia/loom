@@ -367,11 +367,17 @@ def get_or_create_user(email: str, name: str, google_id: str, profile_image: str
         conn.close()
 
 
-def require_auth(auth_token: Optional[str]) -> int:
+DEV_MODE = os.getenv("DEV_MODE", "").lower() in ("1", "true", "yes")
+
+def require_auth(auth_token: Optional[str]) -> str:
     """
     Require authentication and return user_id.
+    In DEV_MODE, returns 'default' without checking tokens.
     Raises HTTPException 401 if not authenticated.
     """
+    if DEV_MODE:
+        return "default"
+
     if not auth_token:
         raise HTTPException(status_code=401, detail="Authentication required. Please sign in.")
     

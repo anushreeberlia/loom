@@ -173,10 +173,11 @@ class YOLODetectorBrowser {
     this._loading = (async () => {
       try {
         if (!window.ort) {
-          await loadScript('/static/js/ort.min.js');
-          if (window.ort) {
-            window.ort.env.wasm.wasmPaths = '/static/js/';
-          }
+          await loadScript('https://cdn.jsdelivr.net/npm/onnxruntime-web@1.17.0/dist/ort.min.js');
+        }
+        if (window.ort) {
+          window.ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.17.0/dist/';
+          window.ort.env.wasm.numThreads = 1;
         }
         console.log('[AutoCapture] ONNX Runtime loaded, creating session for:', this.modelUrl);
         this.session = await window.ort.InferenceSession.create(this.modelUrl, {
