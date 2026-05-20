@@ -32,32 +32,27 @@ logger = logging.getLogger(__name__)
 
 def download_polyvore(data_dir: Path):
     """
-    Download Polyvore Outfits dataset from HuggingFace.
+    Download Polyvore Outfits dataset.
     
-    Uses the huggingface_hub library to download the dataset which contains
-    both outfit metadata JSONs and item images.
+    Uses xthan/polyvore-dataset (public GitHub, no auth required).
+    Contains 21,889 outfits with item metadata in JSON format.
+    Images are downloaded separately from the JSON image URLs.
     """
-    try:
-        from huggingface_hub import snapshot_download
-    except ImportError:
-        logger.error("huggingface_hub not installed. Run: pip install huggingface_hub")
-        sys.exit(1)
+    import subprocess
 
-    hf_dir = data_dir / "polyvore-outfits"
-    if hf_dir.exists() and any(hf_dir.rglob("*.json")):
-        logger.info(f"Dataset already exists at {hf_dir}, skipping download")
-        return hf_dir
+    repo_dir = data_dir / "polyvore-dataset"
+    if repo_dir.exists() and any(repo_dir.rglob("*.json")):
+        logger.info(f"Dataset already exists at {repo_dir}, skipping download")
+        return repo_dir
 
-    logger.info("Downloading Polyvore Outfits from HuggingFace (mvasil/polyvore-outfits)...")
-    logger.info("This is ~6GB and may take 10-30 minutes depending on connection speed.")
-
-    snapshot_path = snapshot_download(
-        repo_id="mvasil/polyvore-outfits",
-        repo_type="dataset",
-        local_dir=str(hf_dir),
+    logger.info("Cloning xthan/polyvore-dataset (public, no auth required)...")
+    subprocess.run(
+        ["git", "clone", "--depth", "1",
+         "https://github.com/xthan/polyvore-dataset.git", str(repo_dir)],
+        check=True,
     )
-    logger.info(f"Download complete: {snapshot_path}")
-    return Path(snapshot_path)
+    logger.info(f"Download complete: {repo_dir}")
+    return repo_dir
 
 
 def load_outfit_data(data_dir: Path) -> dict:
@@ -73,6 +68,7 @@ def load_outfit_data(data_dir: Path) -> dict:
 
     # Search for JSON files in various possible locations
     search_paths = [
+        data_dir / "polyvore-dataset",
         data_dir / "polyvore-outfits" / "nondisjoint",
         data_dir / "polyvore-outfits" / "disjoint",
         data_dir / "polyvore-outfits",
@@ -81,11 +77,16 @@ def load_outfit_data(data_dir: Path) -> dict:
         data_dir,
     ]
 
+    split_names = [
+        "train_no_dup", "valid_no_dup", "test_no_dup",
+        "train", "valid", "test",
+    ]
+
     json_files_found = []
     for search_path in search_paths:
         if not search_path.exists():
             continue
-        for split in ["train", "valid", "test", "train_no_dup", "val_no_dup", "test_no_dup"]:
+        for split in split_names:
             json_path = search_path / f"{split}.json"
             if json_path.exists():
                 json_files_found.append(json_path)
