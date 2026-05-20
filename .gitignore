@@ -29,6 +29,10 @@ env/
 .vscode/
 *.swp
 
+# YOLO model weights (downloaded on demand)
+*.pt
+Ultralytics/
+
 # OS
 .DS_Store
 
