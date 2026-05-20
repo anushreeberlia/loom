@@ -46,6 +46,7 @@ def process_batch_items(
     batch_id: str,
     items: list[tuple[int, str]],
     precomputed_embeddings: dict[int, list] | None = None,
+    raw_image_bytes: dict[int, bytes] | None = None,
 ):
     """
     Process a batch of items. Called from FastAPI BackgroundTasks.
@@ -56,12 +57,19 @@ def process_batch_items(
         precomputed_embeddings: optional dict of {item_id: embedding} from temporal
             aggregation (video pipeline). Items with pre-computed embeddings skip
             the embedding step and only run vision for metadata.
+        raw_image_bytes: optional dict of {item_id: original_bytes} -- the raw
+            upload bytes before any processing. Used for better segmentation
+            and vision analysis. Falls back to downloading from Cloudinary if missing.
     """
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     try:
         loop.run_until_complete(
-            _process_batch_async(batch_id, items, precomputed_embeddings or {})
+            _process_batch_async(
+                batch_id, items,
+                precomputed_embeddings or {},
+                raw_image_bytes or {},
+            )
         )
     finally:
         loop.close()
@@ -71,6 +79,7 @@ async def _process_batch_async(
     batch_id: str,
     items: list[tuple[int, str]],
     precomputed_embeddings: dict[int, list],
+    raw_image_bytes: dict[int, bytes],
 ):
     """Process items with controlled concurrency."""
     semaphore = asyncio.Semaphore(WORKER_CONCURRENCY)
@@ -78,7 +87,12 @@ async def _process_batch_async(
     async def _process_one(item_id: int, image_url: str):
         async with semaphore:
             pre_emb = precomputed_embeddings.get(item_id)
-            await _process_single_item(item_id, image_url, precomputed_embedding=pre_emb)
+            raw_bytes = raw_image_bytes.get(item_id)
+            await _process_single_item(
+                item_id, image_url,
+                precomputed_embedding=pre_emb,
+                raw_bytes=raw_bytes,
+            )
 
     tasks = [_process_one(item_id, url) for item_id, url in items]
     await asyncio.gather(*tasks, return_exceptions=True)
@@ -90,6 +104,7 @@ async def _process_single_item(
     item_id: int,
     image_url: str,
     precomputed_embedding: list | None = None,
+    raw_bytes: bytes | None = None,
 ):
     """Process one closet item through vision + embedding pipeline."""
     _update_status(item_id, "processing")
@@ -97,7 +112,7 @@ async def _process_single_item(
     loop = asyncio.get_event_loop()
     try:
         result = await loop.run_in_executor(
-            None, _blocking_process, item_id, image_url, precomputed_embedding
+            None, _blocking_process, item_id, image_url, precomputed_embedding, raw_bytes
         )
 
         if result["success"]:
@@ -114,33 +129,37 @@ def _blocking_process(
     item_id: int,
     image_url: str,
     precomputed_embedding: list | None = None,
+    raw_bytes: bytes | None = None,
 ) -> dict:
     """
-    Blocking I/O: download image → vision → embedding.
+    Blocking I/O: vision → segmentation → embedding.
+
+    Uses raw_bytes (original upload) when available for best segmentation quality.
+    Falls back to downloading from Cloudinary (the processed display image) for
+    retries and orphan sweeps where raw bytes are no longer in memory.
 
     If precomputed_embedding is provided (from temporal aggregation), skips the
     embedding computation and only runs vision for metadata extraction.
     """
     try:
-        response = httpx.get(image_url, timeout=15.0)
-        if response.status_code != 200:
-            return {
-                "success": False,
-                "error": f"Image download failed: HTTP {response.status_code}",
-                "is_transient": response.status_code >= 500,
-            }
-
-        image_bytes = response.content
+        if raw_bytes:
+            image_bytes = raw_bytes
+        else:
+            response = httpx.get(image_url, timeout=15.0)
+            if response.status_code != 200:
+                return {
+                    "success": False,
+                    "error": f"Image download failed: HTTP {response.status_code}",
+                    "is_transient": response.status_code >= 500,
+                }
+            image_bytes = response.content
 
         if precomputed_embedding:
-            # Temporal embedding already computed from multiple frames --
-            # only need vision for structured metadata (category, color, tags)
             from services.vision import analyze_image
             base_item = analyze_image(image_bytes)
             embedding = precomputed_embedding
             logger.debug(f"Item {item_id}: using temporal aggregated embedding")
         else:
-            # Full pipeline: vision + blended embedding from single image
             _description, base_item, embedding = process_item_from_image(image_bytes)
 
         return {"success": True, "base_item": base_item, "embedding": embedding}
@@ -301,6 +320,6 @@ async def orphan_sweep_loop():
             if orphans:
                 logger.info(f"Orphan sweep: processing {len(orphans)} pending items")
                 items = [(row[0], row[1]) for row in orphans]
-                await _process_batch_async("orphan-sweep", items, {})
+                await _process_batch_async("orphan-sweep", items, {}, {})
         except Exception as e:
             logger.error(f"Orphan sweep error: {e}")

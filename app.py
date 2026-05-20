@@ -1410,12 +1410,15 @@ MAX_BATCH_SIZE = 50
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
 
 
-def _cloudinary_upload_safe(image_bytes: bytes) -> dict | None:
-    """Upload one image to Cloudinary after processing. Returns None on failure."""
+def _cloudinary_upload_safe(image_bytes: bytes, skip_processing: bool = False) -> dict | None:
+    """Upload one image to Cloudinary. Returns None on failure."""
     try:
-        processed = process_clothing_image(image_bytes)
+        if skip_processing:
+            upload_bytes = image_bytes
+        else:
+            upload_bytes = process_clothing_image(image_bytes)
         result = cloudinary.uploader.upload(
-            processed, folder="closet", resource_type="image"
+            upload_bytes, folder="closet", resource_type="image"
         )
         return {"image_url": result["secure_url"]}
     except Exception as e:
@@ -1452,13 +1455,20 @@ async def batch_upload(
     batch_id = str(uuid.uuid4())
 
     # Parallel Cloudinary upload (I/O bound, ~2-3s for 20 images)
-    uploaded = []
+    # Track which raw image corresponds to which upload result
+    upload_map = {}  # future -> index into raw_images
     with ThreadPoolExecutor(max_workers=6) as pool:
-        futures = [pool.submit(_cloudinary_upload_safe, img) for img in raw_images]
+        futures = []
+        for i, img in enumerate(raw_images):
+            f = pool.submit(_cloudinary_upload_safe, img)
+            upload_map[f] = i
+            futures.append(f)
+
+        uploaded = []  # (raw_image_index, cloudinary_result)
         for future in as_completed(futures):
             result = future.result()
             if result is not None:
-                uploaded.append(result)
+                uploaded.append((upload_map[future], result))
 
     if not uploaded:
         raise HTTPException(500, "All image uploads failed")
@@ -1468,7 +1478,8 @@ async def batch_upload(
     cur = conn.cursor()
     try:
         item_rows = []
-        for u in uploaded:
+        raw_bytes_map = {}  # item_id -> original raw bytes
+        for raw_idx, u in uploaded:
             cur.execute(
                 """INSERT INTO user_closet_items
                    (user_id, image_url, status, batch_id)
@@ -1478,15 +1489,17 @@ async def batch_upload(
             )
             item_id = cur.fetchone()[0]
             item_rows.append({"id": item_id, "image_url": u["image_url"]})
+            raw_bytes_map[item_id] = raw_images[raw_idx]
         conn.commit()
     finally:
         cur.close()
         conn.close()
 
-    # Kick off background processing
+    # Kick off background processing with raw bytes for better segmentation
     background_tasks.add_task(
         process_batch_items, batch_id,
-        [(r["id"], r["image_url"]) for r in item_rows]
+        [(r["id"], r["image_url"]) for r in item_rows],
+        raw_image_bytes=raw_bytes_map,
     )
 
     return {
@@ -1630,8 +1643,11 @@ async def add_closet_item(
         cur.close()
         conn.close()
 
-    # Process in background (vision + blended embedding)
-    background_tasks.add_task(process_batch_items, batch_id, [(item_id, image_url)])
+    # Process in background with original bytes for better segmentation
+    background_tasks.add_task(
+        process_batch_items, batch_id, [(item_id, image_url)],
+        raw_image_bytes={item_id: contents},
+    )
 
     return {
         "id": item_id,
@@ -1741,11 +1757,11 @@ def _extract_and_process_video(video_path: str, user_id: str, batch_id: str):
             logger.info("Video: no items detected with sufficient confidence")
             return
 
-        # 4. Upload best crops to Cloudinary (maintain order for embedding mapping)
+        # 4. Upload raw crops to Cloudinary (skip resize/white-BG -- already cropped objects)
         upload_futures = {}
         with ThreadPoolExecutor(max_workers=6) as pool:
             for i, crop in enumerate(crop_results):
-                future = pool.submit(_cloudinary_upload_safe, crop.crop_bytes)
+                future = pool.submit(_cloudinary_upload_safe, crop.crop_bytes, True)
                 upload_futures[future] = i
 
         uploaded = []  # (index, cloudinary_result)
@@ -1761,6 +1777,7 @@ def _extract_and_process_video(video_path: str, user_id: str, batch_id: str):
         cur = conn.cursor()
         items_to_process = []
         items_with_embeddings = {}  # item_id -> temporal_embedding
+        raw_bytes_map = {}  # item_id -> raw crop bytes (the detected object itself)
         try:
             for idx, u in uploaded:
                 crop = crop_results[idx]
@@ -1773,6 +1790,7 @@ def _extract_and_process_video(video_path: str, user_id: str, batch_id: str):
                 )
                 item_id = cur.fetchone()[0]
                 items_to_process.append((item_id, u["image_url"]))
+                raw_bytes_map[item_id] = crop.crop_bytes
 
                 if crop.temporal_embedding:
                     items_with_embeddings[item_id] = crop.temporal_embedding
@@ -1781,9 +1799,13 @@ def _extract_and_process_video(video_path: str, user_id: str, batch_id: str):
             cur.close()
             conn.close()
 
-        # 6. Process through ingestion worker with pre-computed embeddings
+        # 6. Process with raw crop bytes + pre-computed embeddings
         if items_to_process:
-            process_batch_items(batch_id, items_to_process, precomputed_embeddings=items_with_embeddings)
+            process_batch_items(
+                batch_id, items_to_process,
+                precomputed_embeddings=items_with_embeddings,
+                raw_image_bytes=raw_bytes_map,
+            )
 
     except subprocess.TimeoutExpired:
         logger.error("ffmpeg timed out processing video")
