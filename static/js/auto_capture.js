@@ -10,11 +10,11 @@ class AutoCaptureManager {
     this.tracker = new ByteTracker({
       highConfThreshold: options.highConfThreshold || 0.45,
       iouThreshold: 0.3,
-      maxLost: 30,
+      maxLost: 60,
     });
 
     this.minStableFrames = options.minStableFrames || 8;
-    this.minTrackFrames = options.minTrackFrames || 10;
+    this.minTrackFrames = options.minTrackFrames || 12;
     this.qualityThreshold = options.qualityThreshold || 0.3;
     this.cooldownMs = options.cooldownMs || 1500;
 

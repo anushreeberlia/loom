@@ -1704,6 +1704,7 @@ def _extract_and_process_video(video_path: str, user_id: str, batch_id: str):
     """
     Full pipeline: extract frames -> YOLO detect -> ByteTrack -> best crop per object -> upload -> process.
     Handles multiple items in a single video via persistent object tracking.
+    On failure, inserts a single error row so the client gets feedback instead of "0/0".
     """
     import subprocess
     import tempfile
@@ -1714,29 +1715,53 @@ def _extract_and_process_video(video_path: str, user_id: str, batch_id: str):
 
     from services.object_tracker import process_video_frames
 
-    VIDEO_FPS = 3  # Extract 3 frames/sec for tracking continuity
+    VIDEO_FPS = 3
     MIN_TRACK_FRAMES = 5
+
+    def _mark_batch_error(msg: str):
+        """Insert a single error row so batch-status shows the failure."""
+        try:
+            conn = get_db_connection()
+            cur = conn.cursor()
+            cur.execute(
+                """INSERT INTO user_closet_items
+                   (user_id, image_url, status, batch_id, processing_error)
+                   VALUES (%s, '', 'error', %s, %s)""",
+                (user_id, batch_id, msg),
+            )
+            conn.commit()
+            cur.close()
+            conn.close()
+        except Exception:
+            pass
 
     try:
         # 1. Extract frames with ffmpeg at higher FPS for tracking
         frames_dir = tempfile.mkdtemp()
         output_pattern = os.path.join(frames_dir, "frame_%06d.jpg")
 
-        subprocess.run(
+        result = subprocess.run(
             [
                 "ffmpeg", "-i", video_path,
                 "-vf", f"fps={VIDEO_FPS},scale=1280:-1",
                 "-q:v", "2", "-y",
                 output_pattern,
             ],
-            capture_output=True, check=True, timeout=120,
+            capture_output=True, timeout=120,
         )
+
+        if result.returncode != 0:
+            stderr = result.stderr.decode(errors="replace")[:200]
+            logger.error(f"ffmpeg failed: {stderr}")
+            _mark_batch_error(f"ffmpeg error: {stderr[:100]}")
+            return
 
         frame_paths = sorted(Path(frames_dir).glob("frame_*.jpg"))
         logger.info(f"Video: extracted {len(frame_paths)} frames at {VIDEO_FPS} fps")
 
         if not frame_paths:
             logger.warning("No frames extracted from video")
+            _mark_batch_error("No frames could be extracted from video")
             return
 
         # 2. Load frames as (bytes, width, height) tuples
@@ -1761,6 +1786,7 @@ def _extract_and_process_video(video_path: str, user_id: str, batch_id: str):
 
         if not crop_results:
             logger.info("Video: no items detected with sufficient confidence")
+            _mark_batch_error("No clothing items detected in video — try a longer/clearer clip")
             return
 
         # 4. Upload raw crops to Cloudinary (skip resize/white-BG -- already cropped objects)
@@ -1815,8 +1841,10 @@ def _extract_and_process_video(video_path: str, user_id: str, batch_id: str):
 
     except subprocess.TimeoutExpired:
         logger.error("ffmpeg timed out processing video")
+        _mark_batch_error("Video processing timed out (>2 min)")
     except Exception as e:
         logger.error(f"Video extraction failed: {e}", exc_info=True)
+        _mark_batch_error(f"Processing failed: {str(e)[:100]}")
     finally:
         try:
             os.unlink(video_path)

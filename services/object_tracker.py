@@ -403,7 +403,7 @@ class YOLODetector:
     Loads YOLOv8n (nano) for fast inference.
     """
 
-    def __init__(self, model_path: str = "yolov8n.pt", confidence: float = 0.4):
+    def __init__(self, model_path: str = "static/models/yolov8n_fashion.pt", confidence: float = 0.4):
         self.confidence = confidence
         self._model = None
         self._model_path = model_path

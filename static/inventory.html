@@ -1255,8 +1255,8 @@
         ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.17.0/dist/';
         ort.env.wasm.numThreads = 1;
     </script>
-    <script src="/static/js/byte_track.js?v=2"></script>
-    <script src="/static/js/auto_capture.js?v=2"></script>
+    <script src="/static/js/byte_track.js?v=3"></script>
+    <script src="/static/js/auto_capture.js?v=3"></script>
     <script>
         const uploadZone = document.getElementById('upload-zone');
         const fileInput = document.getElementById('file-input');
@@ -2305,8 +2305,8 @@
 
             if (modelLoaded) {
                 captureManager = new AutoCaptureManager({
-                    minStableFrames: 5,
-                    minTrackFrames: 8,
+                    minStableFrames: 8,
+                    minTrackFrames: 12,
                     cooldownMs: 1500,
                     onCapture: async (track) => {
                         const blob = track.bestBlob;
@@ -2326,7 +2326,7 @@
                     },
                     onTrackUpdate: (activeTracks) => {
                         const approaching = activeTracks.filter(t =>
-                            !t.captured && t.framesSeen >= 4 && t.stableCount >= 2
+                            !t.captured && t.framesSeen >= 6 && t.stableCount >= 3
                         );
                         if (approaching.length > 0 && capturedBlobs.length === 0) {
                             statusEl.textContent = 'Hold still...';
@@ -2403,7 +2403,7 @@
                 ctx.clearRect(0, 0, canvas.width, canvas.height);
                 for (const track of activeTracks) {
                     const [x, y, w, h] = track.bbox;
-                    const progress = Math.min(track.stableCount / 5, 1.0);
+                    const progress = Math.min(track.stableCount / 8, 1.0);
                     const captured = track.captured;
 
                     if (captured) {
