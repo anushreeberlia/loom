@@ -258,6 +258,27 @@
             margin-top: 0.5rem;
         }
 
+        .occasion-input {
+            width: 100%;
+            padding: 0.75rem 1rem;
+            font-size: 0.9rem;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            background: white;
+            margin-bottom: 0.75rem;
+            box-sizing: border-box;
+        }
+
+        .occasion-input:focus {
+            outline: none;
+            border-color: var(--text);
+        }
+
+        .occasion-input::placeholder {
+            color: #999;
+            font-style: italic;
+        }
+
         .generate-btn {
             width: 100%;
             padding: 0.9rem;
@@ -572,6 +593,7 @@
             </div>
         </div>
 
+        <input type="text" class="occasion-input" id="occasion-input" placeholder="Occasion? (e.g., work, date night, brunch...)">
         <button class="generate-btn" id="generate-btn" disabled>Generate Looks</button>
         <div class="error-message" id="error-message"></div>
     </section>
@@ -754,6 +776,10 @@
                 const formData = new FormData();
                 formData.append('file', selectedFile);
                 formData.append('session_id', sessionId);
+                const occasionVal = document.getElementById('occasion-input').value.trim();
+                if (occasionVal) {
+                    formData.append('occasion', occasionVal);
+                }
 
                 const response = await fetch('/v1/outfits:generate', {
                     method: 'POST',

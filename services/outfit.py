@@ -1994,6 +1994,7 @@ def select_best_outfit_multihead(
     taste_vector: list = None,
     dislike_vector: list = None,
     weather_context: dict = None,
+    occasion: str = None,
 ) -> tuple[dict[str, dict], dict]:
     """select_best_outfit variant using learned multi-head scoring."""
     best_outfit = None
@@ -2007,6 +2008,7 @@ def select_best_outfit_multihead(
             taste_vector=taste_vector,
             dislike_vector=dislike_vector,
             weather_context=weather_context,
+            occasion=occasion,
         )
 
         if score_result["total"] > best_score:
@@ -2025,6 +2027,7 @@ def assemble_outfit(
     taste_vector: list = None,
     dislike_vector: list = None,
     weather_context: dict = None,
+    occasion: str = None,
 ) -> dict:
     """
     Assemble a single outfit response with scoring.
@@ -2044,7 +2047,7 @@ def assemble_outfit(
                 "primary_color": item.get("primary_color"),
                 "occasion_tags": item.get("occasion_tags", []),
                 "style_tags": item.get("style_tags", []),
-                "score": item.get("score"),  # Item's match score
+                "score": item.get("score"),
             })
     
     intent_vector = compute_outfit_intent_vector(
@@ -2055,15 +2058,25 @@ def assemble_outfit(
         it.get("compat_embedding") for it in items_by_slot.values() if it
     ) and base_item.get("compat_embedding")
 
-    _scorer = score_outfit_multihead if has_heads else score_outfit
-    score_result = _scorer(
-        base_item, items_by_slot, direction,
-        base_embedding=base_embedding,
-        intent_vector=intent_vector,
-        taste_vector=taste_vector,
-        dislike_vector=dislike_vector,
-        weather_context=weather_context,
-    )
+    if has_heads:
+        score_result = score_outfit_multihead(
+            base_item, items_by_slot, direction,
+            base_embedding=base_embedding,
+            intent_vector=intent_vector,
+            taste_vector=taste_vector,
+            dislike_vector=dislike_vector,
+            weather_context=weather_context,
+            occasion=occasion,
+        )
+    else:
+        score_result = score_outfit(
+            base_item, items_by_slot, direction,
+            base_embedding=base_embedding,
+            intent_vector=intent_vector,
+            taste_vector=taste_vector,
+            dislike_vector=dislike_vector,
+            weather_context=weather_context,
+        )
 
     return {
         "direction": direction,
@@ -2087,6 +2100,7 @@ def score_outfit_multihead(
     taste_vector: list = None,
     dislike_vector: list = None,
     weather_context: dict = None,
+    occasion: str = None,
 ) -> dict:
     """
     Three-phase scoring modeled on how a human stylist evaluates an outfit:
@@ -2099,7 +2113,7 @@ def score_outfit_multihead(
     Phase 2 -- Learned Head Ranking (100% of score):
         0.35 * compat   (do these belong in the same outfit?)
         0.20 * style    (aesthetic coherence)
-        0.20 * occasion (context appropriateness)
+        0.20 * occasion (context appropriateness -- biased toward target occasion)
         0.15 * fit      (silhouette complementarity)
         0.10 * material (texture contrast via inverted-U spread)
 
@@ -2166,7 +2180,26 @@ def score_outfit_multihead(
     style_score = _head_coherence("style")
 
     # Occasion: context appropriateness (20%)
-    occasion_score = _head_coherence("occasion")
+    # When user specifies an occasion, blend centroid coherence with
+    # target-biased similarity so items cluster at the *right* occasion.
+    # Uses CLIP text prototypes from _OCCASION_ANCHORS against items'
+    # 512-d embeddings for target fit, since the 128-d occasion head and
+    # CLIP embeddings live in different spaces.
+    occasion_coherence = _head_coherence("occasion")
+    if occasion and occasion in _OCCASION_ANCHORS:
+        items_with_emb = [it for it in all_items if it.get("embedding")]
+        if items_with_emb:
+            occasion_sims = [_embedding_occasion_scores(it["embedding"]) for it in items_with_emb]
+            target_sims = [s.get(occasion, 0.0) for s in occasion_sims if s]
+            if target_sims:
+                target_score = float(np.mean(target_sims))
+                occasion_score = 0.6 * occasion_coherence + 0.4 * target_score
+            else:
+                occasion_score = occasion_coherence
+        else:
+            occasion_score = occasion_coherence
+    else:
+        occasion_score = occasion_coherence
 
     # Fit: silhouette complementarity (15%)
     fit_score = _head_coherence("fit")

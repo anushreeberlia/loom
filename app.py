@@ -708,8 +708,8 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 
 
 @app.post("/v1/outfits:generate")
-async def generate_outfits(request: Request, file: UploadFile = File(...), session_id: str = Form(None)):
-    logger.info(f"Request received: POST /v1/outfits:generate (session={session_id[:8] if session_id else 'none'}...)")
+async def generate_outfits(request: Request, file: UploadFile = File(...), session_id: str = Form(None), occasion: str = Form(None)):
+    logger.info(f"Request received: POST /v1/outfits:generate (session={session_id[:8] if session_id else 'none'}..., occasion={occasion})")
     
     # Get base URL for absolute URLs
     base_url = str(request.base_url).rstrip("/")
@@ -738,6 +738,7 @@ async def generate_outfits(request: Request, file: UploadFile = File(...), sessi
     
     # Check cache first
     cached = get_cached_image_analysis(image_hash)
+    multihead_result = None
     if cached and cached.get("embedding"):
         logger.info(f"Cache HIT for image {image_hash[:12]}... - skipping Vision/Embedding")
         base_item = cached["base_item"]
@@ -763,6 +764,18 @@ async def generate_outfits(request: Request, file: UploadFile = File(...), sessi
             logger.error(f"Embedding error: {e}")
             raise HTTPException(status_code=500, detail=f"Embedding error: {str(e)}")
 
+        # Multi-head: DINOv2 backbone + 5 projection heads for full scoring
+        try:
+            from services.segmentation import segment_for_embedding
+            from services.dinov2 import embed_image as dinov2_embed
+            from services.multihead import compute_multihead_embeddings
+            segmented = segment_for_embedding(contents)
+            backbone = dinov2_embed(segmented)
+            multihead_result = compute_multihead_embeddings(backbone)
+            logger.info("Multi-head embeddings computed for anchor (%d heads)", len(multihead_result))
+        except Exception as e:
+            logger.warning("DINOv2 multi-head failed for anchor (non-fatal): %s", e)
+
     # 5. Generate outfits via cascade retrieval engine
     base_category = base_item.get("category", "top")
     from services.outfit_generator import run_outfit_generation
@@ -774,12 +787,19 @@ async def generate_outfits(request: Request, file: UploadFile = File(...), sessi
         "image_url": str(upload_path),
         "embedding": embedding,
     }
+    if multihead_result:
+        for head_name, head_emb in multihead_result.items():
+            full_item[f"{head_name}_embedding"] = head_emb.tolist() if hasattr(head_emb, 'tolist') else head_emb
+    elif cached and cached.get("multihead"):
+        for head_name, head_emb in cached["multihead"].items():
+            full_item[f"{head_name}_embedding"] = head_emb
 
     raw_outfits = run_outfit_generation(
         full_item,
         source=CATALOG_SOURCE,
         taste_vector=taste_vector,
         dislike_vector=dislike_vector,
+        occasion=occasion,
     )
 
     outfits = []
@@ -857,10 +877,13 @@ async def generate_outfits(request: Request, file: UploadFile = File(...), sessi
                 item["image_url"] = make_absolute_url(base_url, item["image_url"])
 
     # 9. Return response
+    from services.outfit import infer_outfit_occasion
+    effective_occasion = occasion or infer_outfit_occasion(base_item)
     return {
         "generation_id": generation_id,
         "base_item": base_item,
-        "outfits": outfits
+        "outfits": outfits,
+        "occasion": effective_occasion,
     }
 
 
@@ -2332,7 +2355,22 @@ async def generate_closet_outfits(
         base_item = analyze_image(contents)
         embedding = embed_item_image(contents)
         image_hash = hashlib.sha256(contents).hexdigest()
-        
+
+        # Multi-head: DINOv2 backbone + 5 projection heads
+        closet_multihead = None
+        try:
+            from services.segmentation import segment_for_embedding
+            from services.dinov2 import embed_image as dinov2_embed
+            from services.multihead import compute_multihead_embeddings
+            segmented = segment_for_embedding(contents)
+            backbone = dinov2_embed(segmented)
+            closet_multihead = compute_multihead_embeddings(backbone)
+            for head_name, head_emb in closet_multihead.items():
+                base_item[f"{head_name}_embedding"] = head_emb.tolist() if hasattr(head_emb, 'tolist') else head_emb
+            logger.info("Multi-head embeddings computed for closet upload (%d heads)", len(closet_multihead))
+        except Exception as e:
+            logger.warning("DINOv2 multi-head failed for closet upload (non-fatal): %s", e)
+
         # Add to closet
         conn = get_db_connection()
         cursor = conn.cursor()
@@ -2341,15 +2379,20 @@ async def generate_closet_outfits(
             cursor.execute(
                 """INSERT INTO user_closet_items 
                    (user_id, name, category, image_url, primary_color, secondary_colors,
-                    style_tags, season_tags, occasion_tags, material, fit, embedding)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    style_tags, season_tags, occasion_tags, material, fit, embedding,
+                    compat_embedding, style_embedding, occasion_embedding,
+                    fit_embedding, material_embedding)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                    RETURNING id""",
                 (
                     user_id, name, base_item.get("category", "top"), input_image_url,
                     base_item.get("primary_color"), base_item.get("secondary_colors"),
                     base_item.get("style_tags"), base_item.get("season_tags"),
                     base_item.get("occasion_tags"), base_item.get("material"),
-                    base_item.get("fit"), embedding
+                    base_item.get("fit"), embedding,
+                    base_item.get("compat_embedding"), base_item.get("style_embedding"),
+                    base_item.get("occasion_embedding"), base_item.get("fit_embedding"),
+                    base_item.get("material_embedding"),
                 )
             )
             new_item_id = cursor.fetchone()[0]
@@ -2373,10 +2416,13 @@ async def generate_closet_outfits(
             weather_adjustments = get_weather_outfit_adjustments(weather_data)
             logger.info(f"Weather: {weather_data.city} {weather_data.temperature_c}°C - {weather_adjustments['notes']}")
     
-    # Log mood if provided - we'll use it directly for semantic matching
-    # No need to map to predefined occasions anymore!
+    # Classify mood to a structured occasion group so multi-head scoring
+    # can bias the occasion head toward the right context.
+    classified_occasion = None
     if mood_text:
-        logger.info(f"Single-item generation with mood: {mood_text} (using direct embedding)")
+        from services.retrieval import classify_mood_to_group
+        classified_occasion = classify_mood_to_group(mood_text)
+        logger.info(f"Single-item generation with mood: {mood_text} -> occasion: {classified_occasion}")
     
     base_category = base_item.get("category", "top")
 
@@ -2398,6 +2444,7 @@ async def generate_closet_outfits(
         use_closet=True,
         user_id=user_id,
         mood_text=mood_text,
+        occasion=classified_occasion,
     )
 
     # Convert run_outfit_generation output to the format this endpoint expects
@@ -2459,12 +2506,15 @@ async def generate_closet_outfits(
         cursor.close()
         conn.close()
     
+    from services.outfit import infer_outfit_occasion
+    effective_occasion = classified_occasion or infer_outfit_occasion(base_item)
     response = {
         "generation_id": generation_id,
         "base_item": base_item,
         "description": description,
         "outfits": outfits,
-        "source": "closet"
+        "source": "closet",
+        "occasion": effective_occasion,
     }
     
     # Include weather info if available
@@ -3014,7 +3064,8 @@ async def get_daily_outfits(
             outfit = assemble_outfit(
                 direction, base_item, best_items, embedding,
                 taste_vector=taste_vector,
-                dislike_vector=dislike_vector
+                dislike_vector=dislike_vector,
+                occasion=occasion_name,
             )
             outfit["direction"] = f"Outfit {idx + 1}"
             outfit["base_item"] = base_item
@@ -3307,6 +3358,8 @@ async def regenerate_single_outfit(
         dislike_vector=dislike_vector,
     )
 
+    occasion_name = occasion_info.get("occasion") if occasion_info else "casual"
+
     if cascade_result is None:
         outfit = {
             "direction": f"Outfit {idx + 1}",
@@ -3319,13 +3372,11 @@ async def regenerate_single_outfit(
         outfit = assemble_outfit(
             direction, base_item, best_items, embedding,
             taste_vector=taste_vector,
-            dislike_vector=dislike_vector
+            dislike_vector=dislike_vector,
+            occasion=occasion_name,
         )
         outfit["direction"] = f"Outfit {idx + 1}"
         outfit["base_item"] = base_item
-    
-    # Get occasion name for collage path and caching
-    occasion_name = occasion_info.get("occasion") if occasion_info else "casual"
     
     # Generate new collage (forced) - use user_id and occasion in path
     try:

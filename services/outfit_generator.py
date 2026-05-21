@@ -203,7 +203,7 @@ def _cascade_one_outfit(
         return None
 
     _selector = select_best_outfit_multihead if USE_MULTIHEAD else select_best_outfit
-    best_items, score_details = _selector(
+    selector_kw = dict(
         candidate_outfits=candidate_outfits,
         base_item=base_item,
         direction=direction,
@@ -211,6 +211,9 @@ def _cascade_one_outfit(
         taste_vector=taste_vector,
         dislike_vector=dislike_vector,
     )
+    if USE_MULTIHEAD:
+        selector_kw["occasion"] = occasion
+    best_items, score_details = _selector(**selector_kw)
     logger.info("  [%s] score=%.3f for %s", direction, score_details.get("total", 0), item.get("name"))
 
     return best_items, score_details
@@ -294,6 +297,7 @@ def run_outfit_generation(
         outfit_data = assemble_outfit(
             direction, base_item, best_items, base_embedding or None,
             taste_vector=taste_vector, dislike_vector=dislike_vector,
+            occasion=effective_occasion,
         )
 
         outfit_items = []
