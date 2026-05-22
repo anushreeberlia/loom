@@ -1156,12 +1156,6 @@
                 <div class="upload-zone-text">Scan</div>
                 <div class="upload-zone-hint">auto-detect items</div>
             </div>
-            <label class="upload-zone video-zone">
-                <div class="upload-zone-icon">&#127909;</div>
-                <div class="upload-zone-text">Video</div>
-                <div class="upload-zone-hint">scan from video</div>
-                <input type="file" id="video-input" accept="video/*" style="position:absolute;opacity:0;width:100%;height:100%;top:0;left:0;cursor:pointer;">
-            </label>
         </div>
 
         <!-- Scan overlay (full screen camera with auto-detection) -->
@@ -1350,32 +1344,6 @@
             const files = Array.from(e.target.files);
             if (files.length) uploadFiles(files);
             fileInput.value = '';
-        });
-
-        document.getElementById('video-input').addEventListener('change', async (e) => {
-            const file = e.target.files[0];
-            if (!file) return;
-            e.target.value = '';
-
-            uploadProgress.classList.add('visible');
-            progressText.textContent = 'Uploading video for processing...';
-            progressFill.style.width = '10%';
-
-            try {
-                const formData = new FormData();
-                formData.append('file', file);
-                const res = await fetch('/v1/closet/items:detect-video', { method: 'POST', body: formData });
-                if (handleAuthError(res)) return;
-                if (!res.ok) throw new Error('Video upload failed');
-                const { batch_id } = await res.json();
-                progressText.textContent = 'Extracting items from video...';
-                progressFill.style.width = '20%';
-                pollBatchStatus(batch_id, 0);
-            } catch (err) {
-                showToast(err.message || 'Video upload failed', 'error');
-                uploadProgress.classList.remove('visible');
-                progressFill.style.width = '0%';
-            }
         });
 
         // Camera zone - opens camera and enters bulk capture mode

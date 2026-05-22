@@ -37,3 +37,7 @@ Ultralytics/
 .DS_Store
 
 *.wasm
+.hf_cache/
+.u2net/
+.hf_cache/
+.u2net/
