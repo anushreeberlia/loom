@@ -309,9 +309,9 @@ def compute_occasion_score(item_embedding: list[float], occasion: str = None,
 
 _OCCASION_ALIAS = {
     "going-out": "going-out", "night-out": "going-out", "date-night": "going-out",
-    "work": "work", "office": "work",
+    "work": "work", "office": "work", "smart-casual": "work",
     "casual": "casual", "everyday": "casual",
-    "workout": "active",
+    "workout": "active", "active": "active", "gym": "active", "athletic": "active",
 }
 
 _OCCASION_HARD_BLOCK = {
@@ -336,7 +336,13 @@ _OCCASION_SOFT_COMPAT = {
 
 def _filter_occasion_multihead(candidates: list[dict], occasion: str = None,
                                mood_text: str = None, slot: str = None) -> list[dict]:
-    """Occasion filtering: hard blocks first, then occasion_embedding centroid coherence."""
+    """Occasion filtering using target-directed scoring + hard blocks.
+
+    Instead of centroid coherence (which drifts toward the dominant occasion
+    in the candidate pool), score each item against the *target* occasion's
+    CLIP anchor embedding.  This ensures "work" actually prefers work items
+    even when the closet is mostly casual/active.
+    """
     if not candidates:
         return candidates
 
@@ -351,6 +357,9 @@ def _filter_occasion_multihead(candidates: list[dict], occasion: str = None,
         if slot == "layer":
             blocked_groups |= _OCCASION_HARD_BLOCK_LAYER.get(target_group, set())
 
+    anchors = _get_inference_anchors()
+    target_anchor = anchors.get(("occasion", target_group)) if target_group else None
+
     filtered = []
     n_blocked = 0
     for c in candidates:
@@ -358,41 +367,69 @@ def _filter_occasion_multihead(candidates: list[dict], occasion: str = None,
         if item_group in blocked_groups:
             n_blocked += 1
             continue
+
+        # Embedding-based hard block: if an item's CLIP embedding is closer
+        # to a blocked occasion than the target, reject it
+        if target_anchor is not None and blocked_groups and c.get("embedding"):
+            item_emb = np.array(c["embedding"], dtype=np.float32)
+            norm = np.linalg.norm(item_emb)
+            if norm > 0:
+                tgt_sim = float(np.dot(item_emb, target_anchor) / (norm * np.linalg.norm(target_anchor)))
+                blocked_by_emb = False
+                for bg in blocked_groups:
+                    bg_anchor = anchors.get(("occasion", bg))
+                    if bg_anchor is not None:
+                        bg_sim = float(np.dot(item_emb, bg_anchor) / (norm * np.linalg.norm(bg_anchor)))
+                        if bg_sim > tgt_sim and bg_sim > 0.33:
+                            blocked_by_emb = True
+                            break
+                if blocked_by_emb:
+                    n_blocked += 1
+                    continue
+
         filtered.append(c)
 
-    with_occ = [c for c in filtered if c.get("occasion_embedding")]
-    if len(with_occ) < 3:
-        return filtered
+    # Score items against the target occasion anchor using CLIP embeddings
+    # (512-d, same space as the anchor prototypes) -- not the 128-d occasion
+    # head which lives in a different space and has no target prototypes.
+    all_scored = []
+    for c in filtered:
+        score = 0.0
+        if target_anchor is not None and c.get("embedding"):
+            item_emb = np.array(c["embedding"], dtype=np.float32)
+            norm = np.linalg.norm(item_emb)
+            if norm > 0:
+                score = float(np.dot(item_emb, target_anchor) / (norm * np.linalg.norm(target_anchor)))
 
-    occ_vecs = np.array([c["occasion_embedding"] for c in with_occ], dtype=np.float32)
-    centroid = np.mean(occ_vecs, axis=0)
-    norm = np.linalg.norm(centroid)
-    if norm < 1e-8:
-        return filtered
-    centroid /= norm
+        # Soft compat bonus/penalty based on inferred occasion group
+        item_group = infer_outfit_occasion(c)
+        if target_group:
+            compat = _OCCASION_SOFT_COMPAT.get(target_group, {}).get(item_group, 0.5)
+            score += (compat - 0.5) * 0.15
 
-    for c in with_occ:
-        ov = np.array(c["occasion_embedding"], dtype=np.float32)
-        c["_occasion_score"] = float(np.dot(ov, centroid))
+        c["_occasion_score"] = score
+        all_scored.append(c)
 
-    without_occ = [c for c in filtered if not c.get("occasion_embedding")]
-    for c in without_occ:
-        c["_occasion_score"] = 0.0
+    all_scored.sort(key=lambda c: c.get("_occasion_score", 0), reverse=True)
 
-    all_c = with_occ + without_occ
-    all_c.sort(key=lambda c: c.get("_occasion_score", 0), reverse=True)
+    if len(all_scored) <= 3:
+        logger.info("Multihead occasion filter (%s): kept %d/%d (hard-blocked %d)",
+                    target, len(all_scored), len(all_scored) + n_blocked, n_blocked)
+        return all_scored
 
-    if len(all_c) <= 3:
-        return all_c
+    best = all_scored[0].get("_occasion_score", 0)
+    max_drop = 0.10 if target_group == "work" else 0.15
+    if best > 0.5:
+        cutoff = best * (0.85 if target_group == "work" else 0.7)
+    else:
+        cutoff = best - max_drop
 
-    best = all_c[0].get("_occasion_score", 0)
-    cutoff = best * 0.7
-    kept = [c for c in all_c if c.get("_occasion_score", 0) >= cutoff]
+    kept = [c for c in all_scored if c.get("_occasion_score", 0) >= cutoff]
     if len(kept) < 3:
-        kept = all_c[:max(3, len(all_c))]
+        kept = all_scored[:min(5, len(all_scored))]
 
-    logger.info("Multihead occasion filter (%s): kept %d/%d (hard-blocked %d)",
-                target, len(kept), len(all_c), n_blocked)
+    logger.info("Multihead occasion filter (%s): kept %d/%d (hard-blocked %d, cutoff=%.3f)",
+                target, len(kept), len(all_scored) + n_blocked, n_blocked, cutoff)
     return kept
 
 
@@ -1303,12 +1340,11 @@ def retrieve_for_slot(
     
     
     # Apply SEMANTIC occasion filtering (intelligent, not keyword-based)
-    # mood_text takes priority - it allows ANY mood description to work via direct embedding
-    # occasion is used as fallback for predefined occasions
-    if mood_text:
-        candidates = filter_by_occasion_semantic(candidates, mood_text=mood_text, slot=slot)
-    elif occasion and occasion in OCCASION_SEMANTIC_CONTEXTS:
-        candidates = filter_by_occasion_semantic(candidates, occasion=occasion, slot=slot)
+    # Pass both occasion and mood_text so the filter can use the structured
+    # occasion group for hard blocking while using mood_text for CLIP scoring.
+    if mood_text or occasion:
+        candidates = filter_by_occasion_semantic(
+            candidates, occasion=occasion, mood_text=mood_text, slot=slot)
     # Legacy keyword filtering (fallback if occasion not provided but prefer/avoid are)
     elif avoid_occasions or prefer_occasions:
         avoid_set = set(avoid_occasions or [])

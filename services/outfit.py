@@ -69,7 +69,7 @@ _OCCASION_GROUPS = {
     "going-out": {"party", "going-out", "clubbing", "date", "dinner", "cocktail", "evening"},
     "work":      {"work", "office", "professional", "business"},
     "casual":    {"everyday", "casual", "weekend", "brunch", "errand"},
-    "active":    {"workout", "gym", "athletic", "sport", "hiking"},
+    "active":    {"workout", "gym", "athletic", "sport", "hiking", "sporty", "activewear"},
 }
 
 _DRESSY_MATERIALS = {"chiffon", "satin", "silk", "mesh", "lace", "organza", "velvet", "sequin"}
@@ -97,13 +97,27 @@ _WEAK_CASUAL_TAGS = {"everyday", "casual"}
 _STRONG_GOING_OUT_TAGS = {"party", "clubbing", "cocktail", "dinner", "date",
                           "date-night", "evening", "night-out", "going-out"}
 _STRONG_WORK_TAGS = {"work", "office", "business", "professional"}
-_STRONG_ACTIVE_TAGS = {"gym", "workout", "sport", "athletic", "hiking"}
+_STRONG_ACTIVE_TAGS = {"gym", "workout", "sport", "athletic", "hiking",
+                       "activewear", "sporty"}
+
+
+_ATHLETIC_BRANDS = {
+    "nike", "adidas", "puma", "reebok", "new balance", "under armour",
+    "lululemon", "athleta", "fila", "asics", "saucony", "champion",
+    "north face", "patagonia", "columbia", "hoka", "on running",
+}
+
+_ATHLETIC_NAME_KEYWORDS = {
+    "jogger", "joggers", "sweatpant", "sweatpants", "hoodie", "sweatshirt",
+    "tank top", "sports bra", "legging", "leggings", "tracksuit",
+    "windbreaker", "running", "sneaker", "sneakers", "trainer", "trainers",
+}
 
 
 def infer_outfit_occasion(item: dict) -> str:
     """
     Derive the dominant occasion group from an item's occasion_tags, style_tags,
-    and material. Returns one of: 'going-out', 'work', 'casual', 'active'.
+    material, and name.  Returns one of: 'going-out', 'work', 'casual', 'active'.
 
     Explicit occasion tags (party, work, gym) are weighted heavily.
     'everyday' is treated as a weak default that doesn't override specific signals.
@@ -111,6 +125,7 @@ def infer_outfit_occasion(item: dict) -> str:
     occ_tags = set(t.lower() for t in (item.get("occasion_tags") or []))
     style_tags = set(t.lower() for t in (item.get("style_tags") or []))
     material = (item.get("material") or "").lower()
+    name_lower = (item.get("name") or "").lower()
 
     scores = {"going-out": 0, "work": 0, "casual": 0, "active": 0}
 
@@ -141,6 +156,11 @@ def infer_outfit_occasion(item: dict) -> str:
     if any(m in material for m in _CASUAL_MATERIALS):
         scores["casual"] += 2
 
+    _ACTIVE_MATERIALS = {"neoprene", "mesh", "nylon", "spandex", "lycra",
+                         "dri-fit", "moisture-wicking"}
+    if any(m in material for m in _ACTIVE_MATERIALS):
+        scores["active"] += 2
+
     _GOING_OUT_MATERIALS = {"leather", "suede", "velvet", "patent"}
     if any(m in material for m in _GOING_OUT_MATERIALS):
         scores["going-out"] += 2
@@ -151,11 +171,26 @@ def infer_outfit_occasion(item: dict) -> str:
     work_styles = style_tags & {"workwear", "professional", "classic"}
     scores["work"] += len(work_styles) * 2
 
-    casual_styles = style_tags & {"basic", "relaxed", "sporty"}
+    casual_styles = style_tags & {"basic", "relaxed"}
     scores["casual"] += len(casual_styles)
+
+    active_styles = style_tags & {"sporty", "athletic", "activewear"}
+    scores["active"] += len(active_styles) * 2
 
     if "casual" in style_tags and not dressy_styles and not has_specific_occ:
         scores["casual"] += 1
+
+    # Brand/name detection for athletic items (closet items often have
+    # minimal tags but the item name or description reveals the brand)
+    if name_lower:
+        for brand in _ATHLETIC_BRANDS:
+            if brand in name_lower:
+                scores["active"] += 3
+                break
+        for kw in _ATHLETIC_NAME_KEYWORDS:
+            if kw in name_lower:
+                scores["active"] += 2
+                break
 
     fit = (item.get("fit") or "").lower()
     color = (item.get("primary_color") or "").lower()
@@ -201,7 +236,8 @@ def _item_occasion_group(item: dict) -> str:
         scores["casual"] += 2
     scores["going-out"] += len(all_signals & {"elegant", "chic", "sexy", "glamorous", "edgy"})
     scores["work"] += len(all_signals & {"workwear", "professional", "classic"})
-    scores["casual"] += len(all_signals & {"basic", "relaxed", "sporty"})
+    scores["casual"] += len(all_signals & {"basic", "relaxed"})
+    scores["active"] += len(all_signals & {"sporty", "athletic", "activewear"}) * 2
     if max(scores.values()) == 0:
         return "casual"
     return max(scores, key=scores.get)
@@ -1629,7 +1665,8 @@ def cosine_similarity(v1: list, v2: list) -> float:
 def check_hard_violations(
     base_item: dict, 
     items_by_slot: dict[str, dict], 
-    direction: str
+    direction: str,
+    occasion: str = None,
 ) -> list[str]:
     """
     Check for hard violations that should disqualify an outfit.
@@ -1673,8 +1710,6 @@ def check_hard_violations(
             violations.append(f"proportion: {top_vol} top + {bot_vol} bottom")
 
     # Formality gate: >3.5 gap between any two pieces is structurally incoherent
-    # (e.g., flip-flops with a sequin gown, gym shorts with stilettos)
-    # Threshold is generous because embedding-based formality has wide variance
     all_pieces = [base_item] + [v for v in items_by_slot.values() if v]
     formalities = []
     for piece in all_pieces:
@@ -1685,20 +1720,33 @@ def check_hard_violations(
         if gap > 3.5:
             violations.append(f"formality gap: {gap:.1f} (max 3.5)")
 
-    # Occasion gate: activewear with work/going-out is always wrong
+    # Occasion gate: use user-specified occasion (strongest signal), fall back
+    # to the anchor item's inferred occasion. A casual anchor picked for "work"
+    # should still block active items.
     _OCC_BLOCK_SCORING = {
         "going-out": {"active"},
-        "work": {"active"},
+        "work": {"active", "casual"},
         "active": {"going-out", "work"},
     }
-    base_occ = infer_outfit_occasion(base_item)
-    blocked = _OCC_BLOCK_SCORING.get(base_occ, set())
+    effective_occ = occasion or infer_outfit_occasion(base_item)
+    blocked = _OCC_BLOCK_SCORING.get(effective_occ, set())
     if blocked:
         for slot, item in items_by_slot.items():
             if item:
                 item_occ = infer_outfit_occasion(item)
                 if item_occ in blocked:
-                    violations.append(f"occasion clash: {base_occ} base + {item_occ} {slot}")
+                    # For work blocking casual: only hard-block if item is
+                    # strongly casual (sporty/athletic), not everyday basics
+                    if effective_occ == "work" and item_occ == "casual":
+                        item_styles = set(t.lower() for t in (item.get("style_tags") or []))
+                        sporty_signals = item_styles & {"sporty", "athletic", "activewear", "lounge"}
+                        item_mat = (item.get("material") or "").lower()
+                        sporty_mats = {"fleece", "terry", "neoprene", "mesh"}
+                        has_sporty_mat = any(m in item_mat for m in sporty_mats)
+                        if sporty_signals or has_sporty_mat:
+                            violations.append(f"occasion clash: {effective_occ} occasion + {item_occ} ({', '.join(sporty_signals) or item_mat}) {slot}")
+                    else:
+                        violations.append(f"occasion clash: {effective_occ} occasion + {item_occ} {slot}")
 
     return violations
 
@@ -2146,7 +2194,7 @@ def score_outfit_multihead(
         )
 
     # ── Phase 1: Hard Gates ──
-    violations = check_hard_violations(base_item, items_by_slot, direction)
+    violations = check_hard_violations(base_item, items_by_slot, direction, occasion=occasion)
     if violations:
         return {"total": -1.0, "violations": violations, "breakdown": {}}
 
@@ -2193,7 +2241,15 @@ def score_outfit_multihead(
             target_sims = [s.get(occasion, 0.0) for s in occasion_sims if s]
             if target_sims:
                 target_score = float(np.mean(target_sims))
-                occasion_score = 0.6 * occasion_coherence + 0.4 * target_score
+                # Penalize if items are closer to a blocked occasion than the target
+                blocked_groups = {"work": "active", "going-out": "active", "active": "going-out"}
+                anti_occ = blocked_groups.get(occasion)
+                if anti_occ:
+                    anti_sims = [s.get(anti_occ, 0.0) for s in occasion_sims if s]
+                    if anti_sims:
+                        anti_score = float(np.mean(anti_sims))
+                        target_score = target_score - max(0, anti_score - target_score) * 2.0
+                occasion_score = 0.3 * occasion_coherence + 0.7 * target_score
             else:
                 occasion_score = occasion_coherence
         else:

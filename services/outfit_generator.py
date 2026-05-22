@@ -290,6 +290,10 @@ def run_outfit_generation(
 
         best_items, score_details = result
 
+        if score_details.get("total", 0) < 0:
+            logger.warning("  [%s] all candidates violated hard gates, skipping", direction)
+            continue
+
         for slot_item in best_items.values():
             if slot_item:
                 used_ids_global.add(slot_item["id"])
